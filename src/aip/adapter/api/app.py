@@ -1042,12 +1042,15 @@ async def lifespan(app: FastAPI):
         if container._vigil_quality_store is not None:
             container.vigil._quality_store = container._vigil_quality_store
             # Pre-populate in-memory history from persistent store
+            # Uses _load_quality_history() which properly awaits the
+            # async get_cycles() call — never assigns a coroutine.
             try:
-                persisted = container._vigil_quality_store.get_cycles(last_n_cycles=10)
-                if persisted:
-                    container.vigil._cycle_report_history = persisted
-            except Exception:
-                pass
+                await container.vigil._load_quality_history()
+            except Exception as exc:
+                log.warning(
+                    "vigil_quality_history_load_failed_during_startup",
+                    error=str(exc),
+                )
             log.info("vigil_wired", component="quality_store")
 
     # Wire alert_manager into Sexton actor (if initialized)

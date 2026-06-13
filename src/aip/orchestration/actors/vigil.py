@@ -799,7 +799,7 @@ is acceptable — flag only unsupported assertions."""
         # Persist to quality store if available
         if self._quality_store is not None:
             try:
-                self._quality_store.record_cycle(sample_result)
+                await self._quality_store.record_cycle(sample_result)
             except Exception as exc:
                 logger.warning("vigil_retrieval_quality_store_failed", error=str(exc))
 
@@ -1353,7 +1353,7 @@ is acceptable — flag only unsupported assertions."""
         # Sprint 5.26: Persist cycle report to quality store
         if self._quality_store is not None:
             try:
-                self._quality_store.record_cycle(report)
+                await self._quality_store.record_cycle(report)
             except Exception as exc:
                 logger.warning(
                     "vigil_quality_persist_failed",
