@@ -1833,22 +1833,16 @@ def create_app(config: dict | None = None) -> "FastAPI":
     if _static_dir.is_dir():
         app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
-    # Mount NiceGUI shell interface
-    import sys
-    from pathlib import Path
+    # Backend root endpoint — the Operator Console (gui.app) runs as a
+    # separate NiceGUI process on port 8080.  The backend must not mount
+    # the frozen legacy gui/shell.py module.
+    @app.get("/")
+    async def root() -> dict[str, str]:
+        """Backend root: returns basic service info.
 
-    gui_path = Path(__file__).parent.parent.parent.parent / "gui"
-    if str(gui_path) not in sys.path:
-        sys.path.insert(0, str(gui_path))
-
-    try:
-        import shell
-
-        app.mount("/", shell, name="gui")
-    except ImportError:
-
-        @app.get("/")
-        async def root():
-            return {"status": "ok", "service": "aip-surfaces"}
+        The Operator Console is started separately via ``python -m gui.app``
+        or ``scripts/start.sh`` and runs on its own port (default 8080).
+        """
+        return {"status": "ok", "service": "aip-surfaces"}
 
     return app
