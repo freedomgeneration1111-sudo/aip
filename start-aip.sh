@@ -1,21 +1,11 @@
 #!/bin/bash
+# start-aip.sh — legacy entry point; delegates to scripts/start.sh
+#
+# This wrapper exists for backwards compatibility. The canonical
+# startup script is scripts/start.sh, which uses bounded health
+# polling and binds to 127.0.0.1.
+#
+# All arguments are forwarded to scripts/start.sh.
 
-echo "=== Starting AIP_Brain ==="
-
-# Kill any old instances
-echo "Stopping old processes..."
-pkill -f "uvicorn aip.adapter.api.app"
-pkill -f "python.*gui/app.py"
-sleep 1.5
-
-# Start Backend in a new terminal
-echo "Starting AIP Backend..."
-gnome-terminal -- bash -c "cd ~/AIP_Brain && uv run uvicorn aip.adapter.api.app:create_app --factory --host 0.0.0.0 --port 8000; exec bash"
-
-sleep 3
-
-# Start Operator Console in another new terminal
-echo "Starting AIP Operator Console..."
-gnome-terminal -- bash -c "cd ~/AIP_Brain && uv run python -m gui.app; exec bash"
-
-echo "=== AIP_Brain started ==="
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec "$SCRIPT_DIR/scripts/start.sh" "$@"
