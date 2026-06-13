@@ -108,12 +108,65 @@ def build_model_options(slots: list[dict[str, Any]]) -> list[str]:
     2. Persisted slot model assignments
     3. Models currently configured in backend slots
     4. Config file default models as last resort
+
+    Note: the backend enabled_models table (populated by the Models page
+    via POST /models/library/fetch and PATCH /models/library/{id}) feeds
+    into selected_models.json via the GUI toggle flow. The Ask page
+    should call refresh_enabled_models() after the Models page makes
+    changes so that the dropdown stays current.
     """
     sel = get_selected_models()
     persisted = [m for m in _role_models.values() if m and not m.startswith("<")]
     backend = [s.get("model", "") for s in slots if s.get("model") and not s.get("model", "").startswith("<")]
     opts = list(dict.fromkeys(sel + persisted + backend + ["google/gemma-3-4b-it"]))
-    return [m for m in opts if m] or ["(no models -- open Settings)"]
+    return [m for m in opts if m] or ["(no models -- open Models page)"]
+
+
+# ── BACKEND-ENABLED MODEL REFRESH ──────────────────────────────────
+
+# Cache of model IDs enabled via the backend enabled_models table.
+# Populated by refresh_enabled_models() and consumed by build_model_options.
+_backend_enabled_models: list[str] = []
+
+
+def get_backend_enabled_models() -> list[str]:
+    """Get cached backend-enabled model IDs (from enabled_models table)."""
+    return _backend_enabled_models
+
+
+async def refresh_enabled_models() -> None:
+    """Fetch enabled models from the backend library and merge into selected_models.
+
+    This is called by the Models page after toggling models or by the Ask
+    page on load to ensure the dropdown includes all enabled catalog models.
+    Uses the existing API client; does not write files directly.
+    """
+    global _backend_enabled_models, _selected_models
+    try:
+        from gui.api_client import get_api_client
+
+        api = get_api_client()
+        models = await api.list_model_library(enabled_only=True)
+        enabled_ids = [m.get("model_id", "") for m in models if m.get("model_id")]
+        _backend_enabled_models = enabled_ids
+
+        # Merge backend-enabled models into selected_models (deduped)
+        current = set(_selected_models)
+        for mid in enabled_ids:
+            if mid not in current:
+                _selected_models.append(mid)
+        # Remove duplicates while preserving order
+        seen = set()
+        deduped = []
+        for m in _selected_models:
+            if m not in seen:
+                seen.add(m)
+                deduped.append(m)
+        _selected_models = deduped
+        _save_selected_models(_selected_models)
+
+    except Exception as exc:
+        log.error("refresh_enabled_models failed: %s", exc)
 
 
 # ── PER-SESSION STATE ─────────────────────────────────────────────────

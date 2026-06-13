@@ -37,6 +37,7 @@ log = logging.getLogger("gui.components.layout")
 _NAV_ITEMS = [
     ("Dashboard", "/", "dashboard"),
     ("Ask", "/ask", "chat"),
+    ("Models", "/models", "model_training"),
     ("Corpus", "/corpus", "storage"),
     ("Retrieval Lab", "/retrieval", "science"),
     ("Wiki", "/wiki", "menu_book"),

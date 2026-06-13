@@ -36,6 +36,7 @@ class TestNavigationReachability:
     EXPECTED_PAGES = {
         "/": "dashboard",
         "/ask": "ask",
+        "/models": "models",
         "/corpus": "corpus",
         "/retrieval": "retrieval_lab",
         "/wiki": "wiki",
