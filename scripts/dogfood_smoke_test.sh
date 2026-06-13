@@ -12,9 +12,13 @@
 #   --keep    Don't clean up test databases after run
 #   --verbose Print full command output
 #
+# Environment:
+#   AIP_SMOKE_STEP_TIMEOUT_SECONDS  Per-step timeout in seconds (default: 60)
+#
 # Exit codes:
 #   0  All checks passed
 #   1  One or more checks failed
+#   124 Step timed out
 
 set -euo pipefail
 
@@ -35,27 +39,67 @@ NC='\033[0m'
 PASS=0
 FAIL=0
 
+# Per-step timeout (seconds). Override with AIP_SMOKE_STEP_TIMEOUT_SECONDS.
+STEP_TIMEOUT="${AIP_SMOKE_STEP_TIMEOUT_SECONDS:-60}"
+
+# run_step: Execute a command with a bounded timeout.
+#
+# Prints step label, command, and result. Exits nonzero on failure or timeout
+# with a clear diagnostic message.
+#
+# Uses exit code 124 (same as coreutils `timeout`) for timeout.
+run_step() {
+    local label="$1"
+    shift
+    echo "==> $label"
+    echo "+ $* (timeout=${STEP_TIMEOUT}s)"
+    local rc=0
+    if [ "$VERBOSE" = true ]; then
+        timeout "${STEP_TIMEOUT}" "$@" || rc=$?
+    else
+        timeout "${STEP_TIMEOUT}" "$@" > /tmp/aip_smoke_output.txt 2>&1 || rc=$?
+    fi
+    if [ "$rc" -eq 0 ]; then
+        echo -e "  ${GREEN}PASS${NC}: $label"
+    elif [ "$rc" -eq 124 ]; then
+        echo -e "  ${RED}TIMEOUT${NC}: $label after ${STEP_TIMEOUT}s"
+        echo -e "  ${YELLOW}Command: $*${NC}"
+        exit 124
+    else
+        echo -e "  ${RED}FAIL${NC}: $label exit=$rc"
+        echo -e "  ${YELLOW}Command: $*${NC}"
+        exit "$rc"
+    fi
+    return 0
+}
+
+# run_cmd: Execute a command with timeout, capturing output silently unless --verbose.
+# Returns the exit code for callers that need to inspect it (e.g. expected non-zero).
 run_cmd() {
     local desc="$1"
     shift
     if [ "$VERBOSE" = true ]; then
-        echo -e "${YELLOW}RUNNING:${NC} $@"
-        "$@"
+        echo -e "${YELLOW}RUNNING:${NC} $*"
+        timeout "${STEP_TIMEOUT}" "$@" || return $?
     else
-        "$@" > /tmp/aip_smoke_output.txt 2>&1
+        timeout "${STEP_TIMEOUT}" "$@" > /tmp/aip_smoke_output.txt 2>&1 || return $?
     fi
-    return $?
 }
 
 check() {
     local desc="$1"
     local cmd="$2"
     echo -n "  CHECK: $desc ... "
-    if eval "$cmd" > /tmp/aip_smoke_check.txt 2>&1; then
+    if timeout "${STEP_TIMEOUT}" sh -c "$cmd" > /tmp/aip_smoke_check.txt 2>&1; then
         echo -e "${GREEN}PASS${NC}"
         PASS=$((PASS + 1))
     else
-        echo -e "${RED}FAIL${NC}"
+        local rc=$?
+        if [ "$rc" -eq 124 ]; then
+            echo -e "${RED}TIMEOUT${NC} (${STEP_TIMEOUT}s)"
+        else
+            echo -e "${RED}FAIL${NC}"
+        fi
         FAIL=$((FAIL + 1))
         if [ -f /tmp/aip_smoke_check.txt ]; then
             cat /tmp/aip_smoke_check.txt | head -5
@@ -131,7 +175,7 @@ check "events table in state.db has data" "test $(sqlite3 db/state.db 'SELECT CO
 # Step 7: Test the full review/export pipeline with directly-created artifact
 echo ""
 echo "Step 7: Test review/export pipeline with directly-created artifact"
-uv run python3 -c "
+run_step "Create test artifact via Python" uv run python3 -c "
 import asyncio
 import sys
 sys.path.insert(0, 'src')
@@ -221,7 +265,7 @@ check "export has provenance footer" "grep -qiE 'provenance|source' exports/test
 # Step 13: Verify export of unapproved artifact requires --force
 echo ""
 echo "Step 13: Verify export gate on unapproved artifact"
-uv run python3 -c "
+run_step "Create unapproved test artifact" uv run python3 -c "
 import asyncio, sys
 sys.path.insert(0, 'src')
 
@@ -252,7 +296,7 @@ async def setup_unapproved():
 asyncio.run(setup_unapproved())
 "
 set +e
-uv run aip export artifact ask:unapproved_test_artifact --format markdown --out ./exports/unapproved.md 2>/dev/null
+timeout "${STEP_TIMEOUT}" uv run aip export artifact ask:unapproved_test_artifact --format markdown --out ./exports/unapproved.md 2>/dev/null
 UNAPPROVED_EXIT=$?
 set -e
 check "unapproved export refused (exit non-zero)" "test $UNAPPROVED_EXIT -ne 0"
@@ -265,7 +309,7 @@ check "reject succeeded" "cat /tmp/aip_smoke_output.txt 2>/dev/null | grep -q 'R
 check "artifact is now REJECTED" "sqlite3 db/state.db \"SELECT current_state FROM ecs_state WHERE artifact_id='ask:unapproved_test_artifact'\" | grep -q REJECTED"
 
 set +e
-uv run aip export artifact ask:unapproved_test_artifact --format markdown --out ./exports/rejected.md 2>/dev/null
+timeout "${STEP_TIMEOUT}" uv run aip export artifact ask:unapproved_test_artifact --format markdown --out ./exports/rejected.md 2>/dev/null
 REJECTED_EXIT=$?
 set -e
 check "rejected export refused" "test $REJECTED_EXIT -ne 0"

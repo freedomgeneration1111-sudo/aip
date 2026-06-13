@@ -7,10 +7,15 @@ graceful degradation with clear "not configured" indicators.
 from __future__ import annotations
 
 import asyncio
+import os
 import sqlite3
 from pathlib import Path
 
 import click
+
+# Default timeout for Ollama reachability probe (seconds).
+# Override with AIP_STATUS_OLLAMA_TIMEOUT env var.
+_DEFAULT_OLLAMA_TIMEOUT = 5
 
 
 def _check_db(db_path: str) -> dict:
@@ -40,19 +45,58 @@ def _check_db(db_path: str) -> dict:
 
 
 def _check_ollama() -> dict:
-    """Check if Ollama is reachable."""
-    info: dict = {"reachable": False, "models": []}
+    """Check if Ollama is reachable within a bounded timeout.
+
+    Timeout is configurable via ``AIP_STATUS_OLLAMA_TIMEOUT`` env var
+    (default: 5 seconds).  When Ollama is missing, unreachable, or
+    times out, the result honestly reports it as unavailable with an
+    actionable message — never a fake healthy state.
+    """
+    timeout_seconds = _get_ollama_timeout()
+    info: dict = {
+        "reachable": False,
+        "models": [],
+        "timed_out": False,
+        "error": None,
+    }
     try:
         import httpx
 
-        r = httpx.get("http://127.0.0.1:11434/api/tags", timeout=2)
+        r = httpx.get(
+            "http://127.0.0.1:11434/api/tags",
+            timeout=timeout_seconds,
+        )
         if r.status_code == 200:
             info["reachable"] = True
             data = r.json()
             info["models"] = [m.get("name", "?") for m in data.get("models", [])[:5]]
-    except Exception:
-        pass
+    except httpx.TimeoutException:
+        info["timed_out"] = True
+        info["error"] = (
+            f"Ollama not reachable within {timeout_seconds}s; "
+            "local model slot unavailable. "
+            "Start Ollama or increase AIP_STATUS_OLLAMA_TIMEOUT."
+        )
+    except httpx.ConnectError:
+        info["error"] = (
+            "Ollama not running on 127.0.0.1:11434; "
+            "local model slot unavailable. "
+            "Install/start Ollama if local synthesis is desired."
+        )
+    except Exception as exc:
+        info["error"] = f"Ollama check failed: {exc}"
     return info
+
+
+def _get_ollama_timeout() -> int:
+    """Return Ollama probe timeout in seconds from env or default."""
+    try:
+        val = int(os.environ.get("AIP_STATUS_OLLAMA_TIMEOUT", ""))
+        if val > 0:
+            return val
+    except (ValueError, TypeError):
+        pass
+    return _DEFAULT_OLLAMA_TIMEOUT
 
 
 @click.command("status")
@@ -133,6 +177,10 @@ def status() -> None:
     if ollama["reachable"]:
         models_str = ", ".join(ollama["models"]) if ollama["models"] else "none listed"
         click.echo(f"ollama: reachable — models: {models_str}")
+    elif ollama.get("timed_out"):
+        click.echo(f"ollama: {ollama['error']}")
+    elif ollama.get("error"):
+        click.echo(f"ollama: {ollama['error']}")
     else:
         click.echo("ollama: not reachable (embedding and local synthesis will use API fallback)")
 
@@ -358,7 +406,7 @@ def status() -> None:
                 await _kg_store.close()
                 return _kg_nodes, _kg_edges
 
-            _kg_nodes, _kg_edges = asyncio.run(_kg_status())
+            _kg_nodes, _kg_edges = asyncio.run(asyncio.wait_for(_kg_status(), timeout=10))
             _by_source: dict[str, int] = {}
             _domain_nodes: set[str] = set()
             for _n in _kg_nodes:
@@ -374,6 +422,8 @@ def status() -> None:
             click.echo(f"  extracted_edges: {_extracted_edges} (from Beast extraction)")
             click.echo(f"  domains_in_graph: {len(_domain_nodes)}")
             click.echo(f"  by_source: {_by_source}")
+    except asyncio.TimeoutError:
+        click.echo("knowledge_graph: timed out (graph store query exceeded 10s)")
     except Exception as _kg_exc:
         click.echo(f"knowledge_graph: error ({_kg_exc})")
 

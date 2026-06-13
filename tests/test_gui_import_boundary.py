@@ -306,7 +306,11 @@ def test_gui_state_no_silent_exception_catching():
 
 
 def test_start_scripts_reference_gui_app():
-    """All start scripts must reference gui.app, not gui.shell or gui.main."""
+    """All start scripts must reference gui.app, not gui.shell or gui.main.
+
+    A wrapper script that delegates to scripts/start.sh is also accepted
+    since the canonical script references gui.app.
+    """
     script_files = [
         PROJECT_ROOT / "scripts" / "start.sh",
         PROJECT_ROOT / "start.sh",
@@ -318,6 +322,10 @@ def test_start_scripts_reference_gui_app():
         if not script.exists():
             continue
         content = script.read_text(encoding="utf-8")
+        # Wrapper scripts that exec scripts/start.sh are valid
+        # (the canonical script references gui.app)
+        if "scripts/start.sh" in content and "exec" in content:
+            continue
         # Check that gui.app is referenced
         if "gui.app" not in content:
             violations.append(f"{script.relative_to(PROJECT_ROOT)}: does not reference 'gui.app'")
