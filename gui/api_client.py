@@ -510,63 +510,18 @@ class AipApiClient:
                         break
 
         except ImportError:
-            # websockets not installed — fall back to httpx WebSocket
-            log.info("chat_ws: websockets not available, using httpx fallback")
-            await self._chat_via_httpx_ws(ws_url, message, on_response, on_error, on_gate, model_slot)
+            # websockets is a required dependency — fail honestly
+            log.error("chat_ws: 'websockets' package is not installed; cannot connect")
+            if on_error:
+                on_error(
+                    {
+                        "type": "error",
+                        "content": "WebSocket chat unavailable: 'websockets' package is not installed. "
+                        "Install it with: pip install websockets",
+                    }
+                )
         except Exception as exc:
             log.error("chat_ws: connection failed: %s", exc)
-            if on_error:
-                on_error({"type": "error", "content": f"WebSocket connection failed: {exc}"})
-
-    async def _chat_via_httpx_ws(
-        self,
-        ws_url: str,
-        message: str,
-        on_response: Any,
-        on_error: Any,
-        on_gate: Any,
-        model_slot: str | None,
-    ) -> None:
-        """Fallback WebSocket using httpx (if websockets library not available)."""
-        try:
-            async with httpx.AsyncClient() as client:
-                async with client.websocket_connect(ws_url) as ws:
-                    msg_payload: dict[str, Any] = {
-                        "type": "message",
-                        "content": message,
-                    }
-                    if model_slot:
-                        msg_payload["model_slot"] = model_slot
-
-                    await ws.send(json.dumps(msg_payload))
-
-                    while True:
-                        raw = await ws.receive_text()
-                        try:
-                            resp = json.loads(raw)
-                        except json.JSONDecodeError:
-                            if on_error:
-                                on_error({"type": "error", "content": "Invalid JSON from backend"})
-                            break
-
-                        resp_type = resp.get("type", "")
-
-                        if resp_type == "response":
-                            if on_response:
-                                on_response(resp)
-                            break
-                        elif resp_type == "gate":
-                            if on_gate:
-                                on_gate(resp)
-                        elif resp_type == "error":
-                            if on_error:
-                                on_error(resp)
-                            break
-                        else:
-                            if on_error:
-                                on_error(resp)
-                            break
-        except Exception as exc:
             if on_error:
                 on_error({"type": "error", "content": f"WebSocket connection failed: {exc}"})
 
@@ -598,18 +553,13 @@ class AipApiClient:
                 raw = await ws.recv()
                 return json.loads(raw)
         except ImportError:
-            async with httpx.AsyncClient() as client:
-                async with client.websocket_connect(ws_url) as ws:
-                    await ws.send(
-                        json.dumps(
-                            {
-                                "type": "gate_response",
-                                "approved": approved,
-                            }
-                        )
-                    )
-                    raw = await ws.receive_text()
-                    return json.loads(raw)
+            # websockets is a required dependency — fail honestly
+            log.error("send_gate_response: 'websockets' package is not installed")
+            return {
+                "type": "error",
+                "content": "Gate response unavailable: 'websockets' package is not installed. "
+                "Install it with: pip install websockets",
+            }
         except Exception as exc:
             return {"type": "error", "content": f"Gate response failed: {exc}"}
 
