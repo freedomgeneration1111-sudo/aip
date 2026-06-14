@@ -98,11 +98,13 @@ class TestModelsPageUsesApiClient:
         )
 
     def test_toggle_model_enabled_calls_backend_endpoint(self) -> None:
-        """toggle_model_enabled must call PATCH /api/v1/models/library/{model_id}."""
+        """toggle_model_enabled must call PATCH /api/v1/models/library (body-based)."""
         from gui.api_client import AipApiClient
 
         source = inspect.getsource(AipApiClient.toggle_model_enabled)
-        assert "/models/library/" in source, "toggle_model_enabled does not call the backend /models/library/ endpoint"
+        assert "/models/library" in source, "toggle_model_enabled does not call the backend /models/library endpoint"
+        # Body-based route: model_id must be in the JSON body, not URL path
+        assert "model_id" in source, "toggle_model_enabled does not send model_id in body"
 
 
 class TestSelectedModelsFlowToAsk:
@@ -227,7 +229,7 @@ class TestBackendWriteRoutesProtected:
         assert "require_definer" in source, "models_library.py does not use require_definer for write routes"
 
     def test_toggle_endpoint_requires_definer(self) -> None:
-        """PATCH /models/library/{model_id} must require DEFINER auth."""
+        """PATCH /models/library (body-based) must require DEFINER auth."""
         source = (PROJECT_ROOT / "src" / "aip" / "adapter" / "api" / "routes" / "models_library.py").read_text()
         # The toggle route must have require_definer
         lines = source.splitlines()

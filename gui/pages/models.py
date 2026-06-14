@@ -7,7 +7,7 @@ This page replaces the legacy /models page from gui/main.py with an
 active Operator Console page that uses API-first backend paths:
   - GET  /api/v1/models/library        — list enabled_models table
   - POST /api/v1/models/library/fetch  — fetch from OpenRouter (DEFINER-only)
-  - PATCH /api/v1/models/library/{id}  — toggle enabled (DEFINER-only)
+  - PATCH /api/v1/models/library  — toggle enabled (DEFINER-only, body-based)
 
 Honesty rules:
   - If OpenRouter API key is missing, show NEEDS_CONFIGURATION.

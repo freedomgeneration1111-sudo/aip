@@ -193,14 +193,17 @@ class AipApiClient:
     async def toggle_model_enabled(self, model_id: str, enabled: bool) -> dict[str, Any]:
         """Toggle a model's enabled flag in the library.
 
-        Calls PATCH /api/v1/models/library/{model_id} (requires DEFINER auth).
+        Calls PATCH /api/v1/models/library (requires DEFINER auth).
+        Uses body-based route so model IDs containing '/' (e.g.
+        "deepseek/deepseek-v4-flash:free") are transmitted safely in
+        JSON rather than as URL path segments.
         Returns the updated model dict or an error dict.
         """
         client = self._get_http_client()
         try:
             resp = await client.patch(
-                f"{self.base_url}/api/v1/models/library/{model_id}",
-                json={"enabled": 1 if enabled else 0},
+                f"{self.base_url}/api/v1/models/library",
+                json={"model_id": model_id, "enabled": 1 if enabled else 0},
                 timeout=10.0,
             )
             resp.raise_for_status()
