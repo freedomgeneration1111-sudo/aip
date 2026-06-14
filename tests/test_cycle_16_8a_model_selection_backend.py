@@ -184,9 +184,7 @@ class TestSchemaEnsureOnFreshDB:
         from aip.adapter.api.routes import models_library
 
         source = inspect.getsource(models_library.fetch_model_library)
-        assert "_ensure_schema" in source, (
-            "fetch_model_library does not call _ensure_schema — fresh DB will fail"
-        )
+        assert "_ensure_schema" in source, "fetch_model_library does not call _ensure_schema — fresh DB will fail"
 
         # Also verify that the route's first action is schema ensure
         lines = source.splitlines()
@@ -423,9 +421,7 @@ class TestNoApiKeyLeakage:
                 # A line like: "custom_api_key": row["custom_api_key"],
                 # would expose the raw key — forbidden
                 if '"custom_api_key"' in line and "row[" in line:
-                    pytest.fail(
-                        "list_model_library output dict includes raw custom_api_key from row"
-                    )
+                    pytest.fail("list_model_library output dict includes raw custom_api_key from row")
 
     def test_list_response_includes_has_custom_api_key_boolean(self) -> None:
         """List route response must include has_custom_api_key boolean."""
