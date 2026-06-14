@@ -66,7 +66,7 @@ class TestSchemaEnsureOnFreshDB:
             finally:
                 await aconn.close()
 
-        asyncio.get_event_loop().run_until_complete(_run())
+        asyncio.run(_run())
 
         # Verify table now exists
         conn = sqlite3.connect(str(db_path))
@@ -91,7 +91,7 @@ class TestSchemaEnsureOnFreshDB:
             finally:
                 await aconn.close()
 
-        asyncio.get_event_loop().run_until_complete(_run())
+        asyncio.run(_run())
 
         conn = sqlite3.connect(str(db_path))
         cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='enabled_models'")
@@ -140,7 +140,7 @@ class TestSchemaEnsureOnFreshDB:
             finally:
                 await aconn.close()
 
-        asyncio.get_event_loop().run_until_complete(_run())
+        asyncio.run(_run())
 
         conn = sqlite3.connect(str(db_path))
         cursor = conn.execute("SELECT model_id, enabled FROM enabled_models")
