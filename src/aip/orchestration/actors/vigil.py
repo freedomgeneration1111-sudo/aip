@@ -44,6 +44,7 @@ import json
 import os
 import re
 import time
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -1201,9 +1202,10 @@ is acceptable — flag only unsupported assertions."""
                         detail += f", llm_faithfulness={llm_faithfulness_score:.1%}"
                     await self._ecs.transition(
                         artifact_id=artifact_id,
+                        from_state=None,
                         to_state="GENERATED",
                         actor="vigil",
-                        detail=detail,
+                        reason=detail,
                     )
                 except Exception as exc:
                     logger.warning("vigil_flag_ecs_transition_failed", artifact_id=artifact_id, error=str(exc))
@@ -1303,6 +1305,10 @@ is acceptable — flag only unsupported assertions."""
         """
         now_iso = datetime.now(timezone.utc).isoformat()
         cycle_ts = now_iso.replace(":", "").replace("-", "").replace(".", "")[:15]
+        # Include short UUID suffix to prevent UNIQUE constraint collisions
+        # when concurrent Vigil cycles (scheduler + startup) produce the
+        # same truncated timestamp within the same second.
+        cycle_suffix = uuid.uuid4().hex[:8]
 
         # Build the report data
         report = {
@@ -1372,7 +1378,7 @@ is acceptable — flag only unsupported assertions."""
             return
 
         try:
-            artifact_id = f"vigil-report-{cycle_ts}"
+            artifact_id = f"vigil-report-{cycle_ts}-{cycle_suffix}"
             content = json.dumps(report, indent=2)
             metadata = {
                 "artifact_type": "vigil_cycle_report",
@@ -1406,9 +1412,10 @@ is acceptable — flag only unsupported assertions."""
 
                     await self._ecs.transition(
                         artifact_id=artifact_id,
+                        from_state=None,
                         to_state="GENERATED",
                         actor="vigil",
-                        detail=detail,
+                        reason=detail,
                     )
                 except Exception as exc:
                     logger.warning("vigil_report_ecs_transition_failed", artifact_id=artifact_id, error=str(exc))
