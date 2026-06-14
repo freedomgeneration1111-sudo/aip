@@ -1,12 +1,23 @@
 """Model library API routes — browse and manage enabled_models.
 
 Provides endpoints for the unified chat surface's model selector:
-  - GET  /models/library          — list all models in enabled_models
-  - POST /models/library/fetch    — fetch from OpenRouter + upsert cache
-  - PATCH /models/library/{model_id} — toggle enabled flag
+  - GET   /models/library          — list all models in enabled_models
+  - POST  /models/library/fetch    — fetch from OpenRouter + upsert cache
+  - PATCH /models/library          — toggle enabled flag (body-based)
 
 Per AIP-G-09: the OpenRouter fetch is the ONLY outbound call, and it is
 explicitly user-triggered (never on startup).
+
+Cycle 16.8A fixes:
+  F-D1: Schema ensure helper guarantees enabled_models table exists before
+        any route operation, so a fresh backend without prior "aip init"
+        does not fail with "no such table: enabled_models".
+  F-D2: Toggle route changed from PATCH /models/library/{model_id} (path
+        param) to PATCH /models/library (body-based) so OpenRouter model
+        IDs containing "/" (e.g. "deepseek/deepseek-v4-flash:free") are
+        handled correctly.
+  F-D3: List responses no longer expose raw custom_api_key. Instead, a
+        boolean has_custom_api_key field is returned.
 """
 
 from __future__ import annotations
@@ -26,10 +37,51 @@ logger = logging.getLogger(__name__)
 
 _STATE_DB = "db/state.db"
 
+# DDL for enabled_models table — kept in sync with aip/cli/init.py.
+# Used by _ensure_schema() to guarantee the table exists before route ops.
+_ENABLED_MODELS_DDL = """
+CREATE TABLE IF NOT EXISTS enabled_models (
+    model_id TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL,
+    provider TEXT NOT NULL DEFAULT 'openrouter',
+    cost_input_per_million REAL,
+    cost_output_per_million REAL,
+    context_length INTEGER,
+    supports_vision INTEGER DEFAULT 0,
+    supports_tools INTEGER DEFAULT 0,
+    enabled INTEGER DEFAULT 0,
+    is_custom INTEGER DEFAULT 0,
+    custom_base_url TEXT,
+    custom_api_key TEXT,
+    last_fetched TEXT
+)
+"""
+
+
+async def _ensure_schema(conn: aiosqlite.Connection) -> None:
+    """Ensure the enabled_models table exists in the database.
+
+    This is called before every route operation so that a fresh backend
+    started without prior ``aip init`` can still serve model-library
+    endpoints. The DDL uses IF NOT EXISTS so it is idempotent and safe
+    to call on an existing database with data.
+
+    Raises aiosqlite.Error if the DDL execution fails (e.g. permission
+    issue, corrupt database) — callers should let this propagate as an
+    honest 500 rather than silently swallowing it.
+    """
+    await conn.execute(_ENABLED_MODELS_DDL)
+    await conn.commit()
+
 
 class ToggleEnabledRequest(BaseModel):
-    """Request body for PATCH /models/library/{model_id}."""
+    """Request body for PATCH /models/library.
 
+    Uses a body-based route (not path parameter) so model IDs containing
+    '/' (e.g. "deepseek/deepseek-v4-flash:free") are transmitted safely.
+    """
+
+    model_id: str
     enabled: int  # 0 or 1
 
 
@@ -37,9 +89,11 @@ class ToggleEnabledRequest(BaseModel):
 async def list_model_library() -> dict:
     """List all models in the enabled_models table.
 
-    Returns a list of model dicts with all columns. Models are ordered
-    by enabled (enabled first), then by display_name.
+    Returns a list of model dicts. Models are ordered by enabled (enabled
+    first), then by display_name. Raw custom_api_key values are never
+    exposed — only a boolean has_custom_api_key is returned.
     """
+    await _ensure_schema_via_route()
     items: list[dict[str, Any]] = []
     try:
         conn = await aiosqlite.connect(_STATE_DB)
@@ -58,6 +112,7 @@ async def list_model_library() -> dict:
             )
             rows = await cursor.fetchall()
             for row in rows:
+                raw_key = row["custom_api_key"]
                 items.append(
                     {
                         "model_id": row["model_id"],
@@ -71,7 +126,7 @@ async def list_model_library() -> dict:
                         "enabled": row["enabled"],
                         "is_custom": row["is_custom"],
                         "custom_base_url": row["custom_base_url"],
-                        "custom_api_key": row["custom_api_key"],
+                        "has_custom_api_key": raw_key is not None and len(str(raw_key).strip()) > 0,
                         "last_fetched": row["last_fetched"],
                     }
                 )
@@ -97,6 +152,8 @@ async def fetch_model_library(
     Fetches from https://openrouter.ai/api/v1/models which returns a
     JSON object with a 'data' array of model objects.
     """
+    await _ensure_schema_via_route()
+
     try:
         import httpx
     except ImportError:
@@ -130,6 +187,7 @@ async def fetch_model_library(
     try:
         conn = await aiosqlite.connect(_STATE_DB)
         try:
+            await _ensure_schema(conn)
             for model in models_data:
                 if not isinstance(model, dict):
                     continue
@@ -185,15 +243,19 @@ async def fetch_model_library(
     }
 
 
-@router.patch("/models/library/{model_id}")
+@router.patch("/models/library")
 async def toggle_model_enabled(
-    model_id: str,
     body: ToggleEnabledRequest,
     _auth=Depends(require_definer),
 ) -> dict:
     """Toggle the enabled flag for a model in the library.
 
-    Body: {"enabled": 0} or {"enabled": 1}
+    Body: {"model_id": "deepseek/deepseek-v4-flash:free", "enabled": 1}
+
+    Uses a body-based route instead of a path parameter so that model IDs
+    containing '/' (and other special characters like ':', '.') are
+    transmitted safely in JSON rather than being parsed as URL path
+    segments.
 
     Returns the updated model row. Returns 404 if model_id not found.
     """
@@ -203,26 +265,30 @@ async def toggle_model_enabled(
             detail="enabled must be 0 or 1",
         )
 
+    await _ensure_schema_via_route()
+
     try:
         conn = await aiosqlite.connect(_STATE_DB)
         conn.row_factory = aiosqlite.Row
         try:
+            await _ensure_schema(conn)
+
             # Check model exists
             cursor = await conn.execute(
                 "SELECT model_id FROM enabled_models WHERE model_id = ?",
-                (model_id,),
+                (body.model_id,),
             )
             row = await cursor.fetchone()
             if row is None:
                 raise HTTPException(
                     status_code=404,
-                    detail=f"Model not found: {model_id}",
+                    detail=f"Model not found: {body.model_id}",
                 )
 
             # Update enabled flag
             await conn.execute(
                 "UPDATE enabled_models SET enabled = ? WHERE model_id = ?",
-                (body.enabled, model_id),
+                (body.enabled, body.model_id),
             )
             await conn.commit()
 
@@ -232,7 +298,7 @@ async def toggle_model_enabled(
                 SELECT model_id, display_name, provider, enabled
                 FROM enabled_models WHERE model_id = ?
                 """,
-                (model_id,),
+                (body.model_id,),
             )
             updated = await cursor.fetchone()
         finally:
@@ -252,6 +318,23 @@ async def toggle_model_enabled(
         "provider": updated["provider"],
         "enabled": updated["enabled"],
     }
+
+
+async def _ensure_schema_via_route() -> None:
+    """Open a short-lived connection and ensure the schema exists.
+
+    This is a convenience wrapper used by routes that need to ensure the
+    schema before opening their own main connection. It avoids duplicating
+    the schema-ensure logic at every route entry point.
+    """
+    try:
+        conn = await aiosqlite.connect(_STATE_DB)
+        try:
+            await _ensure_schema(conn)
+        finally:
+            await conn.close()
+    except Exception as exc:
+        logger.error("Failed to ensure model library schema: %s", exc)
 
 
 def _parse_float(value: Any) -> float | None:
