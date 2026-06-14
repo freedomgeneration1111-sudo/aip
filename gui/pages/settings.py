@@ -122,6 +122,9 @@ async def settings_page():
 
         # ── Navigation Link ─────────────────────────────────────
         with ui.row().classes("w-full items-center").style("padding:16px 0;"):
+            ui.label("Model selection:").style(f"font-size:11px; color:{C_MUTED};")
+            ui.link("Models Page", "/models").style(f"font-size:11px; color:{C_AMBER}; text-decoration:underline;")
+            ui.label("|").style(f"font-size:11px; color:{C_INK40};")
             ui.label("System health:").style(f"font-size:11px; color:{C_MUTED};")
             ui.link("Maintenance Page", "/maintenance").style(
                 f"font-size:11px; color:{C_AMBER}; text-decoration:underline;"

@@ -56,6 +56,7 @@ from gui.state import (
     get_role_model,
     get_selected_models,
     get_session_state,
+    refresh_enabled_models,
     set_role_model,
     set_selected_models,
 )
@@ -117,6 +118,9 @@ async def ask_page():
             set_role_model(sn, m)
 
     # ── Build Model Options ───────────────────────────────────
+    # Refresh enabled models from backend library so the dropdown
+    # includes models toggled on via the Models page.
+    await refresh_enabled_models()
     all_model_options = build_model_options(state.available_slots)
 
     # Determine current chat model

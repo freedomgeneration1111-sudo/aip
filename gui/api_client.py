@@ -170,6 +170,45 @@ class AipApiClient:
             log.warning("model_library_fetch_failed: %s", exc)
             return []
 
+    async def fetch_model_library(self) -> dict[str, Any]:
+        """Fetch models from OpenRouter and upsert into the model library.
+
+        Calls POST /api/v1/models/library/fetch (requires DEFINER auth).
+        Returns a dict with fetched count, new_models_added, and last_fetched.
+        Honors AIP-G-09: the OpenRouter fetch is the ONLY outbound call,
+        and it is user-triggered only.
+        """
+        client = self._get_http_client()
+        try:
+            resp = await client.post(
+                f"{self.base_url}/api/v1/models/library/fetch",
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as exc:
+            log.error("model_library_fetch_failed: %s", exc)
+            return {"error": str(exc), "fetched": 0, "new_models_added": 0}
+
+    async def toggle_model_enabled(self, model_id: str, enabled: bool) -> dict[str, Any]:
+        """Toggle a model's enabled flag in the library.
+
+        Calls PATCH /api/v1/models/library/{model_id} (requires DEFINER auth).
+        Returns the updated model dict or an error dict.
+        """
+        client = self._get_http_client()
+        try:
+            resp = await client.patch(
+                f"{self.base_url}/api/v1/models/library/{model_id}",
+                json={"enabled": 1 if enabled else 0},
+                timeout=10.0,
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as exc:
+            log.error("toggle_model_enabled_failed: %s", exc)
+            return {"error": str(exc)}
+
     async def beast_scan(self, query: str, limit: int = 5) -> dict[str, Any]:
         """Fire Beast corpus scan via GET /api/v1/beast/scan.
 
