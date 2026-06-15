@@ -97,7 +97,7 @@ async def settings_page():
                         f"font-size:11px; color:{C_ERR_FG};"
                     )
                 elif mode == "BARE":
-                    ui.label("Backend up — no actors or retrieval.").style(f"font-size:11px; color:{C_WARN_FG};")
+                    ui.label("Backend up — actors and retrieval status vary.").style(f"font-size:11px; color:{C_WARN_FG};")
                 elif mode == "DEGRADED":
                     ui.label("Some subsystems down.").style(f"font-size:11px; color:{C_WARN_FG};")
                 else:
@@ -145,7 +145,7 @@ async def settings_page():
 
             try:
                 # Try the text-generation-slots endpoint
-                slots_data = await api_client.get_text_generation_slots()
+                slots_data = await api_client.list_text_generation_slots()
                 slots = slots_data.get("slots", [])
                 ci_mode = slots_data.get("ci_mode", False)
 

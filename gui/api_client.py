@@ -149,6 +149,11 @@ class AipApiClient:
             log.warning("text_generation_slots_fetch_failed: %s", exc)
             return {"slots": [], "ci_mode": False, "sufficient_for_council": False, "error": str(exc)}
 
+    # Compatibility alias — some callers use get_ prefix
+    async def get_text_generation_slots(self) -> dict[str, Any]:
+        """Alias for list_text_generation_slots()."""
+        return await self.list_text_generation_slots()
+
     async def list_model_library(self, enabled_only: bool = True) -> list[dict[str, Any]]:
         """Fetch model library from GET /api/v1/models/library.
 

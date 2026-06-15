@@ -92,7 +92,7 @@ def _sep() -> None:
 
 
 def _dogfood_section(state: GuiState) -> None:
-    """Render dogfood mode section."""
+    """Render dogfood mode section with nuanced status."""
     mode = state.dogfood_mode
     mode_colors = {
         "FULL": C_DOGFOOD_FULL,
@@ -109,9 +109,30 @@ def _dogfood_section(state: GuiState) -> None:
         )
     elif mode == "BARE":
         if state.backend_reachable:
-            ui.label("Backend reachable — no actors or retrieval active.").style(
-                f"font-size:9px; color:{C_AMBER}; font-family:{F_MONO};"
+            # Check if any actors exist (even if degraded) to give nuanced status
+            summary = state.status_summary
+            actor_summary = summary.get("actor_status_summary", state.actor_status)
+            has_any_actor = any(
+                actor_summary.get(a, {}).get("initialized", False)
+                for a in ("beast", "vigil", "sexton")
             )
+            any_degraded = any(
+                actor_summary.get(a, {}).get("state") in ("degraded", "failed")
+                for a in ("beast", "vigil", "sexton")
+                if actor_summary.get(a, {}).get("initialized", False)
+            )
+            if has_any_actor and any_degraded:
+                ui.label("Backend reachable — actors degraded, retrieval not wired.").style(
+                    f"font-size:9px; color:{C_WARN_FG}; font-family:{F_MONO};"
+                )
+            elif has_any_actor:
+                ui.label("Backend reachable — actors active, retrieval not wired.").style(
+                    f"font-size:9px; color:{C_AMBER}; font-family:{F_MONO};"
+                )
+            else:
+                ui.label("Backend reachable — no actors, retrieval not wired.").style(
+                    f"font-size:9px; color:{C_AMBER}; font-family:{F_MONO};"
+                )
         else:
             ui.label("No status data fetched yet.").style(
                 f"font-size:9px; color:{C_AMBER}; font-family:{F_MONO};"

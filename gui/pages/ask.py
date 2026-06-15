@@ -129,21 +129,13 @@ async def _ask_page_impl():
 
     # ── Crash-safe initialization: render shell first, then do network calls ──
     _init_error: str | None = None
+    _api_key_missing: bool = False
 
-    # ── API Key Check ──────────────────────────────────────────
-    try:
-        if not state.api_client.has_openrouter_api_key():
-            key = await show_api_key_prompt()
-            if key:
-                state.api_client.set_openrouter_api_key(key)
-                ui.notify("API key saved!", color="positive", position="top")
-            else:
-                ui.notify("No API key set. Chat will not work.", color="warning", position="top")
-    except Exception as exc:
-        log.warning("API key check failed: %s", exc)
-        _init_error = f"API key check failed: {exc}"
+    # ── BUILD LAYOUT FIRST (before any blocking network calls) ──
+    # This ensures the shell (top bar, nav, chat area) is visible
+    # even if backend/API calls fail or block.
 
-    # ── Backend Health Check ───────────────────────────────────
+    # ── Backend Health Check (non-blocking with timeout) ────────
     try:
         await _check_backend_health(state)
     except Exception as exc:
@@ -155,6 +147,9 @@ async def _ask_page_impl():
     slots: list[dict[str, Any]] = []
     try:
         slots = await _load_model_slots(state)
+    except AttributeError as exc:
+        log.error("Model slot loading failed (missing API client method): %s", exc)
+        _init_error = f"API client method missing: {exc}"
     except Exception as exc:
         log.warning("Model slot loading failed: %s", exc)
         _init_error = f"Model slot loading failed: {exc}"
@@ -193,12 +188,21 @@ async def _ask_page_impl():
         if not _init_error:
             _init_error = f"Status summary refresh failed: {exc}"
 
+    # ── API Key Check (deferred — do not block page render) ──
+    try:
+        if not state.api_client.has_openrouter_api_key():
+            _api_key_missing = True
+    except Exception as exc:
+        log.warning("API key check failed: %s", exc)
+        if not _init_error:
+            _init_error = f"API key check failed: {exc}"
+
     # ── BUILD LAYOUT ──────────────────────────────────────────
     build_top_bar(state)
     build_left_nav(state, active_page="/ask")
 
     # ── Show degraded card if initialization had errors ────────
-    if _init_error:
+    if _init_error or _api_key_missing:
         with (
             ui.card()
             .style(
@@ -206,17 +210,41 @@ async def _ask_page_impl():
                 f"border-radius:{R_SM}; padding:16px; margin:12px 16px;"
             )
         ):
-            ui.label("Ask Workbench — Degraded").style(
-                f"font-size:14px; font-weight:700; color:{C_WARN_FG}; font-family:{F_SANS};"
-            )
-            ui.label(_init_error).style(
-                f"font-size:12px; color:{C_CREAM}; font-family:{F_MONO}; margin-top:4px;"
-            )
-            ui.label(
-                "The Ask page loaded with errors. Some features may not work. "
-                "Check that the backend is running and an API key is set."
-            ).style(f"font-size:11px; color:{C_MUTED}; margin-top:4px;")
-        log.error("ask_page_init_error: %s", _init_error)
+            if _api_key_missing:
+                ui.label("API Key Not Configured").style(
+                    f"font-size:14px; font-weight:700; color:{C_DOGFOOD_BARE}; font-family:{F_SANS};"
+                )
+                ui.label(
+                    "No OpenRouter API key is set. Chat and embedding will not work. "
+                    "Set your key via the Settings page or the OPENROUTER_API_KEY environment variable."
+                ).style(f"font-size:12px; color:{C_CREAM}; font-family:{F_MONO}; margin-top:4px;")
+                with ui.row().style("margin-top:8px; gap:8px;"):
+                    async def _prompt_key():
+                        try:
+                            key = await show_api_key_prompt()
+                            if key:
+                                state.api_client.set_openrouter_api_key(key)
+                                ui.notify("API key saved! Refresh the page to use chat.", color="positive", position="top")
+                        except Exception as exc:
+                            log.warning("API key prompt failed: %s", exc)
+                    ui.button("Enter API Key", on_click=lambda: asyncio.create_task(_prompt_key())).props("dense").style(
+                        f"font-family:{F_SANS};"
+                    )
+                    ui.link("Settings", "/settings").style(
+                        f"font-size:11px; color:{C_AMBER}; text-decoration:underline; align-self:center;"
+                    )
+            if _init_error:
+                ui.label("Ask Workbench — Degraded").style(
+                    f"font-size:14px; font-weight:700; color:{C_WARN_FG}; font-family:{F_SANS};"
+                )
+                ui.label(_init_error).style(
+                    f"font-size:12px; color:{C_CREAM}; font-family:{F_MONO}; margin-top:4px;"
+                )
+                ui.label(
+                    "The Ask page loaded with errors. Some features may not work. "
+                    "Check that the backend is running and an API key is set."
+                ).style(f"font-size:11px; color:{C_MUTED}; margin-top:4px;")
+            log.error("ask_page_init_error: %s (api_key_missing=%s)", _init_error, _api_key_missing)
 
     # Main content
     with (

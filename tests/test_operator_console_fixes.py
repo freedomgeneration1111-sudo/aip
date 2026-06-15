@@ -707,3 +707,152 @@ class TestStatusConsistency:
             assert state.status_summary.get("backend_reachable") is True
 
         asyncio.run(_test())
+
+
+# ── F. API Client Method Mismatch ──────────────────────────────────
+
+
+class TestApiClientMethodMismatch:
+    """Regression test: Settings page must not call a nonexistent API client method.
+
+    Bug: settings.py called get_text_generation_slots() but the API client
+    only had list_text_generation_slots(). This caused AttributeError at runtime.
+    """
+
+    def test_api_client_has_get_text_generation_slots(self):
+        """AipApiClient must have get_text_generation_slots (alias or direct)."""
+        from gui.api_client import AipApiClient
+
+        client = AipApiClient()
+        assert hasattr(client, "get_text_generation_slots"), (
+            "AipApiClient is missing get_text_generation_slots. "
+            "Settings page calls this method."
+        )
+
+    def test_api_client_has_list_text_generation_slots(self):
+        """AipApiClient must have list_text_generation_slots (canonical name)."""
+        from gui.api_client import AipApiClient
+
+        client = AipApiClient()
+        assert hasattr(client, "list_text_generation_slots")
+
+    def test_settings_page_uses_correct_method_name(self):
+        """Settings page source should not reference the old wrong method name."""
+        import gui.pages.settings
+
+        source = Path(gui.pages.settings.__file__).read_text()
+        # The OLD broken call should NOT exist
+        assert "get_text_generation_slots()" not in source, (
+            "Settings page still calls get_text_generation_slots() directly. "
+            "Should use list_text_generation_slots() or the alias."
+        )
+
+
+# ── G. Ask Page Crash Boundary ─────────────────────────────────────
+
+
+class TestAskPageCrashBoundary:
+    """Test that the Ask page does not go blank on API client errors."""
+
+    def test_ask_page_function_exists(self):
+        """gui.pages.ask must have an ask_page function."""
+        import gui.pages.ask
+
+        assert hasattr(gui.pages.ask, "ask_page")
+
+    def test_ask_page_has_crash_boundary(self):
+        """Ask page must have a try/except around _ask_page_impl."""
+        import gui.pages.ask
+
+        source = Path(gui.pages.ask.__file__).read_text()
+        assert "try:" in source
+        assert "_ask_page_impl" in source
+        # Must have AttributeError catch for missing API methods
+        assert "AttributeError" in source, (
+            "Ask page must catch AttributeError from missing API client methods"
+        )
+
+    def test_ask_page_api_key_does_not_block_render(self):
+        """Ask page must not block page render on API key prompt.
+
+        The old code called show_api_key_prompt() at the top, which
+        is a blocking dialog that prevents the page from rendering
+        until the user dismisses it. The fix moves the check to
+        post-render with a non-blocking flag.
+        """
+        import gui.pages.ask
+
+        source = Path(gui.pages.ask.__file__).read_text()
+        # The old pattern was: if not has_key: await show_api_key_prompt()
+        # This is now replaced with setting _api_key_missing flag
+        assert "_api_key_missing" in source, (
+            "Ask page should set an _api_key_missing flag instead of "
+            "blocking on show_api_key_prompt() before rendering layout"
+        )
+
+
+# ── H. Graph Page Visualization ─────────────────────────────────────
+
+
+class TestGraphPageVisualization:
+    """Test that graph page has proper iframe embedding and fallback links."""
+
+    def test_graph_page_has_iframe(self):
+        """Graph page source must include an iframe for visualization."""
+        import gui.pages.graph
+
+        source = Path(gui.pages.graph.__file__).read_text()
+        assert "iframe" in source, "Graph page must embed visualization in iframe"
+
+    def test_graph_page_has_direct_link_fallback(self):
+        """Graph page must have a direct link fallback if iframe is blank."""
+        import gui.pages.graph
+
+        source = Path(gui.pages.graph.__file__).read_text()
+        assert "new_tab" in source or "target=" in source, (
+            "Graph page must provide a direct link to /graph-viz as fallback"
+        )
+
+    def test_graph_page_has_sandbox_attribute(self):
+        """Iframe must have sandbox attribute for security."""
+        import gui.pages.graph
+
+        source = Path(gui.pages.graph.__file__).read_text()
+        assert "sandbox" in source, (
+            "Graph iframe must have sandbox attribute for Cytoscape.js"
+        )
+
+
+# ── I. Dogfood Mode Nuanced Wording ────────────────────────────────
+
+
+class TestDogfoodModeWording:
+    """Test that BARE mode does not say 'no actors' when actors exist but are degraded."""
+
+    def test_right_rail_no_stale_no_actors_message(self):
+        """Right rail source must not have the old blanket 'no actors' message for BARE."""
+        import gui.panels.right_rail
+
+        source = Path(gui.panels.right_rail.__file__).read_text()
+        # The old message was: "Backend reachable — no actors or retrieval active."
+        # This should be replaced with nuanced wording
+        assert "no actors or retrieval active" not in source, (
+            "Right rail should not say 'no actors or retrieval active' in BARE mode — "
+            "it should differentiate between 'no actors', 'actors degraded', and 'actors active'"
+        )
+
+    def test_right_rail_has_degraded_actors_wording(self):
+        """Right rail must have wording for degraded actors in BARE mode."""
+        import gui.panels.right_rail
+
+        source = Path(gui.panels.right_rail.__file__).read_text()
+        assert "actors degraded" in source, (
+            "Right rail must say 'actors degraded' when actors exist but are degraded"
+        )
+
+    def test_settings_page_no_stale_no_actors_message(self):
+        """Settings page must not say 'no actors or retrieval' in BARE mode."""
+        import gui.pages.settings
+
+        source = Path(gui.pages.settings.__file__).read_text()
+        assert "no actors or retrieval" not in source

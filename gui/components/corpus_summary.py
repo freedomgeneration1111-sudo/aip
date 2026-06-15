@@ -121,26 +121,39 @@ class CorpusSummaryCards:
                 bg_color=problem_bg if problem_count > 0 else C_SURFACE,
             )
 
-            # Backfill state card
+            # Backfill state card — honest about API key status
             backfill_status = status.get("backfill_state", "")
-            bool(status.get("needs_reembed", 0) >= 0)  # status was returned
-            bf_label = (
-                "ACTIVE"
-                if backfill_status in ("backfill_running", "configured_idle")
-                else (
-                    "SCHEDULED"
-                    if backfill_status in ("backfill_pending",)
-                    else ("IDLE" if backfill_status in ("not_configured", "embedded", "") else backfill_status.upper())
-                )
-            )
-            bf_color = (
-                C_OK_FG
-                if backfill_status in ("embedded", "configured_idle")
-                else (C_AMBER if backfill_status in ("backfill_running", "backfill_pending") else C_MUTED)
-            )
+            # Check for API key / provider status
+            has_api_key = not bool(status.get("error", ""))
+            embed_error = status.get("error", "")
+            if embed_error and ("api_key" in embed_error.lower() or "provider" in embed_error.lower()
+                                or "openrouter" in embed_error.lower()):
+                bf_label = "BLOCKED"
+                bf_color = C_ERR_FG
+                bf_detail = "API key / provider missing"
+            elif backfill_status in ("backfill_running", "configured_idle"):
+                bf_label = "ACTIVE"
+                bf_color = C_OK_FG if backfill_status == "configured_idle" else C_AMBER
+                bf_detail = backfill_status
+            elif backfill_status in ("backfill_pending",):
+                bf_label = "SCHEDULED"
+                bf_color = C_AMBER
+                bf_detail = backfill_status
+            elif backfill_status in ("not_configured", ""):
+                bf_label = "IDLE"
+                bf_color = C_MUTED
+                bf_detail = "not configured"
+            elif backfill_status == "embedded":
+                bf_label = "COMPLETE"
+                bf_color = C_OK_FG
+                bf_detail = "all embedded"
+            else:
+                bf_label = backfill_status.upper() if backfill_status else "UNKNOWN"
+                bf_color = C_MUTED
+                bf_detail = backfill_status or "unknown"
             _stat_card(
                 "Backfill",
                 bf_label,
-                backfill_status or "unknown",
+                bf_detail,
                 color=bf_color,
             )

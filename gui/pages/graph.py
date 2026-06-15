@@ -206,19 +206,34 @@ async def _graph_page_impl():
                 f"font-size:13px; font-weight:600; color:{C_CREAM}; font-family:{F_SANS}; margin-bottom:8px;"
             )
             viz_url = f"{api.base_url}/graph-viz"
+            # Use ui.html with explicit width/height and allow-scripts for Cytoscape.js
             ui.html(
                 f'<iframe src="{viz_url}" '
-                f'style="width:100%; height:600px; border:1px solid {C_INK40}; '
-                f'border-radius:{R_MD}; background:#0f0f0f;" '
-                f'onerror="this.style.display=\'none\'"></iframe>'
+                f'width="100%" height="600" '
+                f'style="width:100%; min-height:600px; height:600px; '
+                f'border:1px solid {C_INK40}; border-radius:{R_MD}; background:#0f0f0f; display:block;" '
+                f'sandbox="allow-scripts allow-same-origin allow-popups" '
+                f'loading="lazy"></iframe>'
             )
-            # Fallback link in case iframe doesn't render
-            ui.label(f"If the visualization doesn't load, open it directly:").style(
-                f"font-size:10px; color:{C_MUTED}; margin-top:4px;"
-            )
-            ui.link("Open Graph Visualization", viz_url, new_tab=True).style(
-                f"font-size:10px; color:{C_AMBER}; text-decoration:underline;"
-            )
+            # Fallback: direct link if iframe blocked or blank
+            with (
+                ui.card()
+                .style(
+                    f"background:{C_SURFACE}; border-radius:{R_SM}; padding:12px; "
+                    f"margin-top:8px; border:0.5px solid {C_INK40}; width:100%;"
+                )
+            ):
+                ui.label("If the embedded visualization doesn't render above:").style(
+                    f"font-size:10px; color:{C_MUTED};"
+                )
+                with ui.row().style("gap:8px; margin-top:4px;"):
+                    ui.link("Open Graph Visualization (new tab)", viz_url, new_tab=True).style(
+                        f"font-size:11px; color:{C_AMBER}; text-decoration:underline; font-weight:600;"
+                    )
+                    ui.label("|").style(f"font-size:11px; color:{C_INK40};")
+                    ui.link("Graph Data API", f"{api.base_url}/api/v1/graph/data", new_tab=True).style(
+                        f"font-size:11px; color:{C_AMBER}; text-decoration:underline;"
+                    )
 
         # Links
         with ui.row().classes("w-full items-center").style("padding:8px 16px; gap:16px;"):
