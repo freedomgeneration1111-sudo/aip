@@ -61,14 +61,15 @@ Usage::
 
 from __future__ import annotations
 
-import logging
 import sqlite3
 import time
 from typing import Any, TypedDict
 
 import aiosqlite
 
-log = logging.getLogger(__name__)
+from aip.logging import get_logger
+
+log = get_logger(__name__)
 
 # Default pool size -- 3 is a good balance for a single-process async app:
 # - 2 readers for parallel ask requests
