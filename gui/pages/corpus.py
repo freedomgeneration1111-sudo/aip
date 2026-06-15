@@ -60,6 +60,10 @@ async def corpus_page():
     state.client = context.client
     api = get_api_client()
 
+    # Refresh backend status BEFORE rendering layout so top bar/right rail
+    # show accurate state instead of stale defaults (backend_reachable=False).
+    await state.refresh_status_summary()
+
     build_top_bar(state)
     build_left_nav(state, active_page="/corpus")
 

@@ -39,6 +39,7 @@ _NAV_ITEMS = [
     ("Ask", "/ask", "chat"),
     ("Models", "/models", "model_training"),
     ("Corpus", "/corpus", "storage"),
+    ("Graph", "/graph", "hub"),
     ("Retrieval Lab", "/retrieval", "science"),
     ("Wiki", "/wiki", "menu_book"),
     ("Artifacts", "/artifacts", "folder"),

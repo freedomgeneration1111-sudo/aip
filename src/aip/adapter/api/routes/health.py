@@ -1194,6 +1194,7 @@ async def status_summary(container: AipContainer = Depends(get_container)):
     # Build final response
     # ------------------------------------------------------------------
     return {
+        "backend_reachable": True,
         "dogfood_mode": dogfood_mode,
         "backend_health": backend_health,
         "actor_status_summary": actor_status_summary,

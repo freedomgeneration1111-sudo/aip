@@ -235,10 +235,22 @@ class GuiState:
         DEGRADED:  backend reachable, some subsystems down
         BARE:      backend reachable, no actors or retrieval
         DIRECT MODEL ONLY: backend unreachable
+
+        Note: the backend returns 'minimal' for what the GUI calls 'BARE'.
+        This method normalizes the backend terminology to GUI terminology.
         """
+        # Map backend dogfood_mode values to GUI display values
+        _MODE_MAP = {
+            "minimal": "BARE",
+            "full": "FULL",
+            "diagnostic": "DIAGNOSTIC",
+            "degraded": "DEGRADED",
+        }
+
         # Prefer the authoritative dogfood_mode from the consolidated endpoint
         if self.status_summary and "dogfood_mode" in self.status_summary:
-            self.dogfood_mode = self.status_summary["dogfood_mode"]
+            raw_mode = self.status_summary["dogfood_mode"]
+            self.dogfood_mode = _MODE_MAP.get(raw_mode, raw_mode.upper())
             return
 
         if not self.backend_reachable:
@@ -266,12 +278,24 @@ class GuiState:
           - pending_gates_count (from review_queue_summary.count)
 
         This is the single-call refresh path for UI Cycle 3.
-        If the fetch fails, fields are left unchanged and backend_reachable is set False.
+        Backend reachability is determined by successful HTTP contact:
+          - If /status/summary succeeds → backend_reachable = True, full status.
+          - If /status/summary fails but /health succeeds → backend_reachable = True
+            with a warning that status summary is unavailable.
+          - If both fail → backend_reachable = False.
         """
         try:
             summary = await self.api_client.get_status_summary()
             if not summary:
-                self.backend_reachable = False
+                # Empty dict from get_status_summary means the HTTP call failed.
+                # Fall back to /health check before declaring backend down.
+                reachable = await self.api_client.is_backend_reachable()
+                if reachable:
+                    self.backend_reachable = True
+                    self.warnings = ["Status summary unavailable — showing limited info"]
+                    self.refresh_dogfood_mode()
+                else:
+                    self.backend_reachable = False
                 return
 
             self.status_summary = summary
@@ -302,7 +326,17 @@ class GuiState:
 
         except Exception as exc:
             log.error("refresh_status_summary failed: %s", exc)
-            self.backend_reachable = False
+            # Fall back to /health check before declaring backend down
+            try:
+                reachable = await self.api_client.is_backend_reachable()
+                if reachable:
+                    self.backend_reachable = True
+                    self.warnings = ["Status summary unavailable — showing limited info"]
+                    self.refresh_dogfood_mode()
+                else:
+                    self.backend_reachable = False
+            except Exception:
+                self.backend_reachable = False
 
 
 def get_session_state() -> GuiState:

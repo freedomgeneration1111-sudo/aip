@@ -108,7 +108,14 @@ def _dogfood_section(state: GuiState) -> None:
             f"font-size:9px; color:{C_DOGFOOD_BARE}; font-family:{F_MONO};"
         )
     elif mode == "BARE":
-        ui.label("Backend up — no actors or retrieval.").style(f"font-size:9px; color:{C_AMBER}; font-family:{F_MONO};")
+        if state.backend_reachable:
+            ui.label("Backend reachable — no actors or retrieval active.").style(
+                f"font-size:9px; color:{C_AMBER}; font-family:{F_MONO};"
+            )
+        else:
+            ui.label("No status data fetched yet.").style(
+                f"font-size:9px; color:{C_AMBER}; font-family:{F_MONO};"
+            )
 
 
 def _actor_section(state: GuiState) -> None:

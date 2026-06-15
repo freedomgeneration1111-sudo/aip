@@ -133,8 +133,8 @@ async def ask_page():
     if not current_chat_model or current_chat_model not in all_model_options:
         current_chat_model = all_model_options[0] if all_model_options else ""
 
-    # Refresh dogfood mode
-    state.refresh_dogfood_mode()
+    # Refresh dogfood mode from status summary
+    await state.refresh_status_summary()
 
     # ── BUILD LAYOUT ──────────────────────────────────────────
     build_top_bar(state)

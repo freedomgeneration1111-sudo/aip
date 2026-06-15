@@ -53,6 +53,17 @@ if ! mkdir -p "${DB_DIR}" 2>/dev/null; then
 fi
 echo "Database directory ensured: ${DB_DIR}/"
 
+# --- First-run seed bootstrap ---
+# Auto-populates an empty DB with graph nodes and seed conversations.
+# Skipped when: AIP_AUTO_SEED=false, sentinel exists, or DB is non-empty.
+if [ "${AIP_AUTO_SEED:-true}" != "false" ]; then
+    echo "Checking first-run seed bootstrap..."
+    uv run python -m aip.cli._seed_bootstrap || {
+        echo "WARNING: Seed bootstrap failed. Continuing with empty DB." >&2
+        echo "You can manually run: python -m aip.cli._seed_bootstrap" >&2
+    }
+fi
+
 # --- Start backend ---
 echo "Starting AIP_Brain backend on ${BACKEND_HOST}:${BACKEND_PORT}..."
 uv run uvicorn "aip.adapter.api.app:create_app" --factory \

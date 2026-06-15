@@ -454,6 +454,15 @@ VALUES
 -- 3. DEFAULT PROJECT
 -- ============================================================
 
+CREATE TABLE IF NOT EXISTS projects (
+    project_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    status TEXT DEFAULT 'active',
+    domain TEXT,
+    created_at TEXT,
+    updated_at TEXT
+);
+
 INSERT OR IGNORE INTO projects (project_id, name, status, domain, created_at, updated_at)
 VALUES ('proj-seed-default', 'default', 'active', 'aip', datetime('now'), datetime('now'));
 

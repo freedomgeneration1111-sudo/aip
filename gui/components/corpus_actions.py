@@ -9,8 +9,10 @@ Never imports from aip.orchestration.
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from typing import Callable
+from collections.abc import Awaitable, Callable
+from typing import Union
 
 from nicegui import ui
 
@@ -36,13 +38,14 @@ class CorpusActions:
 
     All actions are explicit — no silent mutation.
     Actions with missing backend support show unavailable/not_wired honestly.
+    Callbacks may be sync or async; both are handled correctly.
     """
 
     def __init__(
         self,
-        on_ingest: Callable[[], None] | None = None,
-        on_backfill: Callable[[], None] | None = None,
-        on_retry_failed: Callable[[], None] | None = None,
+        on_ingest: Union[Callable[[], None], Callable[[], Awaitable[None]], None] = None,
+        on_backfill: Union[Callable[[], None], Callable[[], Awaitable[None]], None] = None,
+        on_retry_failed: Union[Callable[[], None], Callable[[], Awaitable[None]], None] = None,
     ) -> None:
         self._on_ingest = on_ingest
         self._on_backfill = on_backfill
@@ -88,14 +91,20 @@ class CorpusActions:
                 f"color:{C_AMBER}; border-color:{C_INK40}; font-family:{F_SANS};"
             ).tooltip("Explicit DEFINER action. Clears failure counters so failed turns will be retried.")
 
-    def _handle_ingest(self) -> None:
+    async def _handle_ingest(self) -> None:
         if self._on_ingest:
-            self._on_ingest()
+            result = self._on_ingest()
+            if asyncio.iscoroutine(result):
+                await result
 
-    def _handle_backfill(self) -> None:
+    async def _handle_backfill(self) -> None:
         if self._on_backfill:
-            self._on_backfill()
+            result = self._on_backfill()
+            if asyncio.iscoroutine(result):
+                await result
 
-    def _handle_retry_failed(self) -> None:
+    async def _handle_retry_failed(self) -> None:
         if self._on_retry_failed:
-            self._on_retry_failed()
+            result = self._on_retry_failed()
+            if asyncio.iscoroutine(result):
+                await result
