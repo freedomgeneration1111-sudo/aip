@@ -86,6 +86,38 @@ log = logging.getLogger("gui.pages.ask")
 @ui.page("/ask")
 async def ask_page():
     """Ask Workbench — chat interface with backend or direct model fallback."""
+    try:
+        await _ask_page_impl()
+    except Exception as exc:
+        log.exception("ask_page_crash: %s", exc)
+        # Render minimal shell so the user sees something instead of blank white
+        try:
+            state = get_session_state()
+            build_top_bar(state)
+            build_left_nav(state, active_page="/ask")
+            with (
+                ui.card()
+                .style(
+                    f"background:{C_ERR_BG}; border:1px solid {C_ERR_FG}; "
+                    f"border-radius:{R_SM}; padding:16px; margin:24px;"
+                )
+            ):
+                ui.label("Ask Workbench — Fatal Error").style(
+                    f"font-size:16px; font-weight:700; color:{C_ERR_FG}; font-family:{F_SANS};"
+                )
+                ui.label(f"The Ask page crashed during initialization: {exc}").style(
+                    f"font-size:12px; color:{C_CREAM}; font-family:{F_MONO}; margin-top:8px;"
+                )
+                ui.label("Check the console logs for details. The backend may be down or misconfigured.").style(
+                    f"font-size:11px; color:{C_MUTED}; margin-top:4px;"
+                )
+        except Exception:
+            # Last resort — if even the crash UI fails
+            ui.label("Ask page failed to load. Check console logs.").style("color:red; padding:24px;")
+
+
+async def _ask_page_impl():
+    """Inner implementation of ask page, wrapped by crash boundary."""
     state = get_session_state()
     state.client = context.client
 
@@ -95,20 +127,37 @@ async def ask_page():
     beast_panel = BeastPanel()
     model_council_panel = ModelCouncilPanel()
 
+    # ── Crash-safe initialization: render shell first, then do network calls ──
+    _init_error: str | None = None
+
     # ── API Key Check ──────────────────────────────────────────
-    if not state.api_client.has_openrouter_api_key():
-        key = await show_api_key_prompt()
-        if key:
-            state.api_client.set_openrouter_api_key(key)
-            ui.notify("API key saved!", color="positive", position="top")
-        else:
-            ui.notify("No API key set. Chat will not work.", color="warning", position="top")
+    try:
+        if not state.api_client.has_openrouter_api_key():
+            key = await show_api_key_prompt()
+            if key:
+                state.api_client.set_openrouter_api_key(key)
+                ui.notify("API key saved!", color="positive", position="top")
+            else:
+                ui.notify("No API key set. Chat will not work.", color="warning", position="top")
+    except Exception as exc:
+        log.warning("API key check failed: %s", exc)
+        _init_error = f"API key check failed: {exc}"
 
     # ── Backend Health Check ───────────────────────────────────
-    await _check_backend_health(state)
+    try:
+        await _check_backend_health(state)
+    except Exception as exc:
+        log.warning("Backend health check failed: %s", exc)
+        state.backend_reachable = False
+        _init_error = f"Backend health check failed: {exc}"
 
     # ── Load Model Slots ──────────────────────────────────────
-    slots = await _load_model_slots(state)
+    slots: list[dict[str, Any]] = []
+    try:
+        slots = await _load_model_slots(state)
+    except Exception as exc:
+        log.warning("Model slot loading failed: %s", exc)
+        _init_error = f"Model slot loading failed: {exc}"
 
     # Populate role model assignments from backend slot config
     for s in slots:
@@ -120,7 +169,10 @@ async def ask_page():
     # ── Build Model Options ───────────────────────────────────
     # Refresh enabled models from backend library so the dropdown
     # includes models toggled on via the Models page.
-    await refresh_enabled_models()
+    try:
+        await refresh_enabled_models()
+    except Exception as exc:
+        log.warning("Enabled models refresh failed: %s", exc)
     all_model_options = build_model_options(state.available_slots)
 
     # Determine current chat model
@@ -134,11 +186,37 @@ async def ask_page():
         current_chat_model = all_model_options[0] if all_model_options else ""
 
     # Refresh dogfood mode from status summary
-    await state.refresh_status_summary()
+    try:
+        await state.refresh_status_summary()
+    except Exception as exc:
+        log.warning("Status summary refresh failed: %s", exc)
+        if not _init_error:
+            _init_error = f"Status summary refresh failed: {exc}"
 
     # ── BUILD LAYOUT ──────────────────────────────────────────
     build_top_bar(state)
     build_left_nav(state, active_page="/ask")
+
+    # ── Show degraded card if initialization had errors ────────
+    if _init_error:
+        with (
+            ui.card()
+            .style(
+                f"background:{C_WARN_BG}; border:1px solid {C_WARN_FG}; "
+                f"border-radius:{R_SM}; padding:16px; margin:12px 16px;"
+            )
+        ):
+            ui.label("Ask Workbench — Degraded").style(
+                f"font-size:14px; font-weight:700; color:{C_WARN_FG}; font-family:{F_SANS};"
+            )
+            ui.label(_init_error).style(
+                f"font-size:12px; color:{C_CREAM}; font-family:{F_MONO}; margin-top:4px;"
+            )
+            ui.label(
+                "The Ask page loaded with errors. Some features may not work. "
+                "Check that the backend is running and an API key is set."
+            ).style(f"font-size:11px; color:{C_MUTED}; margin-top:4px;")
+        log.error("ask_page_init_error: %s", _init_error)
 
     # Main content
     with (

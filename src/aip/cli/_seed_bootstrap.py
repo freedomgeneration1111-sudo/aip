@@ -85,13 +85,69 @@ def _sentinel_exists() -> bool:
     return _SENTINEL_PATH.exists()
 
 
-def _write_sentinel() -> None:
-    """Write the sentinel file after successful bootstrap."""
+def _write_sentinel(graph_nodes: int, corpus_turns: int) -> None:
+    """Write the sentinel file after successful bootstrap.
+
+    Only writes if both graph_nodes > 0 and corpus_turns > 0,
+    ensuring the bootstrap actually populated data.
+    """
+    if graph_nodes <= 0:
+        log.error(
+            "Refusing to write sentinel: graph_nodes=%d (must be >0). "
+            "Seed bootstrap did not populate graph data.",
+            graph_nodes,
+        )
+        return
+    if corpus_turns <= 0:
+        log.error(
+            "Refusing to write sentinel: corpus_turns=%d (must be >0). "
+            "Seed bootstrap did not ingest any conversation turns.",
+            corpus_turns,
+        )
+        return
     try:
-        _SENTINEL_PATH.write_text("seed_bootstrapped\n", encoding="utf-8")
+        _SENTINEL_PATH.write_text(
+            f"seed_bootstrapped\ngraph_nodes={graph_nodes}\ncorpus_turns={corpus_turns}\n",
+            encoding="utf-8",
+        )
         log.info("Seed bootstrap sentinel written: %s", _SENTINEL_PATH)
     except OSError as exc:
         log.error("Failed to write sentinel file: %s", exc)
+
+
+def _ensure_corpus_turns_schema(conn: sqlite3.Connection) -> bool:
+    """Ensure the corpus_turns table exists with the correct schema.
+
+    The backend creates this table during its own init, but the seed
+    bootstrap runs BEFORE the backend starts. We must create the table
+    ourselves to avoid INSERT failures.
+    """
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS corpus_turns (
+                turn_id TEXT PRIMARY KEY,
+                source_path TEXT NOT NULL DEFAULT '',
+                role TEXT NOT NULL DEFAULT 'unknown',
+                content TEXT NOT NULL DEFAULT '',
+                source_model TEXT NOT NULL DEFAULT '',
+                source_account TEXT NOT NULL DEFAULT '',
+                timestamp TEXT NOT NULL DEFAULT '',
+                metadata_json TEXT DEFAULT '{}',
+                embedding_status TEXT DEFAULT 'pending',
+                embedding_failure_count INTEGER DEFAULT 0,
+                domain_tag TEXT,
+                importance_score REAL DEFAULT 0.0,
+                bridge_tag TEXT,
+                created_at TEXT,
+                updated_at TEXT
+            )
+        """)
+        conn.commit()
+        log.info("Ensured corpus_turns table schema exists")
+        return True
+    except Exception as exc:
+        log.error("Failed to create corpus_turns table: %s", exc)
+        return False
 
 
 def _run_sql_bootstrap(db_path: Path) -> bool:
@@ -126,61 +182,111 @@ def _run_sql_bootstrap(db_path: Path) -> bool:
 def _ingest_conversations(db_path: Path) -> int:
     """Ingest seed conversation JSON files directly into the database.
 
-    Returns the number of conversations ingested.
+    Handles the conversation JSON format:
+      - Top-level: list of conversations, each with uuid, name, chat_messages
+      - Each message: uuid, sender, content, created_at
+
+    Returns the number of conversation turns ingested.
     """
     if not _CONVERSATIONS_DIR.exists():
-        log.warning("Conversations directory not found: %s", _CONVERSATIONS_DIR)
+        log.error("Conversations directory not found: %s", _CONVERSATIONS_DIR)
         return 0
 
-    ingested = 0
+    total_turns = 0
     for conv_file in sorted(_CONVERSATIONS_DIR.glob("*.json")):
         try:
             data = json.loads(conv_file.read_text(encoding="utf-8"))
-            turns = data if isinstance(data, list) else data.get("turns", [data])
-            if not turns:
-                log.warning("No turns found in %s", conv_file.name)
-                continue
+
+            # Handle both formats:
+            # 1. List of conversations with chat_messages (standard format)
+            # 2. Flat list of turns with turn_id/role/content
+            conversations: list[dict] = []
+            if isinstance(data, list):
+                if data and isinstance(data[0], dict) and "chat_messages" in data[0]:
+                    # Standard conversation format
+                    conversations = data
+                elif data and isinstance(data[0], dict) and "turn_id" in data[0]:
+                    # Flat turn format
+                    conversations = [{"uuid": "", "name": conv_file.name, "chat_messages": data}]
+                else:
+                    log.warning("Unrecognized format in %s", conv_file.name)
+                    continue
+            elif isinstance(data, dict):
+                if "chat_messages" in data:
+                    conversations = [data]
+                elif "turns" in data:
+                    conversations = [{"uuid": "", "name": conv_file.name, "chat_messages": data["turns"]}]
+                else:
+                    conversations = [data]
 
             conn = sqlite3.connect(str(db_path))
             try:
-                for turn in turns:
-                    turn_id = turn.get("turn_id", "")
-                    if not turn_id:
-                        import uuid
-                        turn_id = str(uuid.uuid4())
+                # Ensure schema before inserting
+                _ensure_corpus_turns_schema(conn)
 
-                    # Check if turn already exists (idempotence)
-                    existing = conn.execute(
-                        "SELECT 1 FROM corpus_turns WHERE turn_id = ?", (turn_id,)
-                    ).fetchone()
-                    if existing:
+                for conv in conversations:
+                    conv_uuid = conv.get("uuid", "")
+                    conv_name = conv.get("name", conv_file.stem)
+                    messages = conv.get("chat_messages", [])
+                    if not messages:
+                        log.warning("No messages in conversation %s from %s", conv_name, conv_file.name)
                         continue
 
-                    conn.execute(
-                        """INSERT OR IGNORE INTO corpus_turns
-                           (turn_id, source_path, role, content, source_model,
-                            source_account, timestamp, metadata_json)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                        (
-                            turn_id,
-                            str(conv_file.relative_to(_REPO_ROOT)),
-                            turn.get("role", "unknown"),
-                            turn.get("content", ""),
-                            turn.get("source_model", "claude"),
-                            turn.get("source_account", "aip_seed"),
-                            turn.get("timestamp", ""),
-                            json.dumps(turn.get("metadata", {})),
-                        ),
-                    )
+                    for msg in messages:
+                        # Use message uuid as turn_id, or generate one
+                        turn_id = msg.get("uuid", msg.get("turn_id", ""))
+                        if not turn_id:
+                            import uuid as uuid_mod
+                            turn_id = str(uuid_mod.uuid4())
+
+                        # Map sender → role
+                        sender = msg.get("sender", msg.get("role", "unknown"))
+                        role = sender  # Keep original: "human", "assistant", etc.
+
+                        content = msg.get("content", "")
+                        msg_timestamp = msg.get("created_at", msg.get("timestamp", ""))
+
+                        # Check if turn already exists (idempotence)
+                        existing = conn.execute(
+                            "SELECT 1 FROM corpus_turns WHERE turn_id = ?", (turn_id,)
+                        ).fetchone()
+                        if existing:
+                            continue
+
+                        metadata = {
+                            "conversation_uuid": conv_uuid,
+                            "conversation_name": conv_name,
+                            "seed_source": str(conv_file.name),
+                        }
+                        if msg.get("metadata"):
+                            metadata.update(msg["metadata"])
+
+                        conn.execute(
+                            """INSERT OR IGNORE INTO corpus_turns
+                               (turn_id, source_path, role, content, source_model,
+                                source_account, timestamp, metadata_json)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                            (
+                                turn_id,
+                                str(conv_file.relative_to(_REPO_ROOT)),
+                                role,
+                                content,
+                                msg.get("source_model", ""),
+                                "aip_seed",
+                                msg_timestamp,
+                                json.dumps(metadata),
+                            ),
+                        )
+                        total_turns += 1
+
                 conn.commit()
-                ingested += 1
-                log.info("Ingested %d turns from %s", len(turns), conv_file.name)
+                log.info("Ingested conversations from %s (%d turns)", conv_file.name, total_turns)
             finally:
                 conn.close()
         except Exception as exc:
             log.error("Failed to ingest %s: %s", conv_file.name, exc)
 
-    return ingested
+    return total_turns
 
 
 def run_seed_bootstrap() -> bool:
@@ -191,7 +297,8 @@ def run_seed_bootstrap() -> bool:
       - Sentinel file does not exist
       - DB is effectively empty (no graph nodes, no corpus turns)
 
-    Returns True if bootstrap ran successfully, False otherwise.
+    Returns True if bootstrap ran successfully AND populated both
+    graph nodes and corpus turns. Returns False otherwise.
     """
     # Check opt-out env var
     auto_seed = os.environ.get("AIP_AUTO_SEED", "true").lower()
@@ -226,15 +333,35 @@ def run_seed_bootstrap() -> bool:
         log.error("SQL bootstrap failed — aborting seed bootstrap")
         return False
 
+    # Verify graph nodes were actually created
+    try:
+        conn = sqlite3.connect(str(_DB_PATH))
+        graph_nodes = conn.execute("SELECT COUNT(*) FROM graph_nodes").fetchone()[0]
+        conn.close()
+    except Exception as exc:
+        log.error("Could not verify graph nodes after bootstrap: %s", exc)
+        graph_nodes = 0
+
+    if graph_nodes == 0:
+        log.error("Graph bootstrap produced 0 nodes — seed data may be corrupt")
+        return False
+
     # Step 2: Ingest conversations
     log.info("--- Step 2: Ingest seed conversations ---")
-    ingested = _ingest_conversations(_DB_PATH)
-    log.info("Ingested %d conversation files", ingested)
+    total_turns = _ingest_conversations(_DB_PATH)
+    log.info("Ingested %d conversation turns total", total_turns)
 
-    # Write sentinel
-    _write_sentinel()
+    if total_turns == 0:
+        log.error(
+            "Seed bootstrap ingested 0 turns. Conversation files may be missing "
+            "or corrupt. Sentinel will NOT be written — bootstrap will retry on next start."
+        )
+        return False
 
-    log.info("=== Seed bootstrap complete ===")
+    # Write sentinel only if both graph and corpus data exist
+    _write_sentinel(graph_nodes=graph_nodes, corpus_turns=total_turns)
+
+    log.info("=== Seed bootstrap complete: %d graph nodes, %d corpus turns ===", graph_nodes, total_turns)
     return True
 
 

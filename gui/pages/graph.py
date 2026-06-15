@@ -20,14 +20,19 @@ from gui.state import get_session_state
 from gui.theme import (
     C_AMBER,
     C_CREAM,
+    C_ERR_BG,
+    C_ERR_FG,
     C_GROUND,
     C_INK40,
     C_MUTED,
     C_OK_FG,
     C_SURFACE,
+    C_WARN_BG,
+    C_WARN_FG,
     F_MONO,
     F_SANS,
     R_MD,
+    R_SM,
 )
 
 log = logging.getLogger("gui.pages.graph")
@@ -36,18 +41,52 @@ log = logging.getLogger("gui.pages.graph")
 @ui.page("/graph")
 async def graph_page():
     """Knowledge Graph — explore entities and relationships."""
+    try:
+        await _graph_page_impl()
+    except Exception as exc:
+        log.exception("graph_page_crash: %s", exc)
+        try:
+            state = get_session_state()
+            build_top_bar(state)
+            build_left_nav(state, active_page="/graph")
+            with (
+                ui.card()
+                .style(
+                    f"background:{C_ERR_BG}; border:1px solid {C_ERR_FG}; "
+                    f"border-radius:{R_SM}; padding:16px; margin:24px;"
+                )
+            ):
+                ui.label("Graph Page — Fatal Error").style(
+                    f"font-size:16px; font-weight:700; color:{C_ERR_FG}; font-family:{F_SANS};"
+                )
+                ui.label(f"The Graph page crashed: {exc}").style(
+                    f"font-size:12px; color:{C_CREAM}; font-family:{F_MONO}; margin-top:8px;"
+                )
+                ui.label("Check that the backend is running and the graph store is configured.").style(
+                    f"font-size:11px; color:{C_MUTED}; margin-top:4px;"
+                )
+        except Exception:
+            ui.label("Graph page failed to load. Check console logs.").style("color:red; padding:24px;")
+
+
+async def _graph_page_impl():
+    """Inner implementation of graph page, wrapped by crash boundary."""
     state = get_session_state()
     state.client = context.client
     api = get_api_client()
 
     # Refresh backend status before rendering layout
-    await state.refresh_status_summary()
+    try:
+        await state.refresh_status_summary()
+    except Exception as exc:
+        log.warning("Graph page: status summary refresh failed: %s", exc)
 
     build_top_bar(state)
     build_left_nav(state, active_page="/graph")
 
     # ── Fetch graph stats ───────────────────────────────────────
     graph_stats: dict[str, Any] = {}
+    stats_error: str | None = None
     try:
         import httpx
 
@@ -55,8 +94,11 @@ async def graph_page():
             resp = await client.get(f"{api.base_url}/api/v1/graph/stats", timeout=8.0)
             if resp.status_code == 200:
                 graph_stats = resp.json()
+            else:
+                stats_error = f"Backend returned status {resp.status_code}"
     except Exception as exc:
         log.warning("Failed to fetch graph stats: %s", exc)
+        stats_error = str(exc)
 
     # ── Layout ──────────────────────────────────────────────────
     with (
@@ -71,6 +113,22 @@ async def graph_page():
         ui.label("Explore entities, relationships, and domain bridges in the knowledge graph.").style(
             f"font-size:12px; color:{C_MUTED}; margin-bottom:16px;"
         )
+
+        # Stats error warning
+        if stats_error and not state.backend_reachable:
+            with (
+                ui.card()
+                .style(
+                    f"background:{C_WARN_BG}; border:1px solid {C_WARN_FG}; "
+                    f"border-radius:{R_SM}; padding:12px; margin-bottom:12px;"
+                )
+            ):
+                ui.label("Backend unreachable — graph stats unavailable.").style(
+                    f"font-size:12px; color:{C_WARN_FG}; font-family:{F_SANS};"
+                )
+                ui.label(f"Error: {stats_error}").style(
+                    f"font-size:10px; color:{C_MUTED}; font-family:{F_MONO};"
+                )
 
         # Stats cards
         with ui.row().classes("w-full").style("gap:12px; margin-bottom:16px;"):
@@ -151,7 +209,15 @@ async def graph_page():
             ui.html(
                 f'<iframe src="{viz_url}" '
                 f'style="width:100%; height:600px; border:1px solid {C_INK40}; '
-                f'border-radius:{R_MD}; background:#0f0f0f;"></iframe>'
+                f'border-radius:{R_MD}; background:#0f0f0f;" '
+                f'onerror="this.style.display=\'none\'"></iframe>'
+            )
+            # Fallback link in case iframe doesn't render
+            ui.label(f"If the visualization doesn't load, open it directly:").style(
+                f"font-size:10px; color:{C_MUTED}; margin-top:4px;"
+            )
+            ui.link("Open Graph Visualization", viz_url, new_tab=True).style(
+                f"font-size:10px; color:{C_AMBER}; text-decoration:underline;"
             )
 
         # Links
