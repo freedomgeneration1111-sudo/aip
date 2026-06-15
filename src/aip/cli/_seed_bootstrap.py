@@ -9,17 +9,19 @@ Only runs when the DB/corpus is effectively empty and no seed sentinel exists.
 Respects AIP_AUTO_SEED=false environment variable.
 
 This module is called from scripts/start.sh before the backend launches.
-It can also be invoked directly: python -m aip.cli seed_bootstrap
+It can also be invoked directly: python -m aip.cli._seed_bootstrap
 """
 
 from __future__ import annotations
 
 import enum
+import hashlib
 import json
 import logging
 import os
 import sqlite3
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 log = logging.getLogger("aip.cli.seed_bootstrap")
@@ -41,6 +43,16 @@ class SeedStatus(str, enum.Enum):
     def exit_code(self) -> int:
         """Exit code for this status: 0 for seeded/skipped, 1 for failed."""
         return 0 if self is not SeedStatus.FAILED else 1
+
+
+# Columns that MUST exist in corpus_turns for the app to function.
+# The seed bootstrap validates these before writing the sentinel.
+_REQUIRED_CORPUS_COLUMNS = frozenset({
+    "embedded",
+    "conversation_id",
+    "tagging_version",
+})
+
 
 # Paths relative to project root.
 # When running as `python -m aip.cli._seed_bootstrap` from the project root,
@@ -104,11 +116,43 @@ def _sentinel_exists() -> bool:
     return _SENTINEL_PATH.exists()
 
 
-def _write_sentinel(graph_nodes: int, corpus_turns: int) -> None:
+def _get_corpus_columns(conn: sqlite3.Connection) -> set[str]:
+    """Return the set of column names in the corpus_turns table."""
+    try:
+        rows = conn.execute("PRAGMA table_info(corpus_turns)").fetchall()
+        return {row[1] for row in rows}
+    except sqlite3.OperationalError:
+        return set()
+
+
+def _validate_corpus_schema(conn: sqlite3.Connection) -> bool:
+    """Validate that corpus_turns has all required columns.
+
+    Returns True if every column in _REQUIRED_CORPUS_COLUMNS is present.
+    """
+    existing = _get_corpus_columns(conn)
+    missing = _REQUIRED_CORPUS_COLUMNS - existing
+    if missing:
+        log.error(
+            "corpus_turns schema is missing required columns: %s. "
+            "Existing columns: %s. The seed bootstrap must use the canonical "
+            "schema from CorpusTurnStore, not an ad-hoc CREATE TABLE.",
+            sorted(missing), sorted(existing),
+        )
+        return False
+    return True
+
+
+def _write_sentinel(graph_nodes: int, graph_edges: int, corpus_turns: int) -> bool:
     """Write the sentinel file after successful bootstrap.
 
-    Only writes if both graph_nodes > 0 and corpus_turns > 0,
-    ensuring the bootstrap actually populated data.
+    Only writes if:
+      - graph_nodes > 0
+      - graph_edges > 0
+      - corpus_turns > 0
+      - required corpus schema columns exist
+
+    Returns True if sentinel was written, False if refused.
     """
     if graph_nodes <= 0:
         log.error(
@@ -116,56 +160,98 @@ def _write_sentinel(graph_nodes: int, corpus_turns: int) -> None:
             "Seed bootstrap did not populate graph data.",
             graph_nodes,
         )
-        return
+        return False
+    if graph_edges <= 0:
+        log.error(
+            "Refusing to write sentinel: graph_edges=%d (must be >0). "
+            "Seed bootstrap did not populate graph edges.",
+            graph_edges,
+        )
+        return False
     if corpus_turns <= 0:
         log.error(
             "Refusing to write sentinel: corpus_turns=%d (must be >0). "
             "Seed bootstrap did not ingest any conversation turns.",
             corpus_turns,
         )
-        return
+        return False
+
+    # Schema validation
+    try:
+        conn = sqlite3.connect(str(_DB_PATH))
+        try:
+            if not _validate_corpus_schema(conn):
+                log.error("Refusing to write sentinel: corpus_turns schema validation failed")
+                return False
+        finally:
+            conn.close()
+    except Exception as exc:
+        log.error("Refusing to write sentinel: schema validation error: %s", exc)
+        return False
+
     try:
         _SENTINEL_PATH.write_text(
-            f"seed_bootstrapped\ngraph_nodes={graph_nodes}\ncorpus_turns={corpus_turns}\n",
+            f"seed_bootstrapped\ngraph_nodes={graph_nodes}\ngraph_edges={graph_edges}\ncorpus_turns={corpus_turns}\n",
             encoding="utf-8",
         )
         log.info("Seed bootstrap sentinel written: %s", _SENTINEL_PATH)
+        return True
     except OSError as exc:
         log.error("Failed to write sentinel file: %s", exc)
+        return False
 
 
 def _ensure_corpus_turns_schema(conn: sqlite3.Connection) -> bool:
-    """Ensure the corpus_turns table exists with the correct schema.
+    """Create corpus_turns using the CANONICAL DDL from CorpusTurnStore.
 
-    The backend creates this table during its own init, but the seed
-    bootstrap runs BEFORE the backend starts. We must create the table
-    ourselves to avoid INSERT failures.
+    The seed bootstrap runs BEFORE the backend starts, so the table won't
+    exist yet. We must create it using the exact same DDL that
+    CorpusTurnStore uses, to avoid schema divergence that breaks the app
+    at runtime.
+
+    This imports the DDL constants from the canonical store module and
+    applies them with the sync sqlite3 connection.
     """
     try:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS corpus_turns (
-                turn_id TEXT PRIMARY KEY,
-                source_path TEXT NOT NULL DEFAULT '',
-                role TEXT NOT NULL DEFAULT 'unknown',
-                content TEXT NOT NULL DEFAULT '',
-                source_model TEXT NOT NULL DEFAULT '',
-                source_account TEXT NOT NULL DEFAULT '',
-                timestamp TEXT NOT NULL DEFAULT '',
-                metadata_json TEXT DEFAULT '{}',
-                embedding_status TEXT DEFAULT 'pending',
-                embedding_failure_count INTEGER DEFAULT 0,
-                domain_tag TEXT,
-                importance_score REAL DEFAULT 0.0,
-                bridge_tag TEXT,
-                created_at TEXT,
-                updated_at TEXT
-            )
-        """)
+        from aip.adapter.corpus_turn_store import (
+            _DDL_CORPUS_TURNS,
+            _DDL_INDEXES,
+            _DDL_MIGRATIONS,
+            _DDL_FTS,
+            _DDL_TRIGGER_INSERT,
+            _DDL_TRIGGER_DELETE,
+            _DDL_TRIGGER_UPDATE,
+        )
+    except ImportError as exc:
+        log.error(
+            "Cannot import canonical corpus_turns DDL from aip.adapter.corpus_turn_store: %s. "
+            "The seed bootstrap requires the canonical schema definitions.",
+            exc,
+        )
+        return False
+
+    try:
+        conn.execute(_DDL_CORPUS_TURNS)
+
+        for idx_ddl in _DDL_INDEXES:
+            conn.execute(idx_ddl)
+
+        for mig_ddl in _DDL_MIGRATIONS:
+            try:
+                conn.execute(mig_ddl)
+            except sqlite3.OperationalError:
+                pass  # column already exists
+
+        conn.execute(_DDL_FTS)
+        conn.execute(_DDL_TRIGGER_INSERT)
+        conn.execute(_DDL_TRIGGER_DELETE)
+        conn.execute(_DDL_TRIGGER_UPDATE)
+
         conn.commit()
-        log.info("Ensured corpus_turns table schema exists")
+        log.info("Ensured corpus_turns table with CANONICAL schema (from CorpusTurnStore)")
         return True
     except Exception as exc:
-        log.error("Failed to create corpus_turns table: %s", exc)
+        log.error("Failed to create corpus_turns table with canonical DDL: %s", exc)
         return False
 
 
@@ -198,12 +284,44 @@ def _run_sql_bootstrap(db_path: Path) -> bool:
         return False
 
 
+def _make_turn_id(conversation_id: str, turn_index: int) -> str:
+    """Generate deterministic turn_id matching CorpusTurn.make_turn_id()."""
+    key = f"{conversation_id}:{turn_index}"
+    return hashlib.sha256(key.encode()).hexdigest()[:16]
+
+
+def _pair_messages(messages: list[dict]) -> list[tuple[dict, dict]]:
+    """Pair sequential human+assistant messages into turns.
+
+    Returns list of (human_msg, assistant_msg) tuples.
+    Skips unpaired messages (e.g. two humans in a row).
+    """
+    pairs: list[tuple[dict, dict]] = []
+    i = 0
+    while i < len(messages):
+        msg = messages[i]
+        sender = msg.get("sender", msg.get("role", "")).lower()
+        if sender in ("human", "user") and i + 1 < len(messages):
+            next_msg = messages[i + 1]
+            next_sender = next_msg.get("sender", next_msg.get("role", "")).lower()
+            if next_sender in ("assistant", "ai"):
+                pairs.append((msg, next_msg))
+                i += 2
+                continue
+        # Unpaired — skip
+        i += 1
+    return pairs
+
+
 def _ingest_conversations(db_path: Path) -> int:
-    """Ingest seed conversation JSON files directly into the database.
+    """Ingest seed conversation JSON files into the canonical corpus_turns schema.
 
     Handles the conversation JSON format:
       - Top-level: list of conversations, each with uuid, name, chat_messages
       - Each message: uuid, sender, content, created_at
+
+    Pairs human+assistant messages into CorpusTurn-compatible rows with
+    user_text/assistant_text (not the old role/content format).
 
     Returns the number of conversation turns ingested.
     """
@@ -240,8 +358,10 @@ def _ingest_conversations(db_path: Path) -> int:
 
             conn = sqlite3.connect(str(db_path))
             try:
-                # Ensure schema before inserting
-                _ensure_corpus_turns_schema(conn)
+                # Ensure canonical schema before inserting
+                if not _ensure_corpus_turns_schema(conn):
+                    log.error("Cannot ingest conversations: canonical schema creation failed")
+                    return 0
 
                 for conv in conversations:
                     conv_uuid = conv.get("uuid", "")
@@ -251,19 +371,22 @@ def _ingest_conversations(db_path: Path) -> int:
                         log.warning("No messages in conversation %s from %s", conv_name, conv_file.name)
                         continue
 
-                    for msg in messages:
-                        # Use message uuid as turn_id, or generate one
-                        turn_id = msg.get("uuid", msg.get("turn_id", ""))
-                        if not turn_id:
-                            import uuid as uuid_mod
-                            turn_id = str(uuid_mod.uuid4())
+                    # Pair human+assistant messages into turns
+                    pairs = _pair_messages(messages)
+                    if not pairs:
+                        log.warning(
+                            "No human/assistant pairs found in %s from %s",
+                            conv_name, conv_file.name,
+                        )
+                        continue
 
-                        # Map sender → role
-                        sender = msg.get("sender", msg.get("role", "unknown"))
-                        role = sender  # Keep original: "human", "assistant", etc.
+                    # Derive a stable conversation_id
+                    conversation_id = conv_uuid if conv_uuid else f"seed:{conv_name}"
+                    export_date = conv.get("created_at", datetime.now(timezone.utc).isoformat())
+                    source_path = str(conv_file.relative_to(_REPO_ROOT))
 
-                        content = msg.get("content", "")
-                        msg_timestamp = msg.get("created_at", msg.get("timestamp", ""))
+                    for turn_index, (human_msg, assistant_msg) in enumerate(pairs):
+                        turn_id = _make_turn_id(conversation_id, turn_index)
 
                         # Check if turn already exists (idempotence)
                         existing = conn.execute(
@@ -272,34 +395,79 @@ def _ingest_conversations(db_path: Path) -> int:
                         if existing:
                             continue
 
+                        user_text = human_msg.get("content", "")
+                        assistant_text = assistant_msg.get("content", "")
+                        turn_timestamp = human_msg.get(
+                            "created_at", human_msg.get("timestamp", "")
+                        )
+
+                        # Compute searchable_text and word_count
+                        searchable_text = f"{user_text}\n\n{assistant_text}".strip()
+                        word_count = len(searchable_text.split())
+
+                        # Compute content_hash
+                        content_hash = hashlib.sha256(
+                            searchable_text.encode()
+                        ).hexdigest()[:32]
+
+                        now = datetime.now(timezone.utc).isoformat()
+
                         metadata = {
-                            "conversation_uuid": conv_uuid,
-                            "conversation_name": conv_name,
                             "seed_source": str(conv_file.name),
                         }
-                        if msg.get("metadata"):
-                            metadata.update(msg["metadata"])
+                        if human_msg.get("metadata"):
+                            metadata.update(human_msg["metadata"])
 
                         conn.execute(
                             """INSERT OR IGNORE INTO corpus_turns
-                               (turn_id, source_path, role, content, source_model,
-                                source_account, timestamp, metadata_json)
-                               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                               (turn_id, conversation_id, conversation_name, turn_index,
+                                source_model, source_account, export_date,
+                                content_hash, source_path, doc_version,
+                                user_text, assistant_text, turn_timestamp,
+                                thinking_text, domains, primary_domain, tags,
+                                importance, bridges, beast_confidence, tagging_version,
+                                searchable_text, word_count, embedded,
+                                embedding_model, needs_reembed, last_embed_at,
+                                metadata_json, embed_fail_count, last_embed_error,
+                                created_at, updated_at)
+                               VALUES (
+                                ?, ?, ?, ?,
+                                ?, ?, ?,
+                                ?, ?, ?,
+                                ?, ?, ?,
+                                ?, ?, ?, ?,
+                                ?, ?, ?, ?,
+                                ?, ?, ?,
+                                ?, ?, ?,
+                                ?, ?, ?,
+                                ?, ?)""",
                             (
-                                turn_id,
-                                str(conv_file.relative_to(_REPO_ROOT)),
-                                role,
-                                content,
-                                msg.get("source_model", ""),
-                                "aip_seed",
-                                msg_timestamp,
+                                turn_id, conversation_id, conv_name, turn_index,
+                                "seed_corpus", "aip_seed", export_date,
+                                content_hash, source_path, 0,
+                                user_text, assistant_text, turn_timestamp,
+                                "",  # thinking_text
+                                "[]",  # domains
+                                "",  # primary_domain
+                                "[]",  # tags
+                                0.0,  # importance
+                                "[]",  # bridges
+                                0.0,  # beast_confidence
+                                0,  # tagging_version
+                                searchable_text, word_count, 0,  # embedded
+                                "",  # embedding_model
+                                0,  # needs_reembed
+                                None,  # last_embed_at
                                 json.dumps(metadata),
+                                0,  # embed_fail_count
+                                "",  # last_embed_error
+                                now, now,
                             ),
                         )
                         total_turns += 1
 
                 conn.commit()
-                log.info("Ingested conversations from %s (%d turns)", conv_file.name, total_turns)
+                log.info("Ingested conversations from %s (%d turns so far)", conv_file.name, total_turns)
             finally:
                 conn.close()
         except Exception as exc:
@@ -354,20 +522,26 @@ def run_seed_bootstrap() -> SeedStatus:
         log.error("SQL bootstrap failed — aborting seed bootstrap")
         return SeedStatus.FAILED
 
-    # Verify graph nodes were actually created
+    # Verify graph nodes and edges were actually created
+    graph_nodes = 0
+    graph_edges = 0
     try:
         conn = sqlite3.connect(str(_DB_PATH))
         graph_nodes = conn.execute("SELECT COUNT(*) FROM graph_nodes").fetchone()[0]
+        graph_edges = conn.execute("SELECT COUNT(*) FROM graph_edges").fetchone()[0]
         conn.close()
     except Exception as exc:
-        log.error("Could not verify graph nodes after bootstrap: %s", exc)
-        graph_nodes = 0
+        log.error("Could not verify graph tables after bootstrap: %s", exc)
 
     if graph_nodes == 0:
         log.error("Graph bootstrap produced 0 nodes — seed data may be corrupt")
         return SeedStatus.FAILED
 
-    # Step 2: Ingest conversations
+    if graph_edges == 0:
+        log.error("Graph bootstrap produced 0 edges — seed data may be corrupt")
+        return SeedStatus.FAILED
+
+    # Step 2: Ingest conversations (uses canonical CorpusTurnStore schema)
     log.info("--- Step 2: Ingest seed conversations ---")
     total_turns = _ingest_conversations(_DB_PATH)
     log.info("Ingested %d conversation turns total", total_turns)
@@ -379,10 +553,30 @@ def run_seed_bootstrap() -> SeedStatus:
         )
         return SeedStatus.FAILED
 
-    # Write sentinel only if both graph and corpus data exist
-    _write_sentinel(graph_nodes=graph_nodes, corpus_turns=total_turns)
+    # Validate corpus schema before writing sentinel
+    try:
+        conn = sqlite3.connect(str(_DB_PATH))
+        try:
+            if not _validate_corpus_schema(conn):
+                log.error(
+                    "corpus_turns schema is missing required columns. "
+                    "Sentinel will NOT be written — bootstrap will retry on next start."
+                )
+                return SeedStatus.FAILED
+        finally:
+            conn.close()
+    except Exception as exc:
+        log.error("Schema validation error: %s", exc)
+        return SeedStatus.FAILED
 
-    log.info("=== Seed bootstrap complete: %d graph nodes, %d corpus turns ===", graph_nodes, total_turns)
+    # Write sentinel only if all data and schema checks pass
+    if not _write_sentinel(graph_nodes=graph_nodes, graph_edges=graph_edges, corpus_turns=total_turns):
+        return SeedStatus.FAILED
+
+    log.info(
+        "=== Seed bootstrap complete: %d graph nodes, %d graph edges, %d corpus turns ===",
+        graph_nodes, graph_edges, total_turns,
+    )
     return SeedStatus.SEEDED
 
 

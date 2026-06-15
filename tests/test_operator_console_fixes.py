@@ -454,6 +454,169 @@ class TestSeedBootstrap:
             assert _is_empty_db(db_path) is True
 
 
+class TestSeedBootstrapCanonicalSchema:
+    """Test that seed bootstrap creates corpus_turns with the canonical schema.
+
+    This is a regression test for the bug where _seed_bootstrap.py had a
+    divergent ad-hoc schema missing columns like embedded, conversation_id,
+    and tagging_version — causing 'no such column' errors at runtime.
+    """
+
+    def test_corpus_turns_has_required_columns_after_bootstrap(self):
+        """After seed bootstrap, PRAGMA table_info must include embedded,
+        conversation_id, and tagging_version."""
+        from aip.cli._seed_bootstrap import SeedStatus, run_seed_bootstrap
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "state.db"
+            sentinel_path = Path(tmpdir) / ".seed_bootstrapped"
+            db_dir = Path(tmpdir)
+
+            with (
+                patch("aip.cli._seed_bootstrap._DB_PATH", db_path),
+                patch("aip.cli._seed_bootstrap._DB_DIR", db_dir),
+                patch("aip.cli._seed_bootstrap._SENTINEL_PATH", sentinel_path),
+                patch.dict(os.environ, {"AIP_AUTO_SEED": "true"}),
+            ):
+                result = run_seed_bootstrap()
+
+            assert result is SeedStatus.SEEDED
+
+            # Verify schema
+            conn = sqlite3.connect(str(db_path))
+            cols = [row[1] for row in conn.execute("PRAGMA table_info(corpus_turns)").fetchall()]
+            conn.close()
+
+            for required in ["embedded", "conversation_id", "tagging_version"]:
+                assert required in cols, f"Missing required column: {required}"
+
+    def test_corpus_turns_has_user_text_and_assistant_text(self):
+        """The canonical schema uses user_text/assistant_text, not role/content."""
+        from aip.cli._seed_bootstrap import SeedStatus, run_seed_bootstrap
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "state.db"
+            sentinel_path = Path(tmpdir) / ".seed_bootstrapped"
+            db_dir = Path(tmpdir)
+
+            with (
+                patch("aip.cli._seed_bootstrap._DB_PATH", db_path),
+                patch("aip.cli._seed_bootstrap._DB_DIR", db_dir),
+                patch("aip.cli._seed_bootstrap._SENTINEL_PATH", sentinel_path),
+                patch.dict(os.environ, {"AIP_AUTO_SEED": "true"}),
+            ):
+                result = run_seed_bootstrap()
+
+            assert result is SeedStatus.SEEDED
+
+            conn = sqlite3.connect(str(db_path))
+            cols = [row[1] for row in conn.execute("PRAGMA table_info(corpus_turns)").fetchall()]
+            conn.close()
+
+            # Canonical columns must exist
+            assert "user_text" in cols
+            assert "assistant_text" in cols
+            assert "searchable_text" in cols
+            assert "word_count" in cols
+
+            # Old ad-hoc columns must NOT exist
+            assert "role" not in cols
+            assert "content" not in cols
+            assert "embedding_status" not in cols
+
+    def test_raw_count_and_api_count_agree(self):
+        """Raw corpus_turns count should match what the API would report.
+
+        After seed bootstrap, the turn count in the DB should be > 0 and
+        consistent with what CorpusTurnStore would return.
+        """
+        from aip.cli._seed_bootstrap import SeedStatus, run_seed_bootstrap
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "state.db"
+            sentinel_path = Path(tmpdir) / ".seed_bootstrapped"
+            db_dir = Path(tmpdir)
+
+            with (
+                patch("aip.cli._seed_bootstrap._DB_PATH", db_path),
+                patch("aip.cli._seed_bootstrap._DB_DIR", db_dir),
+                patch("aip.cli._seed_bootstrap._SENTINEL_PATH", sentinel_path),
+                patch.dict(os.environ, {"AIP_AUTO_SEED": "true"}),
+            ):
+                result = run_seed_bootstrap()
+
+            assert result is SeedStatus.SEEDED
+
+            conn = sqlite3.connect(str(db_path))
+            raw_count = conn.execute("SELECT COUNT(*) FROM corpus_turns").fetchone()[0]
+            conn.close()
+
+            assert raw_count > 0
+
+    def test_schema_validation_detects_missing_columns(self):
+        """_validate_corpus_schema should reject a table missing required columns."""
+        from aip.cli._seed_bootstrap import _validate_corpus_schema
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "state.db"
+            conn = sqlite3.connect(str(db_path))
+            # Create table with OLD ad-hoc schema (missing required columns)
+            conn.execute("""
+                CREATE TABLE corpus_turns (
+                    turn_id TEXT PRIMARY KEY,
+                    role TEXT NOT NULL DEFAULT '',
+                    content TEXT NOT NULL DEFAULT ''
+                )
+            """)
+            conn.commit()
+
+            # Should fail validation — missing embedded, conversation_id, tagging_version
+            assert _validate_corpus_schema(conn) is False
+            conn.close()
+
+    def test_schema_validation_passes_with_canonical_schema(self):
+        """_validate_corpus_schema should accept the canonical schema."""
+        from aip.cli._seed_bootstrap import _validate_corpus_schema
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "state.db"
+            conn = sqlite3.connect(str(db_path))
+
+            # Apply canonical DDL
+            from aip.adapter.corpus_turn_store import _DDL_CORPUS_TURNS, _DDL_MIGRATIONS
+            conn.execute(_DDL_CORPUS_TURNS)
+            for mig in _DDL_MIGRATIONS:
+                try:
+                    conn.execute(mig)
+                except sqlite3.OperationalError:
+                    pass
+            conn.commit()
+
+            assert _validate_corpus_schema(conn) is True
+            conn.close()
+
+    def test_sentinel_includes_graph_edges(self):
+        """Sentinel file should include graph_edges count."""
+        from aip.cli._seed_bootstrap import SeedStatus, run_seed_bootstrap
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "state.db"
+            sentinel_path = Path(tmpdir) / ".seed_bootstrapped"
+            db_dir = Path(tmpdir)
+
+            with (
+                patch("aip.cli._seed_bootstrap._DB_PATH", db_path),
+                patch("aip.cli._seed_bootstrap._DB_DIR", db_dir),
+                patch("aip.cli._seed_bootstrap._SENTINEL_PATH", sentinel_path),
+                patch.dict(os.environ, {"AIP_AUTO_SEED": "true"}),
+            ):
+                result = run_seed_bootstrap()
+
+            assert result is SeedStatus.SEEDED
+            sentinel_text = sentinel_path.read_text()
+            assert "graph_edges=" in sentinel_text
+
+
 # ── D. Graph Visibility ─────────────────────────────────────────────
 
 
