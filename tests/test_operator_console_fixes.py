@@ -282,30 +282,125 @@ class TestCorpusActionsAsync:
 
 
 class TestSeedBootstrap:
-    """Test seed bootstrap logic."""
+    """Test seed bootstrap logic — distinct status outcomes and correct exit codes."""
+
+    def test_first_run_on_empty_db_exits_zero_and_writes_sentinel(self):
+        """First run on empty DB should return SEEDED (exit 0) and write sentinel."""
+        from aip.cli._seed_bootstrap import SeedStatus, run_seed_bootstrap
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "state.db"
+            sentinel_path = Path(tmpdir) / ".seed_bootstrapped"
+            db_dir = Path(tmpdir)
+
+            with (
+                patch("aip.cli._seed_bootstrap._DB_PATH", db_path),
+                patch("aip.cli._seed_bootstrap._DB_DIR", db_dir),
+                patch("aip.cli._seed_bootstrap._SENTINEL_PATH", sentinel_path),
+                patch.dict(os.environ, {"AIP_AUTO_SEED": "true"}),
+            ):
+                result = run_seed_bootstrap()
+
+            assert result is SeedStatus.SEEDED
+            assert result.exit_code == 0
+            assert sentinel_path.exists()
+
+    def test_second_run_with_sentinel_exits_zero(self):
+        """Second run with sentinel present should return SKIPPED (exit 0)."""
+        from aip.cli._seed_bootstrap import SeedStatus, run_seed_bootstrap
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sentinel = Path(tmpdir) / ".seed_bootstrapped"
+            sentinel.write_text("seed_bootstrapped\ngraph_nodes=51\ncorpus_turns=114\n")
+
+            with patch("aip.cli._seed_bootstrap._SENTINEL_PATH", sentinel):
+                result = run_seed_bootstrap()
+
+            assert result is SeedStatus.SKIPPED
+            assert result.exit_code == 0
+
+    def test_nonempty_db_exits_zero_as_skipped(self):
+        """Non-empty DB should cause SKIPPED (exit 0), not FAILED."""
+        from aip.cli._seed_bootstrap import SeedStatus, _is_empty_db, run_seed_bootstrap
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "state.db"
+            sentinel_path = Path(tmpdir) / ".seed_bootstrapped"
+            db_dir = Path(tmpdir)
+
+            # Create DB with existing graph nodes
+            conn = sqlite3.connect(str(db_path))
+            conn.execute("CREATE TABLE graph_nodes (id TEXT PRIMARY KEY)")
+            conn.execute("INSERT INTO graph_nodes (id) VALUES ('test_node')")
+            conn.commit()
+            conn.close()
+
+            assert _is_empty_db(db_path) is False
+
+            with (
+                patch("aip.cli._seed_bootstrap._DB_PATH", db_path),
+                patch("aip.cli._seed_bootstrap._DB_DIR", db_dir),
+                patch("aip.cli._seed_bootstrap._SENTINEL_PATH", sentinel_path),
+            ):
+                result = run_seed_bootstrap()
+
+            assert result is SeedStatus.SKIPPED
+            assert result.exit_code == 0
+
+    def test_auto_seed_false_exits_zero_as_skipped(self):
+        """AIP_AUTO_SEED=false should cause SKIPPED (exit 0), not FAILED."""
+        from aip.cli._seed_bootstrap import SeedStatus, run_seed_bootstrap
+
+        with patch.dict(os.environ, {"AIP_AUTO_SEED": "false"}):
+            result = run_seed_bootstrap()
+
+        assert result is SeedStatus.SKIPPED
+        assert result.exit_code == 0
+
+    def test_broken_sql_path_exits_nonzero(self):
+        """Forced broken seed path / missing SQL should return FAILED (exit 1)."""
+        from aip.cli._seed_bootstrap import SeedStatus, run_seed_bootstrap
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "state.db"
+            sentinel_path = Path(tmpdir) / ".seed_bootstrapped"
+            db_dir = Path(tmpdir)
+            # Point SQL to a nonexistent file
+            fake_sql = Path(tmpdir) / "nonexistent_seed_bootstrap.sql"
+
+            with (
+                patch("aip.cli._seed_bootstrap._DB_PATH", db_path),
+                patch("aip.cli._seed_bootstrap._DB_DIR", db_dir),
+                patch("aip.cli._seed_bootstrap._SENTINEL_PATH", sentinel_path),
+                patch("aip.cli._seed_bootstrap._SQL_PATH", fake_sql),
+                patch.dict(os.environ, {"AIP_AUTO_SEED": "true"}),
+            ):
+                result = run_seed_bootstrap()
+
+            assert result is SeedStatus.FAILED
+            assert result.exit_code == 1
 
     def test_skips_when_sentinel_exists(self):
         """Bootstrap should skip when sentinel file exists."""
-        from aip.cli._seed_bootstrap import run_seed_bootstrap
+        from aip.cli._seed_bootstrap import SeedStatus, run_seed_bootstrap
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Create sentinel
             sentinel = Path(tmpdir) / ".seed_bootstrapped"
             sentinel.write_text("seed_bootstrapped\n")
 
             with patch("aip.cli._seed_bootstrap._SENTINEL_PATH", sentinel):
                 result = run_seed_bootstrap()
 
-            assert result is False
+            assert result is SeedStatus.SKIPPED
 
     def test_skips_when_auto_seed_false(self):
         """Bootstrap should skip when AIP_AUTO_SEED=false."""
-        from aip.cli._seed_bootstrap import run_seed_bootstrap
+        from aip.cli._seed_bootstrap import SeedStatus, run_seed_bootstrap
 
         with patch.dict(os.environ, {"AIP_AUTO_SEED": "false"}):
             result = run_seed_bootstrap()
 
-        assert result is False
+        assert result is SeedStatus.SKIPPED
 
     def test_skips_when_db_not_empty(self):
         """Bootstrap should skip when DB has existing graph nodes."""
@@ -323,7 +418,7 @@ class TestSeedBootstrap:
 
     def test_runs_on_empty_db(self):
         """Bootstrap should run on empty DB when AIP_AUTO_SEED is not false."""
-        from aip.cli._seed_bootstrap import run_seed_bootstrap
+        from aip.cli._seed_bootstrap import SeedStatus, run_seed_bootstrap
 
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "state.db"
@@ -338,8 +433,7 @@ class TestSeedBootstrap:
             ):
                 result = run_seed_bootstrap()
 
-            # Should succeed — creates graph tables and ingests conversations
-            assert result is True
+            assert result is SeedStatus.SEEDED
             assert sentinel_path.exists()
 
     def test_empty_db_detection(self):

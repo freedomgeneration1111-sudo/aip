@@ -56,13 +56,14 @@ echo "Database directory ensured: ${DB_DIR}/"
 # --- First-run seed bootstrap ---
 # Auto-populates an empty DB with graph nodes and seed conversations.
 # Skipped when: AIP_AUTO_SEED=false, sentinel exists, or DB is non-empty.
+# Exit codes: 0 = seeded or skipped (both normal), 1 = actual failure.
 if [ "${AIP_AUTO_SEED:-true}" != "false" ]; then
     echo "Checking first-run seed bootstrap..."
     if uv run python -m aip.cli._seed_bootstrap; then
-        echo "Seed bootstrap completed successfully."
+        echo "Seed bootstrap check passed (seeded or already complete)."
     else
         echo "ERROR: Seed bootstrap failed!" >&2
-        echo "This means first-run corpus initialization did not populate data." >&2
+        echo "This means first-run corpus initialization encountered an error." >&2
         echo "The system will continue but Corpus may show 0 documents." >&2
         echo "To retry: rm -f db/.seed_bootstrapped && python -m aip.cli._seed_bootstrap" >&2
         echo "" >&2

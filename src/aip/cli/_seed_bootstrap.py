@@ -14,6 +14,7 @@ It can also be invoked directly: python -m aip.cli seed_bootstrap
 
 from __future__ import annotations
 
+import enum
 import json
 import logging
 import os
@@ -22,6 +23,24 @@ import sys
 from pathlib import Path
 
 log = logging.getLogger("aip.cli.seed_bootstrap")
+
+
+class SeedStatus(str, enum.Enum):
+    """Distinct outcomes for seed bootstrap.
+
+    - SEEDED:  Bootstrap ran and populated data successfully.
+    - SKIPPED: Bootstrap was skipped (sentinel exists, DB not empty, or
+               AIP_AUTO_SEED=false). This is a *normal* outcome, not an error.
+    - FAILED:  Bootstrap attempted but encountered an actual error.
+    """
+    SEEDED = "seeded"
+    SKIPPED = "skipped"
+    FAILED = "failed"
+
+    @property
+    def exit_code(self) -> int:
+        """Exit code for this status: 0 for seeded/skipped, 1 for failed."""
+        return 0 if self is not SeedStatus.FAILED else 1
 
 # Paths relative to project root.
 # When running as `python -m aip.cli._seed_bootstrap` from the project root,
@@ -289,7 +308,7 @@ def _ingest_conversations(db_path: Path) -> int:
     return total_turns
 
 
-def run_seed_bootstrap() -> bool:
+def run_seed_bootstrap() -> SeedStatus:
     """Run the seed bootstrap if conditions are met.
 
     Conditions:
@@ -297,19 +316,21 @@ def run_seed_bootstrap() -> bool:
       - Sentinel file does not exist
       - DB is effectively empty (no graph nodes, no corpus turns)
 
-    Returns True if bootstrap ran successfully AND populated both
-    graph nodes and corpus turns. Returns False otherwise.
+    Returns:
+      SeedStatus.SEEDED  — bootstrap ran and populated data successfully
+      SeedStatus.SKIPPED — bootstrap was skipped (sentinel, non-empty DB, opt-out)
+      SeedStatus.FAILED  — bootstrap attempted but encountered an actual error
     """
     # Check opt-out env var
     auto_seed = os.environ.get("AIP_AUTO_SEED", "true").lower()
     if auto_seed in ("false", "0", "no"):
         log.info("Seed bootstrap skipped: AIP_AUTO_SEED=%s", auto_seed)
-        return False
+        return SeedStatus.SKIPPED
 
     # Check sentinel
     if _sentinel_exists():
         log.info("Seed bootstrap skipped: sentinel exists (%s)", _SENTINEL_PATH)
-        return False
+        return SeedStatus.SKIPPED
 
     # Ensure DB directory exists
     _DB_DIR.mkdir(parents=True, exist_ok=True)
@@ -317,7 +338,7 @@ def run_seed_bootstrap() -> bool:
     # Check if DB is empty
     if not _is_empty_db(_DB_PATH):
         log.info("Seed bootstrap skipped: DB is not empty")
-        return False
+        return SeedStatus.SKIPPED
 
     log.info("=== AIP Seed Bootstrap: first-run initialization ===")
 
@@ -331,7 +352,7 @@ def run_seed_bootstrap() -> bool:
     log.info("--- Step 1: Bootstrap graph and default project ---")
     if not _run_sql_bootstrap(_DB_PATH):
         log.error("SQL bootstrap failed — aborting seed bootstrap")
-        return False
+        return SeedStatus.FAILED
 
     # Verify graph nodes were actually created
     try:
@@ -344,7 +365,7 @@ def run_seed_bootstrap() -> bool:
 
     if graph_nodes == 0:
         log.error("Graph bootstrap produced 0 nodes — seed data may be corrupt")
-        return False
+        return SeedStatus.FAILED
 
     # Step 2: Ingest conversations
     log.info("--- Step 2: Ingest seed conversations ---")
@@ -356,16 +377,22 @@ def run_seed_bootstrap() -> bool:
             "Seed bootstrap ingested 0 turns. Conversation files may be missing "
             "or corrupt. Sentinel will NOT be written — bootstrap will retry on next start."
         )
-        return False
+        return SeedStatus.FAILED
 
     # Write sentinel only if both graph and corpus data exist
     _write_sentinel(graph_nodes=graph_nodes, corpus_turns=total_turns)
 
     log.info("=== Seed bootstrap complete: %d graph nodes, %d corpus turns ===", graph_nodes, total_turns)
-    return True
+    return SeedStatus.SEEDED
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
-    success = run_seed_bootstrap()
-    sys.exit(0 if success else 1)
+    status = run_seed_bootstrap()
+    if status == SeedStatus.SEEDED:
+        log.info("Seed bootstrap result: %s", status.value)
+    elif status == SeedStatus.SKIPPED:
+        log.info("Seed bootstrap result: %s (normal — no action needed)", status.value)
+    else:
+        log.error("Seed bootstrap result: %s", status.value)
+    sys.exit(status.exit_code)
