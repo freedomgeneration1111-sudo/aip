@@ -1,0 +1,158 @@
+# ============================================================
+
+# GUI — Agent Navigation
+> NiceGUI Operator Console. ACTIVE DEBUGGING ZONE. Read this before touching anything.
+
+## Purpose
+The GUI provides the user-facing interface for AIP: the unified chat surface
+where DEFINER interacts with Beast, Vigil, and Sexton actors. Built with NiceGUI.
+This is the primary surface for the dogfood loop.
+
+## Architecture Constraints
+- GUI communicates with AIP capabilities through the **adapter API layer only**
+  (FastAPI endpoints). It does not import from `src/aip/orchestration/` or
+  `src/aip/foundation/` directly.
+- State management stays local to GUI components — no shared mutable global state
+  between NiceGUI pages.
+- All API calls are async. NiceGUI's async event loop must be respected.
+- Authentication state flows from `adapter/auth/` through the API — GUI does not
+  implement its own auth logic.
+
+## Contracts (What This Module Promises to Consumers)
+
+### API Client Contract
+- `gui/api_client.py` (`AipApiClient`) is the sole gateway to backend data
+- All API methods return dicts or raise exceptions — callers must handle both
+- API base URL configured via `gui/config.py`
+- **Required methods that pages depend on**:
+  - `get_corpus_status()` → dict with `turn_count`, `embed_coverage`, `backfill_state`
+  - `get_embedding_progress()` → dict with `embedded`, `total_turns`, `backfill_state`, `rate_limited`
+  - `trigger_corpus_backfill()` → dict with `status`
+  - `trigger_corpus_ingest()` → dict with `status`
+  - `get_text_generation_slots()` → list of model slot dicts
+  - `get_actor_status()` → dict with `sexton`, `beast`, `vigil` keys
+- **If adding a new API method**: add it to `AipApiClient`, add the corresponding
+  FastAPI route in `adapter/api/routes/`, and document the contract here
+
+### Status Types Contract
+- `gui/status_types.py` defines the canonical status→label→color mapping
+- All status badges and pills MUST use `status_types.py` mappings — never hardcode
+- Backfill state labels: `not_configured` → "NOT CONFIGURED", `configured_idle` → "IDLE",
+  `backfill_running` → "RUNNING", `partially_embedded` → "PARTIAL",
+  `embedded` → "EMBEDDED", `degraded` → "DEGRADED", `failed` → "FAILED",
+  `rate_limited` → "RATE LIMITED"
+
+### Component Contract
+- Shared components in `gui/components/` are the ONLY place for reusable UI primitives
+- Pages in `gui/pages/` compose components — they do not re-implement them
+- Component `render()` methods accept data dicts, not business objects
+
+## Data Flows (In / Out)
+
+### In (Data the GUI reads from backend)
+- **Corpus page** reads from:
+  - `GET /corpus/status` → `corpus_status` dict
+  - `GET /corpus/embedding-progress` → `embedding_progress` dict
+  - `GET /corpus/turns` → turn list
+- **Dashboard page** reads from:
+  - `GET /actors/status` → actor status dict
+  - `GET /health` → system health dict
+- **Settings page** reads from:
+  - `GET /models/slots` → model slot list
+- **Ask page** reads from:
+  - `POST /ask` → answer with provenance
+
+### Out (Actions the GUI triggers)
+- Corpus page → `POST /corpus/ingest`, `POST /corpus/backfill`, `POST /corpus/retry`
+- Ask page → `POST /ask` with query
+- Settings page → `PUT /models/slots/{slot_id}`
+
+### Cross-Folder Data Flows
+```
+sexton.py (_embedding_backfill_state, _rate_limited)
+  → adapter/api/routes/corpus.py (/corpus/embedding-progress)
+    → gui/pages/corpus.py (embedding_progress["backfill_state"])
+      → gui/components/corpus_summary.py (status badge)
+      → gui/components/corpus_actions.py (button state)
+```
+
+## Known Gotchas
+- **UnboundLocalError on async handlers**: NiceGUI `ui.button(on_click=func)` requires
+  `func` to be defined BEFORE the button references it. Always define `async def`
+  handlers above their `ui.button()` calls. NEVER use `lambda: coroutine()` — use
+  direct function references.
+- **`sexton_pass.state` does not exist**: The backfill state is read from
+  `embedding_progress["backfill_state"]`, NOT from any attribute on a sexton_pass
+  object. The old code that read `sexton_pass.state` was a contract violation.
+- **NiceGUI async event loop**: Blocking calls in async handlers freeze the UI.
+  All API calls must use `await`, never synchronous requests.
+- **Error visibility**: All `try/except Exception` blocks in dialog handlers must
+  surface errors via `ui.notify(type="negative")`. Never silently swallow.
+- **Session reset**: If a debugging session hits 50+ messages on the same issue,
+  close and restart with a sharper success criterion.
+
+## Last Cycle
+- **Commit 14d3a73**: Fixed backfill state reading (was `sexton_pass.state`, now
+  `embedding_progress["backfill_state"]`). Added `rate_limited` flag to
+  CorpusActions. Added `try/except Exception` guards to all dialog handlers.
+  Fixed `_do_ingest`/`_do_backfill`/`_do_retry` definition order before button references.
+- **Commit 4c9e94d**: Fixed UnboundLocalError on `_do_backfill` by reordering
+  inner async function definitions above `ui.button(on_click=...)` calls.
+
+## Brand System (applies here)
+- Background: `#0d1117` | Accent: `#4A9B8E` slate-teal | Amber: `#D4A843`
+- Fonts: Inter for UI text, IBM Plex Mono for code blocks, Fraunces for display
+- Dark field only — no light mode variants at this stage
+
+## Key Structural Rules
+- Page components live in individual files, one page per file
+- Shared UI primitives go in a `components/` subfolder — do not duplicate
+- No inline business logic — all data operations go through API calls
+- Error states must be visible — no silent failures in the UI
+
+## Key Files
+| File | Role |
+|------|------|
+| `app.py` | NiceGUI app entry point |
+| `api_client.py` | AipApiClient — sole gateway to backend API |
+| `config.py` | GUI configuration (API base URL, etc.) |
+| `status_types.py` | Canonical status→label→color mappings |
+| `theme.py` | Brand system (colors, fonts, spacing) |
+| `state.py` | Shared reactive state (minimal — prefer local state) |
+| `pages/corpus.py` | Corpus management page — ACTIVE DEBUGGING |
+| `pages/ask.py` | Chat/ask page |
+| `pages/dashboard.py` | System dashboard |
+| `pages/settings.py` | Model and configuration settings |
+| `pages/graph.py` | Knowledge graph visualization |
+| `pages/wiki.py` | Wiki article browser/editor |
+| `pages/artifacts.py` | Artifact lifecycle management |
+| `pages/retrieval_lab.py` | Retrieval quality testing |
+| `pages/maintenance.py` | Maintenance center |
+| `pages/models.py` | Model management |
+| `components/corpus_summary.py` | Corpus status badge with backfill state |
+| `components/corpus_actions.py` | Corpus action buttons (ingest, backfill, retry) |
+
+## Work Guidance
+- For any UI change: identify the specific component, read this file,
+  make the minimal change, verify in browser, check for console errors.
+- For API-wiring changes: trace from the UI event handler → API call →
+  router in `adapter/api/` → foundation type. Verify the full chain.
+- If you're getting a state/render inconsistency: check NiceGUI's async
+  event loop handling — blocking calls in async handlers are the most
+  common root cause.
+
+## How to Test
+```bash
+# Start the app
+uv run aip init
+python -m gui.app  # Operator Console entry point
+
+# API integration check
+uv run pytest tests/test_api.py -k "gui"
+
+# Smoke test (verifies API surface GUI depends on)
+bash scripts/dogfood_smoke_test.sh
+```
+
+
+# ============================================================
