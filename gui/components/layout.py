@@ -48,8 +48,37 @@ _NAV_ITEMS = [
 ]
 
 
+# Layout CSS injected once per page via build_top_bar().
+#
+# ROOT CAUSE: NiceGUI's ``ui.column()`` defaults to ``display: flex;
+# flex-direction: column`` but has NO default ``width: 100%``. Quasar's
+# ``.q-page`` (the parent of every page's main content column) is
+# ``display: block`` by default, so the column's ``flex: 1`` class only
+# stretches it along the MAIN axis (height) — the cross-axis (width)
+# collapses to the column's content width. The result: main content
+# renders ~500px wide with the browser's white body background showing
+# through on the right.
+#
+# FIX: make ``.q-page`` itself a flex column. Then ``align-items:
+# stretch`` (the default) stretches every direct child horizontally to
+# fill the q-page's width, and ``flex: 1`` on the main column grows it
+# vertically to fill the height. This fixes ALL 11 pages with one rule.
+_LAYOUT_CSS = """
+<style>
+.q-page { display: flex !important; flex-direction: column !important; }
+</style>
+"""
+
+
 def build_top_bar(state: GuiState) -> None:
-    """Build the top bar: AIP_Brain title, dogfood badge, backend status, DEFINER label."""
+    """Build the top bar: AIP_Brain title, dogfood badge, backend status, DEFINER label.
+
+    Also injects the global layout CSS that makes ``.q-page`` a flex
+    column so the main content column's ``flex-1`` class stretches both
+    height and width (see ``_LAYOUT_CSS`` comment for the root cause).
+    Called by every page, so the CSS lands on every route.
+    """
+    ui.add_head_html(_LAYOUT_CSS)
     with (
         ui.header()
         .classes("w-full items-center")

@@ -95,6 +95,18 @@ sexton.py (_embedding_backfill_state, _rate_limited)
   pixel width on render. Setting `width:100px` via `.style()` gets overridden.
   Use `.props("width=100; mini=false; bordered=false")` to tell Quasar at the
   component level so the drawer actually shrinks.
+- **`.q-page` must be `display:flex; flex-direction:column` or main content
+  collapses to content-width**: Quasar's `.q-page` (the parent of every page's
+  main content column) is `display:block` by default. NiceGUI's `ui.column()`
+  defaults to `display:flex; flex-direction:column` but has NO default
+  `width:100%`. So the column's `flex-1` class only stretches it along the
+  MAIN axis (height) — the cross-axis (width) collapses to content width,
+  leaving the browser's white body background visible on the right half of
+  the viewport. `build_top_bar()` in `gui/components/layout.py` injects
+  `_LAYOUT_CSS` on every page to force `.q-page` into flex-column mode, which
+  makes `align-items:stretch` (the default) stretch the main column to full
+  width. If you ever remove that CSS injection, EVERY page will regress to
+  the narrow-content-with-whitespace-on-the-right bug. Do not remove it.
 - **`ui.right_drawer()` is FORBIDDEN in this codebase**: Per the no-right-sidebar
   rule, no page or component may use `ui.right_drawer()`. The Beast Counsel and
   Model Council panels use `ui.dialog()` (centered modal) instead. The old
@@ -118,6 +130,16 @@ sexton.py (_embedding_backfill_state, _rate_limited)
   synthesis renders as a final advisory card. The synthesis is ADVISORY ONLY.
 
 ## Last Cycle
+- **q-page flex-column fix (this cycle)**: All 11 pages were rendering their
+  main content column at content-width (~500px) with the browser's white body
+  background filling the right half of the viewport. Root cause: Quasar's
+  `.q-page` is `display:block` by default, so the main column's `flex-1`
+  class only stretched its height, not its width (NiceGUI's `ui.column()` has
+  no default `width:100%`). Fix: `build_top_bar()` now injects `_LAYOUT_CSS`
+  on every page, forcing `.q-page` into `display:flex; flex-direction:column`
+  so `align-items:stretch` (the default) stretches the main column to full
+  viewport width. One-line CSS change in `gui/components/layout.py` fixes
+  all 11 pages — no per-page changes needed.
 - **Layout pass + turn_id + Multi-Cast + dialogs**:
   - Right sidebar (`build_right_rail`) removed from all pages — info relocated
     to Maintenance page. The function is kept as a no-op stub for backward compat.
