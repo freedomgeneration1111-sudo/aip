@@ -104,9 +104,19 @@ def _dogfood_badge(mode: str) -> None:
 
 
 def build_left_nav(state: GuiState, active_page: str = "") -> None:
-    """Build the left navigation drawer."""
-    with ui.left_drawer().style(
-        f"background:{C_SURFACE}; border-right:0.5px solid {C_INK40}; width:100px; min-width:100px; padding:0;"
+    """Build the left navigation drawer.
+
+    Width is set via Quasar's ``width`` prop (not CSS) because Quasar's
+    q-drawer re-applies its own inline pixel width on render and would
+    override any CSS width we set via ``.style()``. Using ``props("width=100")``
+    tells Quasar at the component level so the drawer actually shrinks.
+    """
+    with (
+        ui.left_drawer()
+        .props("width=100; mini=false; bordered=false")
+        .style(
+            f"background:{C_SURFACE}; border-right:0.5px solid {C_INK40}; padding:0;"
+        )
     ):
         for label, route, icon in _NAV_ITEMS:
             is_active = active_page == route or (active_page == "" and route == "/")
