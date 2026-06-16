@@ -160,9 +160,54 @@ sexton.py (_embedding_backfill_state, _rate_limited)
   `≥2 usable models` gate counts the combined total. Library results
   in the response carry `source="library"` and empty `model_slot` —
   the GUI's per-model card renders them with the model_id as the label.
+- **Phase 1 Fusion rendering (this cycle)**: The backend's Beast
+  synthesis now runs as a two-stage Fusion pipeline (Judge-Beast →
+  Synth-Beast). The response gains two new fields:
+  - `fusion_answer` (str) — the final Synth-Beast output. This is the
+    headline of the synthesis card; `_send_multicast` in `ask.py`
+    renders it as `**Fusion Synthesis:** ...` and labels the card
+    `model="Beast Fusion"`.
+  - `judge_analysis` (dict) — the full structured Judge JSON. The
+    `ModelCouncilPanel` component can use this for audit rendering (not
+    yet surfaced in the panel — deferred to a future cycle).
+  Legacy fields (`convergence`, `disagreements`, `unique_contributions`,
+  `risks`, `recommended_decision`) are still rendered by both
+  `ModelCouncilPanel._render_synthesis` and `_send_multicast` as
+  supporting detail below the fusion answer. `beast_conclusion` is
+  mirrored to `fusion_answer` and only rendered separately when it
+  differs (legacy fallback path).
+  The synthesis card label changed from `"Beast Synthesis"` to
+  `"Beast Fusion"` to reflect the new pipeline. The system messages
+  on unavailable/failed paths now say "Beast Fusion synthesis
+  unavailable/failed" instead of just "Beast synthesis".
 
 ## Last Cycle
-- **Multi-Cast library bridge (this cycle)**: The `/models` page checkboxes
+- **Phase 1 Fusion rendering (this cycle)**: The backend's Beast
+  synthesis now runs as a two-stage OpenRouter Fusion pipeline
+  (Judge-Beast → Synth-Beast), reusing the `beast` slot for both
+  stages. The GUI consumers were updated additively to surface the
+  new `fusion_answer` field as the headline of the synthesis surface:
+  - `gui/components/model_council_panel.py::_render_synthesis` now
+    renders `data["fusion_answer"]` as a prominent "Fusion Synthesis"
+    section (color `C_OK_FG`) above the legacy Convergence /
+    Disagreements / Unique Contributions / Risks sections, which
+    remain as supporting detail. The "Beast Conclusion" section is
+    only rendered when it differs from `fusion_answer` (legacy
+    fallback path).
+  - `gui/pages/ask.py::_send_multicast` now reads
+    `result["fusion_answer"]` and renders it as the headline of the
+    synthesis answer card: `**Fusion Synthesis:** ...`. The card
+    `model` label changed from `"Beast Synthesis"` to `"Beast Fusion"`
+    to reflect the new pipeline. System messages on the unavailable
+    and failed paths now say "Beast Fusion synthesis unavailable /
+    failed" instead of just "Beast synthesis".
+  - `gui/api_client.py::run_model_council` is unchanged — it passes
+    the request payload through and returns the response dict, so
+    the new fields flow through automatically.
+  No GUI state fields were added; no API client method signatures
+  changed. 22 new fusion tests in `tests/test_model_council_fusion.py`
+  assert the GUI consumers read `fusion_answer` (AST contract check).
+- **Multi-Cast library bridge (prior cycle)**: The `/models` page checkboxes
   now feed Multi-Cast. Previously Multi-Cast only accepted TOML-configured
   slot names (`synthesis`, `evaluation`, `beast`, …) — max ~4 options. Now
   the Ask page's Multi-Cast row shows a second checkbox group labeled

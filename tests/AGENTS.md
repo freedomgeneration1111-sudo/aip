@@ -60,6 +60,38 @@ CI runs on every push to main — failures block merge.
   Forgetting the mark causes the test to be skipped silently.
 
 ## Last Cycle
+- **Phase 1 Fusion tests (this cycle)**: Added `test_model_council_fusion.py`
+  with 22 tests covering the new two-stage Fusion pipeline (Judge-Beast →
+  Synth-Beast). Tests assert:
+  - Schema additions: `fusion_answer` and `judge_analysis` fields exist
+    with correct defaults; all legacy fields still present.
+  - Two-stage Beast call: the `beast` slot is called once as a panelist
+    + twice for Fusion (Judge with JUDGE system prompt, then Synth with
+    SYNTHESIZER system prompt), verified by filtering on system prompt
+    content.
+  - `fusion_answer` populated from Synth-Beast output.
+  - `judge_analysis` populated from Judge-Beast JSON output.
+  - Legacy fields derived from new `analysis.*` schema (consensus,
+    contradictions, partial_coverage, unique_insights, blind_spots).
+  - Backward compat: Judge returning old top-level schema
+    (convergence/disagreements/etc. as top-level keys) still populates
+    legacy fields, judge_analysis, and produces a fusion_answer.
+  - Asymmetric information contract: Synth-Beast's user prompt does NOT
+    contain raw panel output strings (only the Judge JSON).
+  - Failure paths: Judge failure → synthesis_status="failed",
+    fusion_answer empty. Synth failure → synthesis_status="failed" but
+    judge_analysis still populated. Single successful model →
+    synthesis_status="unavailable".
+  - Guarantees preserved: advisory_only=True, requires_DEFINER_approval=True,
+    no secrets in response, save_as_artifact produces GENERATED only
+    (never APPROVED).
+  - GUI consumer contract: AST check that `ask.py` reads
+    `result["fusion_answer"]` and `model_council_panel.py` reads
+    `data["fusion_answer"]`.
+  All 22 new tests pass. All 97 existing council tests
+  (test_model_council_cycle6.py, test_model_council_cycle6_1.py,
+  test_model_council_library_ids.py) continue to pass unchanged —
+  backward compat is verified.
 - **Commit 14d3a73**: Added 19 regression tests in `test_operator_console_fixes.py`:
   - `TestCorpusDialogHandlerOrder` (5 tests): definition order for handlers
   - `TestSextonConcurrencyGuard` (4 tests): cycle_lock, cycle_active, concurrent skip
@@ -79,6 +111,10 @@ CI runs on every push to main — failures block merge.
 ## Test File Map
 | File | Domain |
 |------|--------|
+| `test_model_council_fusion.py` | Phase 1 Fusion pipeline — Judge+Synth two-stage Beast synthesis (22 tests) |
+| `test_model_council_cycle6.py` | UI Cycle 6 — Model Council schema, multi-model exec, partial failure, save-as-artifact |
+| `test_model_council_cycle6_1.py` | UI Cycle 6.1 — selected_model_slots honoring, embedding exclusion, text-generation-slots endpoint |
+| `test_model_council_library_ids.py` | Library model-ID bridge — selected_model_ids, PerModelResult.source, combined insufficient gate |
 | `test_operator_console_fixes.py` | Regression tests for operator console bug fixes |
 | `test_ingestion.py` | Ingestion pipeline — parse, chunk, embed, index |
 | `test_ask.py` | Ask pipeline — retrieve, assemble, dispatch, persist |

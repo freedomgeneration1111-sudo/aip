@@ -1,11 +1,17 @@
-"""Model Council — multi-model comparison report endpoint.
+"""Model Council — multi-model Fusion synthesis endpoint.
 
 Provides:
   POST /api/v1/beast/compare-models
 
 The Model Council lets the DEFINER compare multiple model outputs for a
-prompt/turn/context, then receive a Beast-style synthesis of convergence,
-disagreements, risks, and recommended decision.
+prompt/turn/context, then receive a Beast-style Fusion synthesis.
+
+Phase 1 (default): The Beast analysis runs as a two-stage OpenRouter Fusion
+pipeline — Judge-Beast reads the panel outputs and produces a structured
+JSON comparison, then Synth-Beast reads ONLY that JSON (no panel outputs,
+no retrieval) and writes the final fused answer. Per-model panel outputs
+remain in ``selected_models`` for the human to compare alongside the
+single ``fusion_answer``.
 
 Reports are ADVISORY ONLY. No auto-approve, no auto-export, no wiki
 mutation, no config changes, no model slot changes.
@@ -117,7 +123,19 @@ class ModelCouncilRequest(BaseModel):
 
 
 class ModelCouncilResponse(BaseModel):
-    """Response model for Model Council comparison report."""
+    """Response model for Model Council comparison report.
+
+    Phase 1 (Fusion pipeline): the Beast analysis now runs as a two-stage
+    Fusion pipeline — Judge-Beast produces a structured JSON comparison,
+    then Synth-Beast reads that JSON and writes the final fused answer.
+
+    Legacy fields (``convergence``, ``disagreements``,
+    ``unique_contributions``, ``risks``, ``beast_conclusion``,
+    ``recommended_decision``) are still populated from the Judge JSON so
+    existing consumers continue to work. New consumers should prefer
+    ``fusion_answer`` (the final Synth-Beast output) and
+    ``judge_analysis`` (the full structured Judge JSON for audit).
+    """
 
     id: str = ""
     status: str = "pending"  # pending, completed, partial, insufficient_models, unavailable, error
@@ -140,6 +158,17 @@ class ModelCouncilResponse(BaseModel):
     error: str = ""
     # Synthesis status — separate from overall status
     synthesis_status: str = "pending"  # pending, completed, unavailable, failed
+    # ── Phase 1 Fusion fields ──
+    # ``fusion_answer`` is the final fused answer produced by Synth-Beast
+    # after reading the Judge JSON. ``beast_conclusion`` is mirrored to
+    # this value for legacy consumers.
+    fusion_answer: str = ""
+    # ``judge_analysis`` is the full structured JSON produced by
+    # Judge-Beast: ``{status, analysis:{consensus[], contradictions[],
+    # partial_coverage[], unique_insights[], blind_spots[]},
+    # responses[{model, content}]}``. Empty dict if Judge call failed
+    # or JSON parse failed.
+    judge_analysis: dict[str, Any] = Field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -612,7 +641,13 @@ async def compare_models(
     else:
         overall_status = "completed"
 
-    # --- Beast synthesis ---
+    # --- Beast Fusion synthesis (Panel → Judge-Beast → Synth-Beast) ---
+    # Phase 1: the Beast analysis now runs as a two-stage Fusion pipeline.
+    # Judge-Beast reads the panel outputs and produces a structured JSON
+    # comparison. Synth-Beast reads ONLY that JSON (no panel outputs, no
+    # retrieval) and writes the final fused answer. Per-model panel
+    # outputs remain in ``selected_models`` for the human to compare
+    # alongside the fusion.
     synthesis_status = "pending"
     convergence = ""
     disagreements = ""
@@ -620,6 +655,8 @@ async def compare_models(
     risks = ""
     beast_conclusion = ""
     recommended_decision = ""
+    fusion_answer = ""
+    judge_analysis: dict[str, Any] = {}
 
     # Synthesis requires a model_provider with a "beast" slot. If
     # model_provider is None (e.g. only library model IDs were used),
@@ -632,7 +669,7 @@ async def compare_models(
             "available for individual review."
         )
     elif successful_count >= 2:
-        # Build the synthesis prompt with per-model answers. Use a
+        # Build the per-model answers block for the Judge. Use a
         # friendly label for each: "<slot_name> (<model_id>)" for slots,
         # "<display_name> (<model_id>)" for library models (model_slot=""
         # for library models).
@@ -648,83 +685,255 @@ async def compare_models(
 
         soul_text = _load_soul_text()
 
-        synthesis_system_prompt = (
-            "You are AIP Beast, the corpus intelligence actor, acting as Model Council "
-            "synthesizer. You are given multiple model responses to the same prompt and "
-            "must produce a structured advisory synthesis.\n\n"
-            "Your synthesis is ADVISORY ONLY — it must never be treated as canonical "
-            "without DEFINER review and approval.\n\n"
+        # ── Stage 1: Judge-Beast — structured comparison JSON ──
+        judge_system_prompt = (
+            "You are AIP Beast acting as the JUDGE in a Fusion pipeline. "
+            "You are given multiple model responses to the same prompt. "
+            "Your job is to produce a STRUCTURED JSON comparison that "
+            "the Synthesizer will use to write the final fused answer.\n\n"
+            "Your output is ADVISORY ONLY — it must never be treated as "
+            "canonical without DEFINER review and approval.\n\n"
             "IMPORTANT CONSTRAINTS:\n"
-            "- All recommendations are ADVISORY ONLY and require DEFINER approval\n"
-            "- Never auto-approve, auto-export, mutate wiki, change config, or change model slots\n"
+            "- All findings are ADVISORY ONLY and require DEFINER approval\n"
+            "- Never auto-approve, auto-export, mutate wiki, change config, "
+            "or change model slots\n"
             "- Be honest about uncertainty — flag weak signals explicitly\n"
-            "- Do not fabricate convergence, disagreements, or risks that aren't evident\n\n"
-            "Respond with a JSON object containing these fields:\n"
+            "- Do not fabricate consensus, contradictions, or insights\n\n"
+            "Respond with a JSON object with EXACTLY this shape:\n"
             "{\n"
-            '  "convergence": "Where the models agree and why",\n'
-            '  "disagreements": "Where the models disagree and the substance of disagreement",\n'
-            '  "unique_contributions": "What each model contributed that others did not",\n'
-            '  "risks": "Risks identified from the comparison",\n'
-            '  "beast_conclusion": "Your overall assessment and reasoning",\n'
-            '  "recommended_decision": "Your advisory recommendation for the DEFINER"\n'
+            '  "status": "completed" | "partial" | "insufficient",\n'
+            '  "analysis": {\n'
+            '    "consensus": ["points ALL successful models agree on"],\n'
+            '    "contradictions": [\n'
+            '      {"topic": "...", "stances": [{"model": "...", "stance": "..."}]}\n'
+            '    ],\n'
+            '    "partial_coverage": [\n'
+            '      {"models": ["model_a", "model_b"], "point": "topic only some models covered"}\n'
+            '    ],\n'
+            '    "unique_insights": [\n'
+            '      {"model": "...", "insight": "..."}\n'
+            '    ],\n'
+            '    "blind_spots": ["topics NO model addressed"]\n'
+            '  },\n'
+            '  "responses": [\n'
+            '    {"model": "...", "content": "brief summary of that model\'s answer"}\n'
+            '  ]\n'
             "}\n\n"
-            "If you cannot confidently assess a field, leave it as an empty string. "
-            "Do not fabricate content."
+            "Rules:\n"
+            "- consensus[] must list points where ALL successful models agree\n"
+            "- contradictions[] must attribute each stance to a specific model\n"
+            "- partial_coverage[] must list which models covered a point\n"
+            "- unique_insights[] must attribute each insight to its source model\n"
+            "- blind_spots[] is MANDATORY — list topics NO model addressed. "
+            "Use an empty array only if you can prove coverage was complete.\n"
+            "- If a field has no entries, use an empty array\n"
         )
+        judge_system_prompt = _prepend_soul(judge_system_prompt, soul_text)
 
-        synthesis_system_prompt = _prepend_soul(synthesis_system_prompt, soul_text)
-
-        synthesis_user_prompt = f"""Synthesize these model responses into a structured advisory report.
+        judge_user_prompt = f"""Compare these model responses and produce the structured JSON.
 
 Original Prompt:
 {request.prompt[:2000]}
 {answers_block}
+Return the JSON object now."""
 
-Provide your synthesis as structured JSON."""
-
-        synthesis_messages = [
-            {"role": "system", "content": synthesis_system_prompt},
-            {"role": "user", "content": synthesis_user_prompt},
+        judge_messages = [
+            {"role": "system", "content": judge_system_prompt},
+            {"role": "user", "content": judge_user_prompt},
         ]
 
+        judge_succeeded = False
         try:
-            synth_result = await container.model_provider.call("beast", synthesis_messages)
-            synth_content = synth_result.get("content", "").strip()
+            judge_result = await container.model_provider.call("beast", judge_messages)
+            judge_content = judge_result.get("content", "").strip()
 
-            if synth_result.get("error"):
-                synthesis_status = "failed"
+            if judge_result.get("error"):
                 logger.error(
-                    "council_synthesis_provider_error error=%s",
-                    synth_result.get("error_message", "unknown"),
+                    "council_judge_provider_error error=%s",
+                    judge_result.get("error_message", "unknown"),
                 )
-            elif synth_content:
-                # Parse JSON from synthesis response
-                json_str = synth_content
+            elif judge_content:
+                json_str = judge_content
                 if "```json" in json_str:
                     json_str = json_str.split("```json", 1)[-1].split("```", 1)[0]
                 elif "```" in json_str:
                     json_str = json_str.split("```", 1)[-1].split("```", 1)[0]
 
                 try:
-                    synth_data = json.loads(json_str.strip())
-                    if isinstance(synth_data, dict):
-                        convergence = synth_data.get("convergence", "")
-                        disagreements = synth_data.get("disagreements", "")
-                        unique_contributions = synth_data.get("unique_contributions", "")
-                        risks = synth_data.get("risks", "")
-                        beast_conclusion = synth_data.get("beast_conclusion", "")
-                        recommended_decision = synth_data.get("recommended_decision", "")
-                        synthesis_status = "completed"
+                    judge_data = json.loads(json_str.strip())
+                    if isinstance(judge_data, dict):
+                        judge_analysis = judge_data
+                        judge_succeeded = True
+                        # Populate legacy fields from the new structured
+                        # schema (best-effort — tolerate missing keys).
+                        analysis = (
+                            judge_data.get("analysis", {})
+                            if isinstance(judge_data.get("analysis"), dict)
+                            else {}
+                        )
+                        consensus = analysis.get("consensus", [])
+                        if isinstance(consensus, list) and consensus:
+                            convergence = "; ".join(str(c) for c in consensus)
+
+                        contradictions = analysis.get("contradictions", [])
+                        if isinstance(contradictions, list) and contradictions:
+                            parts = []
+                            for c in contradictions:
+                                if not isinstance(c, dict):
+                                    continue
+                                topic = c.get("topic", "?")
+                                stances = c.get("stances", [])
+                                if isinstance(stances, list) and stances:
+                                    stance_str = ", ".join(
+                                        f"{s.get('model', '?')}={s.get('stance', '?')}"
+                                        for s in stances
+                                        if isinstance(s, dict)
+                                    )
+                                else:
+                                    stance_str = ""
+                                parts.append(f"{topic}: {stance_str}" if stance_str else str(topic))
+                            if parts:
+                                disagreements = "; ".join(parts)
+
+                        unique = analysis.get("unique_insights", [])
+                        if isinstance(unique, list) and unique:
+                            parts = []
+                            for u in unique:
+                                if not isinstance(u, dict):
+                                    continue
+                                parts.append(f"{u.get('model', '?')}: {u.get('insight', '?')}")
+                            if parts:
+                                unique_contributions = "; ".join(parts)
+
+                        blind = analysis.get("blind_spots", [])
+                        if isinstance(blind, list) and blind:
+                            risks = "; ".join(str(b) for b in blind)
+
+                        # Backward-compat: accept old-schema top-level keys
+                        # too (the test mock and older Beast models may
+                        # return these instead of the new analysis.* shape).
+                        if not convergence and judge_data.get("convergence"):
+                            convergence = str(judge_data.get("convergence"))
+                        if not disagreements and judge_data.get("disagreements"):
+                            disagreements = str(judge_data.get("disagreements"))
+                        if not unique_contributions and judge_data.get("unique_contributions"):
+                            unique_contributions = str(judge_data.get("unique_contributions"))
+                        if not risks and judge_data.get("risks"):
+                            risks = str(judge_data.get("risks"))
+                        if judge_data.get("recommended_decision"):
+                            recommended_decision = str(judge_data.get("recommended_decision"))
                 except (json.JSONDecodeError, TypeError):
                     logger.warning(
-                        "council_synthesis_json_parse_failed content_preview=%s",
-                        synth_content[:200],
+                        "council_judge_json_parse_failed content_preview=%s",
+                        judge_content[:200],
                     )
-                    beast_conclusion = synth_content[:500]
-                    synthesis_status = "completed"
+                    # Fall back: treat judge_content as raw advisory text
+                    beast_conclusion = judge_content[:500]
         except Exception as exc:
-            logger.error("council_synthesis_call_failed error=%s", str(exc), exc_info=True)
+            logger.error(
+                "council_judge_call_failed error=%s", str(exc), exc_info=True,
+            )
+
+        # ── Stage 2: Synth-Beast — read JSON only, write final answer ──
+        # The Synthesizer sees ONLY the Judge JSON — never the raw panel
+        # outputs, never retrieval, never external sources. This is the
+        # asymmetric information design that lets the fusion step give
+        # lift independently of model diversity.
+        if judge_succeeded and judge_analysis:
+            synth_system_prompt = (
+                "You are AIP Beast acting as the SYNTHESIZER in a Fusion "
+                "pipeline. You are given a structured JSON comparison of "
+                "multiple model responses produced by the Judge. Your job "
+                "is to write the final fused answer to the original prompt.\n\n"
+                "Your output is ADVISORY ONLY — it must never be treated as "
+                "canonical without DEFINER review and approval.\n\n"
+                "CONSTRAINTS:\n"
+                "- You may NOT call any tools, perform retrieval, or consult "
+                "external sources. Work only from the Judge JSON and your "
+                "own knowledge.\n"
+                "- All recommendations are ADVISORY ONLY and require DEFINER approval\n"
+                "- Address the original prompt directly with a clear, useful answer\n"
+                "- Lean on consensus points; flag contradictions explicitly\n"
+                "- Cover blind_spots honestly — do not fabricate\n"
+                "- Attribute unique insights to their source model where relevant\n"
+                "- Be concise but complete\n\n"
+                "Respond with the final fused answer as plain text (NOT JSON)."
+            )
+            synth_system_prompt = _prepend_soul(synth_system_prompt, soul_text)
+
+            judge_json_str = json.dumps(judge_analysis, ensure_ascii=False, indent=2)
+            synth_user_prompt = f"""Write the final fused answer.
+
+Original Prompt:
+{request.prompt[:2000]}
+
+Judge JSON (your only input besides your own knowledge):
+```json
+{judge_json_str}
+```
+
+Write the final fused answer now."""
+
+            synth_messages = [
+                {"role": "system", "content": synth_system_prompt},
+                {"role": "user", "content": synth_user_prompt},
+            ]
+
+            try:
+                synth_result = await container.model_provider.call("beast", synth_messages)
+                synth_content = synth_result.get("content", "").strip()
+
+                if synth_result.get("error"):
+                    synthesis_status = "failed"
+                    logger.error(
+                        "council_synth_provider_error error=%s",
+                        synth_result.get("error_message", "unknown"),
+                    )
+                elif synth_content:
+                    # The Synth output is the final fused answer (free
+                    # text in production). Some models may accidentally
+                    # wrap in JSON or markdown — extract clean text.
+                    fusion_answer = synth_content
+                    try:
+                        synth_json_str = synth_content
+                        if "```json" in synth_json_str:
+                            synth_json_str = synth_json_str.split("```json", 1)[-1].split("```", 1)[0]
+                        elif "```" in synth_json_str:
+                            synth_json_str = synth_json_str.split("```", 1)[-1].split("```", 1)[0]
+                        synth_data = json.loads(synth_json_str.strip())
+                        if isinstance(synth_data, dict):
+                            for key in (
+                                "fusion_answer", "answer", "fused_answer",
+                                "synthesis", "beast_conclusion",
+                            ):
+                                val = synth_data.get(key)
+                                if val:
+                                    fusion_answer = str(val)
+                                    break
+                    except (json.JSONDecodeError, TypeError):
+                        pass  # Use the raw synth_content as the fused answer
+                    beast_conclusion = fusion_answer  # legacy mirror
+                    synthesis_status = "completed"
+                else:
+                    synthesis_status = "failed"
+            except Exception as exc:
+                logger.error(
+                    "council_synth_call_failed error=%s", str(exc), exc_info=True,
+                )
+                synthesis_status = "failed"
+        elif judge_succeeded is False and beast_conclusion:
+            # Judge call produced a raw text fallback (JSON parse failed)
+            # — treat the synthesis as completed with whatever text we got.
+            synthesis_status = "completed"
+            fusion_answer = beast_conclusion
+        else:
+            # Judge call errored entirely — synthesis cannot proceed.
             synthesis_status = "failed"
+            beast_conclusion = (
+                "Beast Fusion synthesis failed — Judge call did not produce "
+                "a structured comparison. Per-model results are available "
+                "for individual review."
+            )
     elif successful_count == 1:
         # Only one model succeeded — can't really compare
         synthesis_status = "unavailable"
@@ -756,6 +965,8 @@ Provide your synthesis as structured JSON."""
         advisory_only=True,
         requires_DEFINER_approval=True,
         synthesis_status=synthesis_status,
+        fusion_answer=fusion_answer,
+        judge_analysis=judge_analysis,
     )
 
     # --- Save as artifact if requested ---

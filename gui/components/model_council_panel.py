@@ -459,11 +459,23 @@ class ModelCouncilPanel:
         # Synthesis sections
         synthesis_status = data.get("synthesis_status", "unknown")
         if synthesis_status == "completed":
+            # Phase 1 Fusion: the new headline is ``fusion_answer`` (the
+            # Synth-Beast output). Legacy structured fields (convergence,
+            # disagreements, etc.) are still rendered below as supporting
+            # detail — they're populated from the Judge JSON.
+            fusion_answer = data.get("fusion_answer", "")
+            if fusion_answer:
+                self._render_section("Fusion Synthesis", fusion_answer, C_OK_FG)
+            # Legacy structured-analysis fields (best-effort from Judge JSON)
             self._render_section("Convergence", data.get("convergence", ""), C_OK_FG)
             self._render_section("Disagreements", data.get("disagreements", ""), C_AMBER)
             self._render_section("Unique Contributions", data.get("unique_contributions", ""), C_CREAM)
             self._render_section("Risks", data.get("risks", ""), C_ERR_FG)
-            self._render_section("Beast Conclusion", data.get("beast_conclusion", ""), C_CREAM)
+            # Beast Conclusion is mirrored from fusion_answer in Phase 1,
+            # so only render it separately if it differs (legacy fallback)
+            beast_conclusion = data.get("beast_conclusion", "")
+            if beast_conclusion and beast_conclusion != fusion_answer:
+                self._render_section("Beast Conclusion", beast_conclusion, C_CREAM)
             self._render_section("Recommended Decision", data.get("recommended_decision", ""), C_AMBER)
         elif synthesis_status == "unavailable":
             with ui.column().classes("w-full").style("padding: 8px 16px;"):

@@ -791,8 +791,12 @@ async def _send_multicast(
                 f"Multi-Cast slot '{slot_name}' FAILED: {error[:200]}",
             )
 
-    # Render the Beast synthesis as a final answer card if available
+    # Render the Beast Fusion synthesis as a final answer card if available.
+    # Phase 1: ``fusion_answer`` is the headline (the Synth-Beast output).
+    # Legacy structured fields (convergence, disagreements, etc.) are
+    # rendered as supporting detail below the fusion answer.
     synthesis_status = result.get("synthesis_status", "unavailable")
+    fusion_answer = result.get("fusion_answer", "")
     beast_conclusion = result.get("beast_conclusion", "")
     convergence = result.get("convergence", "")
     disagreements = result.get("disagreements", "")
@@ -800,8 +804,12 @@ async def _send_multicast(
     risks = result.get("risks", "")
     recommended_decision = result.get("recommended_decision", "")
 
-    if synthesis_status == "completed" and (beast_conclusion or convergence):
-        synth_lines = ["## Beast Synthesis (ADVISORY ONLY)"]
+    if synthesis_status == "completed" and (fusion_answer or beast_conclusion or convergence):
+        synth_lines = ["## Beast Fusion Synthesis (ADVISORY ONLY)"]
+        # Phase 1 headline: the Synth-Beast fused answer
+        if fusion_answer:
+            synth_lines.append(f"**Fusion Synthesis:** {fusion_answer}")
+        # Legacy structured-analysis fields (best-effort from Judge JSON)
         if convergence:
             synth_lines.append(f"**Convergence:** {convergence}")
         if disagreements:
@@ -810,7 +818,9 @@ async def _send_multicast(
             synth_lines.append(f"**Unique Contributions:** {unique_contributions}")
         if risks:
             synth_lines.append(f"**Risks:** {risks}")
-        if beast_conclusion:
+        # beast_conclusion is mirrored from fusion_answer in Phase 1,
+        # so only show it as a separate line if it differs (legacy fallback)
+        if beast_conclusion and beast_conclusion != fusion_answer:
             synth_lines.append(f"**Beast Conclusion:** {beast_conclusion}")
         if recommended_decision:
             synth_lines.append(f"**Recommended Decision:** {recommended_decision}")
@@ -820,7 +830,7 @@ async def _send_multicast(
             "session_id": session_id,
             "turn_id": "",
             "content": synth_content,
-            "model": "Beast Synthesis",
+            "model": "Beast Fusion",
             "mode": "multicast",
             "sources": [],
             "trace_available": False,
@@ -831,7 +841,7 @@ async def _send_multicast(
         add_answer_card(
             chat_container,
             content=synth_content,
-            model="Beast Synthesis",
+            model="Beast Fusion",
             latency_ms=None,
             sources=[],
             trace_available=False,
@@ -850,12 +860,12 @@ async def _send_multicast(
     elif synthesis_status == "unavailable":
         add_system_message(
             chat_container,
-            "Beast synthesis unavailable — per-model results above for individual review",
+            "Beast Fusion synthesis unavailable — per-model results above for individual review",
         )
     elif synthesis_status == "failed":
         add_system_message(
             chat_container,
-            "Beast synthesis call failed — per-model results above for individual review",
+            "Beast Fusion synthesis call failed — per-model results above for individual review",
         )
 
     add_system_message(

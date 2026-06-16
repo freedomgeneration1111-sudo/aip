@@ -69,6 +69,32 @@ comparison still runs (library path doesn't need the slot resolver) —
 Beast synthesis is skipped with `synthesis_status="unavailable"` in
 that case (no "beast" slot to synthesize with).
 
+**Phase 1 Fusion pipeline (default Beast analysis):** the Beast
+synthesis now runs as a two-stage OpenRouter Fusion pipeline —
+Judge-Beast reads the panel outputs and produces a structured JSON
+comparison, then Synth-Beast reads ONLY that JSON (no panel outputs,
+no retrieval) and writes the final fused answer. The `beast` slot is
+reused for both stages (no new slots). Response gains two new fields:
+
+- `fusion_answer` (str) — the final Synth-Beast output (the fused
+  answer). Mirrored to `beast_conclusion` for legacy consumers.
+- `judge_analysis` (dict) — the full structured Judge JSON:
+  `{status, analysis:{consensus[], contradictions[{topic, stances[{model, stance}]}], partial_coverage[{models[], point}], unique_insights[{model, insight}], blind_spots[]}, responses[{model, content}]}`.
+  Empty dict if Judge call failed or JSON parse failed.
+
+Legacy fields (`convergence`, `disagreements`, `unique_contributions`,
+`risks`, `recommended_decision`) are still populated from the Judge
+JSON — derived from the new `analysis.*` schema when present, falling
+back to old top-level keys for backward compat with older Beast models
+and the existing test mock. The per-model panel outputs remain in
+`selected_models` so the human can compare them alongside the single
+`fusion_answer`.
+
+`synthesis_status` is `"completed"` only when BOTH Judge-Beast and
+Synth-Beast succeed. If Judge succeeds but Synth fails,
+`synthesis_status = "failed"` but `judge_analysis` is still populated
+(the Judge output is still useful for audit).
+
 ### Model Slot Resolver Contract
 - `model_slot_resolver.py` resolves per-slot provider routing
 - `_call_openai_compatible()` detects HTTP 429 before `raise_for_status()`
@@ -150,7 +176,30 @@ config/aip.config.toml ([models] section)
   message without `turn_id`.
 
 ## Last Cycle
-- **Multi-Cast library bridge (this cycle)**: `routes/model_council.py`
+- **Phase 1 Fusion pipeline (this cycle)**: `routes/model_council.py`
+  `POST /beast/compare-models` Beast synthesis now runs as a two-stage
+  OpenRouter Fusion pipeline by default (replaces the legacy single-call
+  bare comparison). Stage 1 (Judge-Beast): single `beast` slot call with
+  the panel outputs, produces structured JSON
+  `{status, analysis:{consensus[], contradictions[], partial_coverage[],
+  unique_insights[], blind_spots[]}, responses[]}`. Stage 2 (Synth-Beast):
+  second `beast` slot call reading ONLY the Judge JSON (no panel outputs,
+  no retrieval — asymmetric information contract), produces the final
+  fused answer. Response gains `fusion_answer` (str, the Synth output,
+  mirrored to `beast_conclusion` for legacy consumers) and
+  `judge_analysis` (dict, full Judge JSON for audit). Legacy fields
+  (`convergence`, `disagreements`, `unique_contributions`, `risks`,
+  `recommended_decision`) are still populated from the Judge JSON —
+  derived from `analysis.*` when present, falling back to old top-level
+  keys for backward compat with the existing test mock and older Beast
+  models. `synthesis_status = "completed"` only when both stages
+  succeed; `"failed"` if either fails (but `judge_analysis` is still
+  populated when Judge alone succeeds). The `beast` slot is reused for
+  both stages — no new model slots added. Per-model panel outputs
+  remain in `selected_models` for parallel human comparison. 22 new
+  tests in `tests/test_model_council_fusion.py`; 97 existing council
+  tests continue to pass.
+- **Multi-Cast library bridge (prior cycle)**: `routes/model_council.py`
   `POST /beast/compare-models` now accepts a second model source:
   `selected_model_ids: list[str]` (OpenRouter model IDs from the
   `enabled_models` SQLite library). Each ID is routed via the new
