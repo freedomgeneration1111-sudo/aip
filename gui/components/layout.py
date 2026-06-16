@@ -50,22 +50,36 @@ _NAV_ITEMS = [
 
 # Layout CSS injected once per page via build_top_bar().
 #
-# ROOT CAUSE: NiceGUI's ``ui.column()`` defaults to ``display: flex;
-# flex-direction: column`` but has NO default ``width: 100%``. Quasar's
-# ``.q-page`` (the parent of every page's main content column) is
-# ``display: block`` by default, so the column's ``flex: 1`` class only
-# stretches it along the MAIN axis (height) — the cross-axis (width)
-# collapses to the column's content width. The result: main content
-# renders ~500px wide with the browser's white body background showing
-# through on the right.
+# ROOT CAUSE (width collapse): NiceGUI's ``ui.column()`` defaults to
+# ``display: flex; flex-direction: column`` but has NO default
+# ``width: 100%``. Quasar's ``.q-page`` (the parent of every page's main
+# content column) is ``display: block`` by default, so the column's
+# ``flex: 1`` class only stretches it along the MAIN axis (height) — the
+# cross-axis (width) collapses to the column's content width. The result:
+# main content renders ~500px wide with the browser's white body
+# background showing through on the right.
 #
-# FIX: make ``.q-page`` itself a flex column. Then ``align-items:
-# stretch`` (the default) stretches every direct child horizontally to
-# fill the q-page's width, and ``flex: 1`` on the main column grows it
-# vertically to fill the height. This fixes ALL 11 pages with one rule.
-_LAYOUT_CSS = """
+# ROOT CAUSE (drawer overlay): NiceGUI's ``ui.left_drawer()`` defaults to
+# ``value=None`` → Quasar's ``show-if-above=True`` + ``model-value=None``.
+# The drawer's visibility is resolved by JavaScript AFTER the WebSocket
+# connects; until then Quasar renders it as an OVERLAY (floats on top of
+# content, clipping the left edge). Passing ``value=True`` fixes this.
+#
+# FIX: Three CSS rules that work together:
+#   1. ``.q-page`` → flex column so ``flex-1`` children stretch both axes
+#   2. ``.q-drawer`` → force 100px width (belt-and-suspenders; the Quasar
+#      ``width`` prop should do this but the semicolon-separated prop
+#      string can leave a trailing ';' in the value, e.g. ``width='100;'``
+#      which Quasar may reject)
+#   3. ``.q-page-container`` → margin-left:100px so even if the drawer
+#      ends up in overlay mode for any reason, the page content is still
+#      offset to the right of the 100px sidebar
+_LEFT_NAV_WIDTH_PX = 100
+_LAYOUT_CSS = f"""
 <style>
-.q-page { display: flex !important; flex-direction: column !important; }
+.q-page {{ display: flex !important; flex-direction: column !important; }}
+.q-drawer.left {{ width: {_LEFT_NAV_WIDTH_PX}px !important; min-width: {_LEFT_NAV_WIDTH_PX}px !important; }}
+.q-page-container {{ padding-left: {_LEFT_NAV_WIDTH_PX}px !important; }}
 </style>
 """
 
@@ -135,12 +149,16 @@ def _dogfood_badge(mode: str) -> None:
 def build_left_nav(state: GuiState, active_page: str = "") -> None:
     """Build the left navigation drawer.
 
-    Two Quasar gotchas addressed here:
+    Three Quasar gotchas addressed here:
 
     1. **Width via Quasar prop, not CSS**: ``q-drawer`` re-applies its own
        inline pixel width on render, overriding any CSS width set via
        ``.style()``. Using ``.props("width=100")`` tells Quasar at the
-       component level so the drawer actually shrinks.
+       component level so the drawer actually shrinks. NOTE: props must
+       be space-separated, NOT semicolon-separated — NiceGUI's prop
+       parser leaves a trailing ``;`` in the value when semicolons are
+       used (e.g. ``width='100;'``), which Quasar rejects, causing the
+       drawer to fall back to its default 200px width.
 
     2. **``value=True`` to force push-mode (not overlay)**: NiceGUI's
        ``ui.left_drawer()`` defaults to ``value=None``, which sets
@@ -153,10 +171,16 @@ def build_left_nav(state: GuiState, active_page: str = "") -> None:
        (e.g. "Can I trust AIP" → "an I trust AIP"). Passing
        ``value=True`` sets ``model-value=True`` and ``show-if-above=False``,
        so the drawer is open in push-mode from the very first paint.
+
+    3. **Belt-and-suspenders CSS**: even with ``value=True`` and the
+       correct ``width`` prop, the ``_LAYOUT_CSS`` in ``build_top_bar``
+       also forces ``.q-drawer.left`` to 100px and ``.q-page-container``
+       to ``padding-left:100px`` — so even if Quasar's drawer push-mode
+       is flaky, the page content is always offset to the right.
     """
     with (
         ui.left_drawer(value=True)
-        .props("width=100; mini=false; bordered=false")
+        .props("width=100 mini=false bordered=false")
         .style(
             f"background:{C_SURFACE}; border-right:0.5px solid {C_INK40}; padding:0;"
         )

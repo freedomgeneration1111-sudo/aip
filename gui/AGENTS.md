@@ -93,8 +93,13 @@ sexton.py (_embedding_backfill_state, _rate_limited)
 - **`ui.left_drawer()` width is set via Quasar props, not CSS**: NiceGUI's
   `ui.left_drawer()` wraps Quasar's `q-drawer`, which re-applies its own inline
   pixel width on render. Setting `width:100px` via `.style()` gets overridden.
-  Use `.props("width=100; mini=false; bordered=false")` to tell Quasar at the
-  component level so the drawer actually shrinks.
+  Use `.props("width=100")` to tell Quasar at the component level so the drawer
+  actually shrinks. **IMPORTANT: props must be SPACE-separated, NOT
+  semicolon-separated** — NiceGUI's prop parser leaves a trailing `;` in the
+  value when semicolons are used (e.g. `width='100;'`), which Quasar rejects,
+  causing the drawer to fall back to its default 200px width. Use
+  `.props("width=100 mini=false bordered=false")` (spaces), NOT
+  `.props("width=100; mini=false; bordered=false")` (semicolons).
 - **`ui.left_drawer(value=True)` is REQUIRED for push-mode (not overlay)**:
   NiceGUI's `ui.left_drawer()` defaults to `value=None`, which sets Quasar's
   `show-if-above=True` and leaves `model-value=None`. In that state the
@@ -104,9 +109,14 @@ sexton.py (_embedding_backfill_state, _rate_limited)
   the main content instead of offsetting it, clipping the left edge of the
   page (e.g. "Can I trust AIP" → "an I trust AIP"). Passing `value=True`
   sets `model-value=True` and `show-if-above=False`, so the drawer is open
-  in push-mode from the very first paint. Verified: rendered HTML shows
-  `"show-if-above":false` and `"model-value":true`. Do NOT remove the
-  `value=True` argument from `build_left_nav()`.
+  in push-mode from the very first paint. Do NOT remove the `value=True`
+  argument from `build_left_nav()`.
+- **Belt-and-suspenders CSS for the drawer**: Even with `value=True` and
+  the correct `width` prop, `build_top_bar()` injects `_LAYOUT_CSS` that
+  forces `.q-drawer.left` to 100px and `.q-page-container` to
+  `padding-left:100px`. This ensures the page content is always offset
+  to the right of the sidebar even if Quasar's drawer push-mode is flaky
+  or the width prop doesn't parse. Do NOT remove these CSS rules.
 - **`.q-page` must be `display:flex; flex-direction:column` or main content
   collapses to content-width**: Quasar's `.q-page` (the parent of every page's
   main content column) is `display:block` by default. NiceGUI's `ui.column()`
