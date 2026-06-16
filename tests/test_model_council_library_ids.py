@@ -90,8 +90,11 @@ class TestCombinedInsufficientGate:
         )
         container.model_provider = provider
 
-        # Mock _call_library_model_id to return a real answer
-        async def _fake_call_library_model_id(model_id, user_prompt):
+        # Mock _call_library_model_id to return a real answer.
+        # Accepts ``messages=`` (Phase 1 Fix D: the Fusion engine may be a
+        # library model, which receives a full messages list for the
+        # Judge/Synth system+user prompts).
+        async def _fake_call_library_model_id(model_id, user_prompt=None, messages=None):
             return {
                 "content": f"library answer from {model_id}",
                 "model": model_id,
@@ -151,7 +154,7 @@ class TestCombinedInsufficientGate:
         container = AipContainer({})
         container.model_provider = None
 
-        async def _fake_call_library_model_id(model_id, user_prompt):
+        async def _fake_call_library_model_id(model_id, user_prompt=None, messages=None):
             return {
                 "content": f"answer from {model_id}",
                 "model": model_id,
@@ -177,9 +180,15 @@ class TestCombinedInsufficientGate:
 
         # Should NOT be insufficient — 2 library IDs is enough
         assert result.status != "insufficient_models"
-        # Synthesis unavailable because no model_provider for the "beast" slot
-        assert result.synthesis_status == "unavailable"
-        assert "Beast synthesis unavailable" in result.beast_conclusion
+        # Phase 1 Fix D: with 2 successful library IDs, the Fusion pipeline
+        # now picks one of them as the Judge/Synth engine (previously this
+        # returned ``unavailable`` because there was no ``beast`` slot —
+        # but the engine fallback makes Fusion work with library-only
+        # panels). The mock returns non-JSON content, so the Judge JSON
+        # parse fails and the fallback path sets synthesis_status=
+        # "completed" with fusion_answer set from the raw content.
+        assert result.synthesis_status in ("completed", "failed")
+        assert result.synthesis_status != "unavailable"
         # Both per-model results should be source="library"
         assert len(result.selected_models) == 2
         for pm in result.selected_models:

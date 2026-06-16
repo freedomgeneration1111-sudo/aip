@@ -962,7 +962,16 @@ class TestBeastSynthesisUnavailable:
 
     @pytest.mark.asyncio
     async def test_synthesis_unavailable_when_beast_fails(self):
-        """Returns synthesis_status='failed' when Beast call fails."""
+        """Phase 1 Fix D: when the ``beast`` slot fails in the panel, the
+        Fusion engine falls back to another successful slot (synthesis or
+        evaluation). The mock makes beast always return error, but
+        synthesis/evaluation return valid JSON — so the Fusion pipeline
+        runs on the fallback engine and ``synthesis_status`` is
+        ``"completed"`` (not ``"failed"`` as in the pre-Fix-D behavior).
+
+        The per-model results still show beast as ``"failed"`` so the
+        human can see which panelist didn't respond.
+        """
         from aip.adapter.api.dependencies import AipContainer
         from aip.adapter.api.routes.model_council import (
             ModelCouncilRequest,
@@ -999,11 +1008,16 @@ class TestBeastSynthesisUnavailable:
         with patch("aip.adapter.api.routes.model_council.logger"):
             result = await compare_models(request, container=container)
 
-        # Beast was used for synthesis but failed
-        assert result.synthesis_status == "failed"
-        # Per-model results should still have synthesis and evaluation
+        # Fix D: beast failed in the panel, but synthesis+evaluation
+        # succeeded, so the Fusion engine falls back to synthesis (or
+        # evaluation). The mock returns valid JSON for those slots, so
+        # the Judge+Synth stages succeed → synthesis_status="completed".
+        assert result.synthesis_status == "completed"
+        # Per-model results: synthesis + evaluation completed, beast failed
         completed = [m for m in result.selected_models if m.status == "completed"]
-        assert len(completed) >= 1
+        assert len(completed) >= 2  # synthesis + evaluation
+        failed = [m for m in result.selected_models if m.status == "failed"]
+        assert any(m.model_slot == "beast" for m in failed)
 
     @pytest.mark.asyncio
     async def test_synthesis_unavailable_when_only_one_succeeds(self):

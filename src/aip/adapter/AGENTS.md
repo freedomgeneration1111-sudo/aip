@@ -125,6 +125,31 @@ fixes the prior defect where the Judge emitted legacy slot names
 (`synthesis=`, `beast=`) instead of the per-model identifiers the
 human needs to attribute stances and insights.
 
+**Phase 1 Fix D — graceful degradation when panel models fail (this
+cycle):** the Fusion engine (Judge+Synth) is now picked from the
+SUCCESSFUL panel models instead of always being the `beast` slot.
+Previously, if `beast` was one of the OpenRouter free models that
+timed out in the panel, the Judge call would also time out at
+`_JUDGE_CALL_TIMEOUT_S` and the entire Fusion output was lost — the
+user saw only per-model cards and no fusion/judge output at all.
+Now ``_pick_fusion_engine(per_model_results)`` picks the engine with
+this preference order: (1) `beast` slot IF it succeeded as a
+panelist, (2) any other successful slot, (3) any successful library
+model. The picked engine is then used for BOTH the Judge call and
+the Synth call via ``_call_fusion_engine(engine_kind, engine_id,
+messages, container, timeout)`` — a unified helper that routes slot
+engines through ``container.model_provider.call`` and library engines
+through ``_call_library_model_id(model_id, messages=messages)``.
+This makes the Fusion pipeline resilient to individual model
+failures: as long as ≥2 panel models answered, Fusion runs on one of
+the answerers. ``_call_library_model_id`` gained an optional
+``messages=`` parameter (backward-compatible — old positional
+``user_prompt`` callers still work) so library models can receive
+the full system+user message list required by the Judge/Synth
+prompts. ``synthesis_status="unavailable"`` only when
+``successful_count < 2``; the per-model results still record which
+panelists failed so the human sees the full picture.
+
 ### Model Slot Resolver Contract
 - `model_slot_resolver.py` resolves per-slot provider routing
 - `_call_openai_compatible()` detects HTTP 429 before `raise_for_status()`
@@ -206,7 +231,43 @@ config/aip.config.toml ([models] section)
   message without `turn_id`.
 
 ## Last Cycle
-- **Phase 1 Fix A/B/C (this cycle)**: three fixes to the Phase 1 Fusion
+- **Phase 1 Fix D — graceful degradation when panel models fail (this
+  cycle):** the Fusion engine (Judge+Synth) is now picked from the
+  SUCCESSFUL panel models instead of always being the `beast` slot.
+  Previously, if `beast` was one of the OpenRouter free models that
+  timed out in the panel, the Judge call would also time out at
+  `_JUDGE_CALL_TIMEOUT_S` and the entire Fusion output was lost —
+  the user saw only per-model cards and no fusion/judge output at
+  all (the exact symptom reported in the second dogfood run: "got
+  responses from two models, no fusion synth or judge response at
+  all"). Now `_pick_fusion_engine(per_model_results)` picks the
+  engine with this preference order: (1) `beast` slot IF it
+  succeeded as a panelist, (2) any other successful slot, (3) any
+  successful library model. The picked engine is then used for BOTH
+  the Judge call and the Synth call via the new
+  `_call_fusion_engine(engine_kind, engine_id, messages, container,
+  timeout)` helper (routes slot engines through
+  `container.model_provider.call`, library engines through
+  `_call_library_model_id(model_id, messages=messages)`). This
+  makes the Fusion pipeline resilient to individual model failures:
+  as long as ≥2 panel models answered, Fusion runs on one of the
+  answerers. `_call_library_model_id` gained an optional `messages=`
+  parameter (backward-compatible — old positional `user_prompt`
+  callers still work) so library models can receive the full
+  system+user message list required by the Judge/Synth prompts.
+  `synthesis_status="unavailable"` only when `successful_count < 2`;
+  the per-model results still record which panelists failed so the
+  human sees the full picture. 3 new regression tests in
+  `tests/test_model_council_fusion.py::TestFusionFixDEngineFallback`
+  (beast panel failure still produces fusion; all-panel-fail guard;
+  `_pick_fusion_engine` preference order unit test). Existing test
+  mocks updated to add a beast panel-answer branch (so the mock
+  correctly differentiates panel calls from Judge/Synth calls when
+  beast is the picked engine). 138 council + import/layering tests
+  pass (was 141 — count shifted because the cycle6 beast-fails test
+  was retightened to reflect Fix D's "completed" instead of "failed"
+  outcome, but the test still exists and asserts the fix).
+- **Phase 1 Fix A/B/C (prior cycle)**: three fixes to the Phase 1 Fusion
   pipeline based on the first dogfood run:
   - **Fix A — per-call timeouts**: every model call in the Fusion
     pipeline (panel gather, Judge-Beast, Synth-Beast) is now wrapped

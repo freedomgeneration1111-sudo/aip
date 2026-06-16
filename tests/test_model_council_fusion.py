@@ -435,6 +435,15 @@ class TestFusionBackwardCompat:
                         "latency_ms": 1000,
                         "error": False,
                     }
+                # Panel call (no JUDGE/SYNTHESIZER system prompt) — beast answers as a panelist
+                return {
+                    "content": "Beast panel answer.",
+                    "model": "deepseek-chat",
+                    "usage": {"prompt_tokens": 50, "completion_tokens": 20, "total_tokens": 70},
+                    "latency_ms": 1000,
+                    "cost_usd": 0.01,
+                    "error": False,
+                }
             return {"content": "", "error": True, "error_message": f"Unknown slot: {slot_name}"}
 
         return _make_three_slot_container(mock_call)
@@ -539,6 +548,15 @@ class TestFusionAsymmetricInformation:
                         "latency_ms": 1000,
                         "error": False,
                     }
+                # Panel call (no JUDGE/SYNTHESIZER system prompt) — beast answers as a panelist
+                return {
+                    "content": "Beast panel answer.",
+                    "model": "deepseek-chat",
+                    "usage": {"prompt_tokens": 50, "completion_tokens": 20, "total_tokens": 70},
+                    "latency_ms": 1000,
+                    "cost_usd": 0.01,
+                    "error": False,
+                }
             return {"content": "", "error": True, "error_message": f"Unknown slot: {slot_name}"}
 
         return _make_three_slot_container(mock_call)
@@ -671,6 +689,15 @@ class TestFusionFailurePaths:
                         "error": True,
                         "error_message": "Synth model timeout",
                     }
+                # Panel call (no JUDGE/SYNTHESIZER system prompt) — beast answers as a panelist
+                return {
+                    "content": "Beast panel answer.",
+                    "model": "deepseek-chat",
+                    "usage": {"prompt_tokens": 50, "completion_tokens": 20, "total_tokens": 70},
+                    "latency_ms": 1000,
+                    "cost_usd": 0.01,
+                    "error": False,
+                }
             return {"content": "", "error": True, "error_message": f"Unknown slot: {slot_name}"}
 
         return _make_three_slot_container(mock_call)
@@ -764,6 +791,15 @@ class TestFusionGuaranteesPreserved:
                         "latency_ms": 1000,
                         "error": False,
                     }
+                # Panel call (no JUDGE/SYNTHESIZER system prompt) — beast answers as a panelist
+                return {
+                    "content": "Beast panel answer.",
+                    "model": "deepseek-chat",
+                    "usage": {"prompt_tokens": 50, "completion_tokens": 20, "total_tokens": 70},
+                    "latency_ms": 1000,
+                    "cost_usd": 0.01,
+                    "error": False,
+                }
             return {"content": "", "error": True, "error_message": "unexpected"}
 
         return _make_three_slot_container(mock_call)
@@ -1198,4 +1234,261 @@ class TestFusionGuiRendersJudgeAnalysis:
         assert "_render_judge_analysis" in source, (
             "model_council_panel.py must define _render_judge_analysis to render the structured JSON"
         )
+
+
+# ── 16. Phase 1 Fix D — graceful degradation when panel models fail ──
+
+
+class TestFusionFixDEngineFallback:
+    """Fix D regression tests: when some panel models fail (timeout, error,
+    network), the Fusion pipeline must still run on whatever models DID
+    return, picking a successful panel model as the Judge+Synth engine.
+
+    Pre-Fix-D bug: the code always called ``container.model_provider.call(
+    "beast", ...)`` for Judge+Synth, even when the ``beast`` slot had just
+    failed in the panel. If ``beast`` was one of the timing-out OpenRouter
+    free models, the Judge call would also time out at
+    ``_JUDGE_CALL_TIMEOUT_S`` and the entire Fusion output was lost —
+    the user saw only per-model cards and no fusion/judge output at all.
+
+    These tests verify the fix: the engine is picked from SUCCESSFUL
+    panel models, so the Fusion pipeline degrades gracefully.
+    """
+
+    @pytest.fixture
+    def beast_panel_fails_container(self):
+        """Container where the ``beast`` slot fails as a PANELIST (returns
+        error for non-JUDGE/SYNTH calls), but ``synthesis`` and
+        ``evaluation`` succeed as panelists. When the Fusion engine is
+        picked, ``synthesis`` is the fallback (Preference 2 in
+        ``_pick_fusion_engine``) and it returns valid Judge JSON +
+        Synth text.
+        """
+        async def mock_call(slot_name, messages, **kwargs):
+            if slot_name == "synthesis":
+                system_content = ""
+                for msg in messages:
+                    if msg.get("role") == "system":
+                        system_content = msg.get("content", "")
+                if "JUDGE" in system_content:
+                    # synthesis acts as Judge engine (Fix D fallback)
+                    return {
+                        "content": json.dumps({
+                            "status": "completed",
+                            "analysis": {
+                                "consensus": ["both non-beast models agree"],
+                                "contradictions": [
+                                    {
+                                        "topic": "detail",
+                                        "stances": [
+                                            {"model": "synthesis", "stance": "high"},
+                                            {"model": "evaluation", "stance": "low"},
+                                        ],
+                                    },
+                                ],
+                                "partial_coverage": [],
+                                "unique_insights": [
+                                    {"model": "evaluation", "insight": "edge case"},
+                                ],
+                                "blind_spots": ["beast's view (beast timed out)"],
+                            },
+                            "responses": [
+                                {"model": "synthesis", "content": "synth ans"},
+                                {"model": "evaluation", "content": "eval ans"},
+                            ],
+                        }),
+                        "model": "gpt-4",
+                        "usage": {},
+                        "latency_ms": 1500,
+                        "error": False,
+                    }
+                if "SYNTHESIZER" in system_content:
+                    # synthesis acts as Synth engine (Fix D fallback)
+                    return {
+                        "content": "Fused answer composed by synthesis engine after beast panel failure.",
+                        "model": "gpt-4",
+                        "usage": {},
+                        "latency_ms": 1200,
+                        "error": False,
+                    }
+                # Panel call — synthesis answers as a panelist
+                return {
+                    "content": "Synthesis panel answer.",
+                    "model": "gpt-4",
+                    "usage": {},
+                    "latency_ms": 1000,
+                    "error": False,
+                }
+            if slot_name == "evaluation":
+                return {
+                    "content": "Evaluation panel answer.",
+                    "model": "claude-3-opus",
+                    "usage": {},
+                    "latency_ms": 1100,
+                    "error": False,
+                }
+            if slot_name == "beast":
+                # beast FAILS as a panelist (simulating OpenRouter free
+                # model timeout). Should NEVER be called as Judge/Synth
+                # because Fix D picks a successful panel model instead.
+                system_content = ""
+                for msg in messages:
+                    if msg.get("role") == "system":
+                        system_content = msg.get("content", "")
+                if "JUDGE" in system_content or "SYNTHESIZER" in system_content:
+                    return {
+                        "content": "",
+                        "model": "deepseek-chat",
+                        "usage": {},
+                        "latency_ms": 0,
+                        "error": True,
+                        "error_message": "beast should not be picked as engine when it failed as panelist",
+                    }
+                return {
+                    "content": "",
+                    "model": "deepseek-chat",
+                    "usage": {},
+                    "latency_ms": 30000,
+                    "error": True,
+                    "error_message": "timed out after 30s",
+                }
+            return {"content": "", "error": True, "error_message": f"Unknown slot: {slot_name}"}
+
+        return _make_three_slot_container(mock_call)
+
+    @pytest.mark.asyncio
+    async def test_beast_panel_failure_still_produces_fusion(self, beast_panel_fails_container):
+        """Fix D: when ``beast`` fails as a panelist but ``synthesis`` and
+        ``evaluation`` succeed, the Fusion pipeline picks ``synthesis`` as
+        the engine and produces a complete fusion_answer + judge_analysis.
+
+        This is the EXACT scenario the user reported: 2 of 4 models timed
+        out (openrouter free models), got 2 responses, but NO fusion synth
+        or judge response was produced. Pre-Fix-D, the engine was always
+        ``beast`` (which had just failed), so Judge timed out too. Post-
+        Fix-D, the engine falls back to a successful panel model.
+        """
+        from aip.adapter.api.routes.model_council import ModelCouncilRequest, compare_models
+
+        request = ModelCouncilRequest(prompt="Test prompt for Fix D")
+        with patch("aip.adapter.api.routes.model_council.logger"):
+            result = await compare_models(request, container=beast_panel_fails_container)
+
+        # Per-model: synthesis + evaluation completed, beast failed
+        statuses = {pm.model_slot: pm.status for pm in result.selected_models if pm.source == "slot"}
+        assert statuses.get("synthesis") == "completed"
+        assert statuses.get("evaluation") == "completed"
+        assert statuses.get("beast") == "failed", "beast must be recorded as failed in per-model results"
+
+        # Overall status: partial (some models failed)
+        assert result.status == "partial"
+
+        # CRITICAL Fix D assertion: fusion STILL ran despite beast failure
+        assert result.synthesis_status == "completed", (
+            "Fix D: synthesis_status must be 'completed' when the engine "
+            "fallback succeeds — pre-Fix-D this was 'failed' because the "
+            "engine was always the (just-failed) beast slot"
+        )
+        assert result.fusion_answer != "", (
+            "Fix D: fusion_answer must be populated — pre-Fix-D this was "
+            "empty because the Judge call timed out on the failed beast slot"
+        )
+        assert "Fused answer composed by synthesis" in result.fusion_answer
+        assert result.judge_analysis != {}, (
+            "Fix D: judge_analysis must be populated — pre-Fix-D this was "
+            "empty because the Judge call timed out on the failed beast slot"
+        )
+        # Judge JSON content sanity check
+        assert result.judge_analysis.get("status") == "completed"
+        assert "consensus" in result.judge_analysis.get("analysis", {})
+
+    @pytest.mark.asyncio
+    async def test_all_panel_fail_yields_unavailable_synthesis(self):
+        """Fix D guard: when ALL panel models fail (successful_count < 2),
+        the Fusion pipeline cannot run — synthesis_status='unavailable'
+        (or 'failed' if 1 succeeded then engine pick failed). The key
+        invariant: the pipeline does NOT crash, it degrades honestly.
+        """
+        from aip.adapter.api.routes.model_council import ModelCouncilRequest, compare_models
+
+        # Build a container where all 3 slots fail
+        async def all_fail_call(slot_name, messages, **kwargs):
+            return {
+                "content": "",
+                "model": slot_name,
+                "usage": {},
+                "latency_ms": 30000,
+                "error": True,
+                "error_message": "timed out after 30s",
+            }
+
+        container = _make_three_slot_container(all_fail_call)
+
+        request = ModelCouncilRequest(prompt="All models fail")
+        with patch("aip.adapter.api.routes.model_council.logger"):
+            result = await compare_models(request, container=container)
+
+        # All per-model results failed
+        assert all(pm.status == "failed" for pm in result.selected_models)
+        # Pipeline did not crash — synthesis honestly reports unavailable
+        assert result.synthesis_status in ("unavailable", "failed")
+        assert result.fusion_answer == ""
+        assert result.judge_analysis == {}
+
+    def test_pick_fusion_engine_preference_order(self):
+        """Unit test for ``_pick_fusion_engine``: verifies the preference
+        order is (1) beast slot if it succeeded, (2) any other successful
+        slot, (3) any successful library model.
+        """
+        from aip.adapter.api.routes.model_council import PerModelResult, _pick_fusion_engine
+
+        # Case 1: beast succeeded → beast is picked
+        results_beast_ok = [
+            PerModelResult(model_slot="synthesis", model_id="gpt-4", provider="openai",
+                          status="completed", source="slot"),
+            PerModelResult(model_slot="beast", model_id="deepseek", provider="openai",
+                          status="completed", source="slot"),
+            PerModelResult(model_slot="evaluation", model_id="claude", provider="openai",
+                          status="completed", source="slot"),
+        ]
+        kind, eid = _pick_fusion_engine(results_beast_ok)
+        assert (kind, eid) == ("slot", "beast"), "beast must be picked when it succeeded"
+
+        # Case 2: beast failed, synthesis succeeded → synthesis picked
+        results_beast_fail = [
+            PerModelResult(model_slot="synthesis", model_id="gpt-4", provider="openai",
+                          status="completed", source="slot"),
+            PerModelResult(model_slot="beast", model_id="deepseek", provider="openai",
+                          status="failed", error="timed out", source="slot"),
+            PerModelResult(model_slot="evaluation", model_id="claude", provider="openai",
+                          status="completed", source="slot"),
+        ]
+        kind, eid = _pick_fusion_engine(results_beast_fail)
+        assert (kind, eid) == ("slot", "synthesis"), (
+            "Fix D: when beast fails, synthesis (first successful slot) must be picked"
+        )
+
+        # Case 3: all slots failed, library model succeeded → library picked
+        results_library_only = [
+            PerModelResult(model_slot="beast", model_id="deepseek", provider="openai",
+                          status="failed", error="timed out", source="slot"),
+            PerModelResult(model_slot="synthesis", model_id="gpt-4", provider="openai",
+                          status="failed", error="timed out", source="slot"),
+            PerModelResult(model_slot="", model_id="anthropic/claude-3-opus", provider="openrouter",
+                          status="completed", source="library"),
+        ]
+        kind, eid = _pick_fusion_engine(results_library_only)
+        assert (kind, eid) == ("library", "anthropic/claude-3-opus"), (
+            "Fix D: when all slots fail but a library model succeeded, library must be picked"
+        )
+
+        # Case 4: no successful models → (None, None)
+        results_all_fail = [
+            PerModelResult(model_slot="beast", model_id="deepseek", provider="openai",
+                          status="failed", error="timed out", source="slot"),
+            PerModelResult(model_slot="", model_id="anthropic/claude-3-opus", provider="openrouter",
+                          status="failed", error="timed out", source="library"),
+        ]
+        kind, eid = _pick_fusion_engine(results_all_fail)
+        assert (kind, eid) == (None, None), "no successful models → no engine"
 

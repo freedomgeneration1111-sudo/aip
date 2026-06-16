@@ -310,7 +310,8 @@ async def _lookup_library_model(model_id: str) -> dict[str, Any] | None:
 
 async def _call_library_model_id(
     model_id: str,
-    user_prompt: str,
+    user_prompt: str | None = None,
+    messages: list[dict] | None = None,
 ) -> dict:
     """Call a single OpenRouter library model directly by model ID.
 
@@ -323,9 +324,34 @@ async def _call_library_model_id(
       2. Otherwise use ``AIP_OPENAI_API_KEY`` env var and the default
          OpenRouter base URL.
 
+    Message passing (one of):
+      - ``messages``: a full ``[{role, content}, ...]`` list. Use this
+        for calls that need a system prompt (e.g., the Judge-Beast and
+        Synth-Beast stages of the Fusion pipeline when a library model
+        is acting as the engine).
+      - ``user_prompt``: a single user-content string. Convenience for
+        the panel gather path. Converted to ``[{"role": "user",
+        "content": user_prompt}]``.
+
     Never raises — returns an error dict on failure so the comparison
     report can degrade gracefully instead of failing entirely.
     """
+    if messages is None:
+        if user_prompt is None:
+            return {
+                "content": "",
+                "model": model_id,
+                "usage": {},
+                "latency_ms": 0,
+                "cost_usd": 0.0,
+                "error": True,
+                "error_message": (
+                    "_call_library_model_id: either messages or "
+                    "user_prompt must be provided"
+                ),
+            }
+        messages = [{"role": "user", "content": user_prompt}]
+
     row = await _lookup_library_model(model_id)
     display_name = (row or {}).get("display_name") or model_id
 
@@ -371,7 +397,7 @@ async def _call_library_model_id(
     }
     payload = {
         "model": model_id,
-        "messages": [{"role": "user", "content": user_prompt}],
+        "messages": messages,
     }
 
     start = time.perf_counter()
@@ -685,15 +711,34 @@ async def compare_models(
     fusion_answer = ""
     judge_analysis: dict[str, Any] = {}
 
-    # Synthesis requires a model_provider with a "beast" slot. If
-    # model_provider is None (e.g. only library model IDs were used),
-    # we cannot run Beast synthesis — return per-model results only.
-    if successful_count >= 2 and container.model_provider is None:
+    # --- Pick the Fusion engine (Judge+Synth) from successful panel models ---
+    # Phase 1 Fix D: previously the code always called
+    # ``container.model_provider.call("beast", ...)`` for the Judge and
+    # Synth stages, even when the ``beast`` slot had just failed in the
+    # panel. If ``beast`` was one of the OpenRouter free models that
+    # timed out, the Judge call would also time out at
+    # ``_JUDGE_CALL_TIMEOUT_S`` and the entire Fusion output was lost —
+    # the user saw only per-model cards and a tiny "synthesis failed"
+    # system message.
+    #
+    # Fix: pick the engine from the SUCCESSFUL panel models. Preference
+    # order: beast slot (if it succeeded) → any successful slot → any
+    # successful library model. This makes the Fusion pipeline
+    # resilient to individual model failures — as long as ≥2 models
+    # answered, we can run Fusion on one of the answerers.
+    fusion_engine_kind: str | None = None
+    fusion_engine_id: str | None = None
+    if successful_count >= 2:
+        fusion_engine_kind, fusion_engine_id = _pick_fusion_engine(per_model_results)
+
+    if successful_count >= 2 and fusion_engine_kind is None:
+        # Defensive guard — should be unreachable (successful_count >= 2
+        # implies at least one successful panel model).
         synthesis_status = "unavailable"
         beast_conclusion = (
-            "Beast synthesis unavailable — no model_provider configured for "
-            "the 'beast' slot. Per-model results from library IDs are "
-            "available for individual review."
+            "Beast Fusion synthesis unavailable — no successful panel "
+            "model available to act as the Judge/Synth engine. "
+            "Per-model results are available for individual review."
         )
     elif successful_count >= 2:
         # Build the per-model answers block for the Judge. Use a
@@ -711,6 +756,13 @@ async def compare_models(
                 answers_block += f"\n## {label} ({pm.model_id})\n{pm.answer[:2000]}\n"
 
         soul_text = _load_soul_text()
+
+        logger.info(
+            "council_fusion_engine_picked kind=%s id=%s beast_in_panel=%s",
+            fusion_engine_kind,
+            fusion_engine_id,
+            any(pm.source == "slot" and pm.model_slot == "beast" for pm in per_model_results),
+        )
 
         # ── Stage 1: Judge-Beast — structured comparison JSON ──
         judge_system_prompt = (
@@ -798,9 +850,12 @@ Return the JSON object now."""
 
         judge_succeeded = False
         try:
-            judge_result = await asyncio.wait_for(
-                container.model_provider.call("beast", judge_messages),
-                timeout=_JUDGE_CALL_TIMEOUT_S,
+            judge_result = await _call_fusion_engine(
+                fusion_engine_kind,  # type: ignore[arg-type]
+                fusion_engine_id,    # type: ignore[arg-type]
+                judge_messages,
+                container,
+                _JUDGE_CALL_TIMEOUT_S,
             )
             judge_content = judge_result.get("content", "").strip()
 
@@ -941,9 +996,12 @@ Write the final fused answer now."""
             ]
 
             try:
-                synth_result = await asyncio.wait_for(
-                    container.model_provider.call("beast", synth_messages),
-                    timeout=_SYNTH_CALL_TIMEOUT_S,
+                synth_result = await _call_fusion_engine(
+                    fusion_engine_kind,  # type: ignore[arg-type]
+                    fusion_engine_id,    # type: ignore[arg-type]
+                    synth_messages,
+                    container,
+                    _SYNTH_CALL_TIMEOUT_S,
                 )
                 synth_content = synth_result.get("content", "").strip()
 
@@ -1128,3 +1186,102 @@ def _safe_provider(model_provider: Any, slot_name: str) -> str:
         return resolved.get("provider", "unknown")
     except Exception:
         return "unknown"
+
+
+def _pick_fusion_engine(
+    per_model_results: list[PerModelResult],
+) -> tuple[str | None, str | None]:
+    """Pick the model to use as the Judge+Synth engine for the Fusion pipeline.
+
+    Preference order (returns the first match):
+      1. The ``beast`` slot IF it was in the panel AND completed successfully.
+      2. ANY other successful slot (in panel order).
+      3. ANY successful library model (in panel order).
+
+    Returns ``(engine_kind, engine_id)`` where ``engine_kind`` is
+    ``"slot"`` or ``"library"`` and ``engine_id`` is the slot name or
+    library model ID. Returns ``(None, None)`` if no successful panel
+    model exists (which should not happen when ``successful_count >= 2``
+    — this is a defensive guard).
+
+    Rationale: the prior implementation always called
+    ``container.model_provider.call("beast", ...)`` for the Judge+Synth
+    stages, even when the ``beast`` slot had just failed in the panel.
+    If ``beast`` was one of the timing-out OpenRouter free models, the
+    Judge call would also time out at ``_JUDGE_CALL_TIMEOUT_S`` and the
+    entire Fusion output was lost — the user saw only per-model cards.
+    Picking from successful panel models guarantees the engine is
+    responsive (it just answered).
+    """
+    # Preference 1: beast slot, if it succeeded.
+    for pm in per_model_results:
+        if (
+            pm.source == "slot"
+            and pm.model_slot == "beast"
+            and pm.status == "completed"
+        ):
+            return ("slot", "beast")
+
+    # Preference 2: any other successful slot.
+    for pm in per_model_results:
+        if pm.source == "slot" and pm.status == "completed":
+            return ("slot", pm.model_slot)
+
+    # Preference 3: any successful library model.
+    for pm in per_model_results:
+        if pm.source == "library" and pm.status == "completed":
+            return ("library", pm.model_id)
+
+    return (None, None)
+
+
+async def _call_fusion_engine(
+    engine_kind: str,
+    engine_id: str,
+    messages: list[dict],
+    container: Any,
+    timeout: float,
+) -> dict:
+    """Call the picked Fusion engine (slot or library) with a messages list.
+
+    Wraps the call in ``asyncio.wait_for`` so a hung engine is cut loose
+    at ``timeout`` seconds (raises ``asyncio.TimeoutError``).
+
+    - ``engine_kind == "slot"``: routes via ``container.model_provider.call``.
+    - ``engine_kind == "library"``: routes via ``_call_library_model_id``
+      with the ``messages=`` parameter (supports system+user messages).
+
+    Returns the raw result dict from the underlying call.
+    """
+    if engine_kind == "slot":
+        if container.model_provider is None:
+            return {
+                "content": "",
+                "model": engine_id,
+                "usage": {},
+                "latency_ms": 0,
+                "cost_usd": 0.0,
+                "error": True,
+                "error_message": (
+                    f"Cannot call slot '{engine_id}' — model_provider is None"
+                ),
+            }
+        return await asyncio.wait_for(
+            container.model_provider.call(engine_id, messages),
+            timeout=timeout,
+        )
+    elif engine_kind == "library":
+        return await asyncio.wait_for(
+            _call_library_model_id(engine_id, messages=messages),
+            timeout=timeout,
+        )
+    else:
+        return {
+            "content": "",
+            "model": engine_id or "unknown",
+            "usage": {},
+            "latency_ms": 0,
+            "cost_usd": 0.0,
+            "error": True,
+            "error_message": f"Unknown engine_kind: {engine_kind!r}",
+        }

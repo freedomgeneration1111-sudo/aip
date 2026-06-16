@@ -191,7 +191,22 @@ sexton.py (_embedding_backfill_state, _rate_limited)
   unavailable/failed" instead of just "Beast synthesis".
 
 ## Last Cycle
-- **Phase 1 Fix B — render `judge_analysis` in GUI (this cycle)**: the
+- **Phase 1 Fix D — backend engine fallback (this cycle, no GUI
+  change):** the backend's Fusion pipeline now picks the Judge+Synth
+  engine from the SUCCESSFUL panel models (preference: beast slot if
+  it succeeded → any other successful slot → any successful library
+  model) instead of always using the `beast` slot. This fixes the
+  second dogfood run's symptom: when 2 of 4 OpenRouter free models
+  timed out, the 2 successful responses returned but NO fusion synth
+  or judge response was produced — because the engine was always the
+  just-failed `beast` slot. The GUI consumers (`ask.py`,
+  `model_council_panel.py`) required NO changes: the API response
+  contract (`fusion_answer` str + `judge_analysis` dict) is
+  unchanged; Fix D only makes those fields more reliably populated.
+  The GUI will now see fusion output in scenarios where it
+  previously saw only per-model cards + a "synthesis failed" system
+  message. See `src/aip/adapter/AGENTS.md` for the backend contract.
+- **Phase 1 Fix B — render `judge_analysis` in GUI (prior cycle)**: the
   rich structured Judge JSON was previously returned by the backend
   but never surfaced in the GUI — only the flattened legacy strings
   (`convergence`, `disagreements`, etc.) were rendered, losing the
