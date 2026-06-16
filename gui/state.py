@@ -214,6 +214,12 @@ class GuiState:
         # Slot names selected for multi-cast (e.g. ["synthesis", "evaluation", "beast"]).
         # Populated from the backend's text-generation-slots endpoint.
         self.multicast_selected_slots: list[str] = []
+        # OpenRouter model IDs selected for multi-cast, drawn from the
+        # enabled_models SQLite library (managed by the Models page).
+        # Populated from get_backend_enabled_models() on the Ask page.
+        # Sent to the backend as ``selected_model_ids`` in the
+        # ``run_model_council`` call — parallel to ``multicast_selected_slots``.
+        self.multicast_selected_model_ids: list[str] = []
 
     async def ensure_session(self) -> str:
         """Create a session if one doesn't exist, or return the existing one."""

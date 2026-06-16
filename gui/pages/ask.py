@@ -66,6 +66,7 @@ from gui.components.trace_panel import TracePanel
 from gui.state import (
     GuiState,
     build_model_options,
+    get_backend_enabled_models,
     get_role_model,
     get_selected_models,
     get_session_state,
@@ -339,6 +340,11 @@ async def _ask_page_impl():
             if not state.multicast_selected_slots and available_names:
                 state.multicast_selected_slots = list(available_names)
 
+        # Fetch enabled OpenRouter library models for the second checkbox
+        # group. These are model IDs (e.g. "deepseek/deepseek-v4-flash:free")
+        # managed by the Models page and cached via refresh_enabled_models().
+        library_model_ids = list(get_backend_enabled_models())
+
         multicast_row = (
             ui.row()
             .classes("w-full items-center")
@@ -353,12 +359,13 @@ async def _ask_page_impl():
             ui.label("Multi-Cast Slots").style(
                 f"font-size:10px; font-weight:600; color:{C_AMBER}; letter-spacing:0.5px; margin-right:8px;"
             )
-            if not text_gen_slots:
+            if not text_gen_slots and not library_model_ids:
                 ui.label(
-                    "No text-generation slots configured — Multi-Cast requires ≥2 slots. "
-                    "Configure them on the Models page."
+                    "No Multi-Cast sources configured — needs ≥2. "
+                    "Enable models on the Models page or add [models.*] slots in config."
                 ).style(f"font-size:10px; color:{C_WARN_FG}; font-family:{F_MONO};")
             else:
+                # Slot checkboxes (TOML-configured)
                 for s in text_gen_slots:
                     sn = s.get("slot_name", "")
                     model_id = s.get("model", f"<{sn}>")
@@ -376,7 +383,29 @@ async def _ask_page_impl():
                             f"font-size:10px; font-family:{F_MONO};"
                         )
                     )
-                ui.label(f"{len(state.multicast_selected_slots)} selected").style(
+
+                # Library model checkboxes (OpenRouter catalog, enabled via Models page)
+                if library_model_ids:
+                    ui.label("|").style(f"font-size:10px; color:{C_INK60}; margin:0 4px;")
+                    ui.label("Library:").style(
+                        f"font-size:10px; font-weight:600; color:{C_AMBER}; letter-spacing:0.5px; margin-right:4px;"
+                    )
+                    for mid in library_model_ids:
+                        is_checked = mid in state.multicast_selected_model_ids
+                        (
+                            ui.checkbox(
+                                mid,
+                                value=is_checked,
+                                on_change=lambda e, m=mid: _toggle_multicast_model_id(state, m, e.value),
+                            )
+                            .props("dense size=xs")
+                            .style(
+                                f"color:{C_CREAM}; font-size:10px; font-family:{F_MONO};"
+                            )
+                        )
+
+                total_selected = len(state.multicast_selected_slots) + len(state.multicast_selected_model_ids)
+                ui.label(f"{total_selected} selected").style(
                     f"font-size:9px; color:{C_MUTED}; font-family:{F_MONO}; margin-left:8px;"
                 )
 
@@ -559,6 +588,25 @@ def _toggle_multicast_slot(state: GuiState, slot_name: str, checked: bool) -> No
     )
 
 
+def _toggle_multicast_model_id(state: GuiState, model_id: str, checked: bool) -> None:
+    """Add or remove an OpenRouter library model ID from the multicast selection.
+
+    Parallel to ``_toggle_multicast_slot`` but operates on
+    ``state.multicast_selected_model_ids`` (model IDs from the
+    enabled_models SQLite library) instead of slot names.
+    """
+    if checked and model_id not in state.multicast_selected_model_ids:
+        state.multicast_selected_model_ids.append(model_id)
+    elif not checked and model_id in state.multicast_selected_model_ids:
+        state.multicast_selected_model_ids.remove(model_id)
+    log.debug(
+        "multicast_model_id_toggled model_id=%s checked=%s selected=%s",
+        model_id,
+        checked,
+        state.multicast_selected_model_ids,
+    )
+
+
 async def _dispatch_send(
     state: GuiState,
     chat_container,
@@ -574,9 +622,10 @@ async def _dispatch_send(
     - multicast_enabled=True  → multi-cast _send_multicast (≥2 slots required)
     """
     if state.multicast_enabled:
-        if len(state.multicast_selected_slots) < 2:
+        total_selected = len(state.multicast_selected_slots) + len(state.multicast_selected_model_ids)
+        if total_selected < 2:
             ui.notify(
-                "Multi-Cast requires ≥2 selected slots — pick more in the header",
+                f"Multi-Cast requires ≥2 selected models — pick more in the header ({total_selected} selected)",
                 color="warning",
             )
             return
@@ -630,9 +679,12 @@ async def _send_multicast(
         return
 
     selected_slots = list(state.multicast_selected_slots)
+    selected_model_ids = list(state.multicast_selected_model_ids)
+    total_selected = len(selected_slots) + len(selected_model_ids)
     log.info(
-        "send_multicast: slots=%s backend_reachable=%s prompt_len=%d",
+        "send_multicast: slots=%s model_ids=%s backend_reachable=%s prompt_len=%d",
         selected_slots,
+        selected_model_ids,
         state.backend_reachable,
         len(prompt),
     )
@@ -642,7 +694,7 @@ async def _send_multicast(
 
     with chat_container:
         thinking_label = ui.label(
-            f"Multi-Casting to {len(selected_slots)} slots... (this may take 30-90s)"
+            f"Multi-Casting to {total_selected} models... (this may take 30-90s)"
         ).style(f"color:{C_MUTED}; font-size:11px;")
 
     try:
@@ -661,6 +713,7 @@ async def _send_multicast(
             existing_answer="",  # Pre-send mode: no existing answer to compare
             sources=[],
             selected_model_slots=selected_slots,
+            selected_model_ids=selected_model_ids,
         )
     except Exception as exc:
         log.exception("send_multicast: run_model_council failed: %s", exc)

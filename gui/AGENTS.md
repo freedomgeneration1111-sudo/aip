@@ -150,9 +150,34 @@ sexton.py (_embedding_backfill_state, _rate_limited)
   → `POST /beast/compare-models`. This bypasses the normal WebSocket chat
   path entirely. Per-model results render as separate answer cards; Beast
   synthesis renders as a final advisory card. The synthesis is ADVISORY ONLY.
+- **Multi-Cast now accepts TWO parallel sources** (library bridge):
+  - `state.multicast_selected_slots` — TOML slot names (synthesis,
+    evaluation, beast, …) routed via `ModelSlotResolver`
+  - `state.multicast_selected_model_ids` — OpenRouter model IDs from the
+    `enabled_models` SQLite library (managed by the Models page), routed
+    via direct OpenRouter calls using `AIP_OPENAI_API_KEY`
+  Both lists are sent in the `run_model_council` call. The backend's
+  `≥2 usable models` gate counts the combined total. Library results
+  in the response carry `source="library"` and empty `model_slot` —
+  the GUI's per-model card renders them with the model_id as the label.
 
 ## Last Cycle
-- **Left drawer overlay fix (this cycle)**: The left sidebar was rendering as
+- **Multi-Cast library bridge (this cycle)**: The `/models` page checkboxes
+  now feed Multi-Cast. Previously Multi-Cast only accepted TOML-configured
+  slot names (`synthesis`, `evaluation`, `beast`, …) — max ~4 options. Now
+  the Ask page's Multi-Cast row shows a second checkbox group labeled
+  "Library:" populated from `get_backend_enabled_models()` (the
+  `enabled_models` SQLite table managed by the Models page). Selected
+  library model IDs are tracked in `state.multicast_selected_model_ids`
+  and sent alongside `state.multicast_selected_slots` in the
+  `run_model_council` call. The backend's `compare_models` endpoint
+  accepts a new `selected_model_ids: list[str]` field and routes each
+  via direct OpenRouter calls (`_call_library_model_id` helper) using
+  `AIP_OPENAI_API_KEY`. Each `PerModelResult` now has a `source` field
+  (`"slot"` default, `"library"` for library-sourced) so the GUI can
+  distinguish provenance. The `≥2 usable models` gate counts both
+  sources combined.
+- **Left drawer overlay fix (prior)**: The left sidebar was rendering as
   an OVERLAY on top of the main content instead of pushing/offsetting it,
   clipping the left edge of every page (e.g. "Can I trust AIP" → "an I trust
   AIP"). Root cause: NiceGUI's `ui.left_drawer()` defaults to `value=None`,

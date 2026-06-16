@@ -47,6 +47,28 @@ Returns list of model slot dicts, each with:
 - `model` (str)
 - `configured` (bool)
 
+#### POST /beast/compare-models (Model Council)
+Request body fields (all optional except `prompt`):
+- `prompt` (str, required)
+- `turn_id`, `session_id`, `existing_answer` (str)
+- `sources` (list[dict])
+- `selected_model_slots` (list[str]) — TOML slot names routed via `ModelSlotResolver`
+- `selected_model_ids` (list[str]) — OpenRouter model IDs from the
+  `enabled_models` SQLite library, routed via direct OpenRouter calls
+  using `AIP_OPENAI_API_KEY` (or per-row `custom_api_key` if `is_custom=1`)
+- `save_as_artifact` (bool)
+
+Response: `ModelCouncilResponse` with `selected_models: list[PerModelResult]`.
+Each `PerModelResult` has a `source` field (`"slot"` or `"library"`) so
+consumers can distinguish provenance. Library-sourced results carry
+`model_slot=""` and `provider="openrouter"`.
+
+The `≥2 usable models` gate counts slots + library IDs combined.
+If `model_provider` is None but ≥2 library IDs are supplied, the
+comparison still runs (library path doesn't need the slot resolver) —
+Beast synthesis is skipped with `synthesis_status="unavailable"` in
+that case (no "beast" slot to synthesize with).
+
 ### Model Slot Resolver Contract
 - `model_slot_resolver.py` resolves per-slot provider routing
 - `_call_openai_compatible()` detects HTTP 429 before `raise_for_status()`
@@ -128,6 +150,20 @@ config/aip.config.toml ([models] section)
   message without `turn_id`.
 
 ## Last Cycle
+- **Multi-Cast library bridge (this cycle)**: `routes/model_council.py`
+  `POST /beast/compare-models` now accepts a second model source:
+  `selected_model_ids: list[str]` (OpenRouter model IDs from the
+  `enabled_models` SQLite library). Each ID is routed via the new
+  `_call_library_model_id` helper, which looks up the row in
+  `enabled_models` for `display_name` + optional `custom_api_key`, then
+  POSTs to OpenRouter's `/v1/chat/completions` using
+  `AIP_OPENAI_API_KEY` (or the per-row custom key). The existing
+  `selected_model_slots` path is unchanged (backward compat). The
+  `≥2 usable models` gate now counts slots + library IDs combined.
+  `PerModelResult` gained a `source` field (`"slot"` default,
+  `"library"` for library-sourced). If `model_provider` is None but
+  ≥2 library IDs are supplied, comparison still runs; Beast synthesis
+  is skipped with `synthesis_status="unavailable"` (no "beast" slot).
 - **Commit 14d3a73**: `model_slot_resolver.py` now detects HTTP 429 before
   `raise_for_status()`, returns error dict with `retry_after`. Added
   `backfill_state`, `rate_limited`, `rate_limited_reason`, `cycle_active`

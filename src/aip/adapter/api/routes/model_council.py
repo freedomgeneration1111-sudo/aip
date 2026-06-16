@@ -10,11 +10,19 @@ disagreements, risks, and recommended decision.
 Reports are ADVISORY ONLY. No auto-approve, no auto-export, no wiki
 mutation, no config changes, no model slot changes.
 
-If fewer than two text-generation model slots are configured, returns an
-honest ``insufficient_models`` state. If one model fails, returns a
-partial/degraded report rather than total failure. If Beast synthesis
-is unavailable, returns per-model results with conclusion status
-``unavailable`` rather than a fake conclusion.
+Two parallel sources of models are supported:
+  - ``selected_model_slots``  — TOML-configured slot names (synthesis,
+    evaluation, beast, …). Routed via ``ModelSlotResolver``.
+  - ``selected_model_ids``    — OpenRouter model IDs (e.g.
+    ``deepseek/deepseek-v4-flash:free``) drawn from the
+    ``enabled_models`` SQLite library. Routed via direct OpenRouter
+    calls using ``AIP_OPENAI_API_KEY`` (or per-row ``custom_api_key``).
+
+If fewer than two usable models (slots + library IDs combined) are
+available, returns an honest ``insufficient_models`` state. If one model
+fails, returns a partial/degraded report rather than total failure. If
+Beast synthesis is unavailable, returns per-model results with
+conclusion status ``unavailable`` rather than a fake conclusion.
 
 Layer discipline: This module imports ONLY from adapter and foundation.
 Store access is through the container, not via direct orchestration imports.
@@ -26,10 +34,13 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import aiosqlite
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
@@ -47,6 +58,12 @@ _EXCLUDED_SLOTS = {"embedding"}
 
 # Default text-generation slots to use for comparison if caller doesn't specify
 _DEFAULT_COMPARISON_SLOTS = ["synthesis", "evaluation", "beast"]
+
+# Default OpenRouter base URL for direct library-model calls.
+_OPENROUTER_DEFAULT_BASE_URL = "https://openrouter.ai/api"
+
+# State DB path — kept in sync with models_library.py.
+_STATE_DB = "db/state.db"
 
 
 # ---------------------------------------------------------------------------
@@ -68,10 +85,26 @@ class PerModelResult(BaseModel):
     completion_tokens: int | None = None
     total_tokens: int | None = None
     cost_usd: float | None = None
+    # Provenance: "slot" = TOML-configured slot routed via ModelSlotResolver,
+    # "library" = OpenRouter model ID routed directly from the enabled_models
+    # SQLite table. Existing callers that ignore this field continue to work.
+    source: str = "slot"
 
 
 class ModelCouncilRequest(BaseModel):
-    """Request body for Model Council comparison."""
+    """Request body for Model Council comparison.
+
+    Two parallel model sources are accepted:
+      - ``selected_model_slots`` — TOML slot names (e.g. ``["synthesis",
+        "beast"]``). Routed via ``ModelSlotResolver``.
+      - ``selected_model_ids``   — OpenRouter model IDs from the
+        ``enabled_models`` SQLite library (e.g.
+        ``["deepseek/deepseek-v4-flash:free"]``). Routed via direct
+        OpenRouter HTTP calls.
+
+    Both lists are merged for the comparison; the ``≥2 usable models``
+    gate counts the combined total.
+    """
 
     prompt: str
     turn_id: str = ""
@@ -79,6 +112,7 @@ class ModelCouncilRequest(BaseModel):
     existing_answer: str = ""
     sources: list[dict] = []
     selected_model_slots: list[str] = Field(default_factory=list)
+    selected_model_ids: list[str] = Field(default_factory=list)
     save_as_artifact: bool = False
 
 
@@ -189,6 +223,162 @@ def _resolve_comparison_slots(
 
 
 # ---------------------------------------------------------------------------
+# Library model helpers — call OpenRouter directly per model ID
+# ---------------------------------------------------------------------------
+
+
+async def _lookup_library_model(model_id: str) -> dict[str, Any] | None:
+    """Look up a model row in the ``enabled_models`` SQLite table.
+
+    Returns the row as a dict, or ``None`` if not found / table missing /
+    DB unreachable. Best-effort: callers must tolerate ``None`` and fall
+    back to OpenRouter defaults.
+    """
+    try:
+        conn = await aiosqlite.connect(_STATE_DB)
+        conn.row_factory = aiosqlite.Row
+        try:
+            cursor = await conn.execute(
+                """
+                SELECT model_id, display_name, provider, enabled,
+                       is_custom, custom_base_url, custom_api_key
+                FROM enabled_models
+                WHERE model_id = ?
+                """,
+                (model_id,),
+            )
+            row = await cursor.fetchone()
+            if row is None:
+                return None
+            return {
+                "model_id": row["model_id"],
+                "display_name": row["display_name"],
+                "provider": row["provider"],
+                "enabled": row["enabled"],
+                "is_custom": row["is_custom"],
+                "custom_base_url": row["custom_base_url"],
+                "custom_api_key": row["custom_api_key"],
+            }
+        finally:
+            await conn.close()
+    except Exception as exc:
+        logger.debug("library_model_lookup_failed model_id=%s error=%s", model_id, exc)
+        return None
+
+
+async def _call_library_model_id(
+    model_id: str,
+    user_prompt: str,
+) -> dict:
+    """Call a single OpenRouter library model directly by model ID.
+
+    Returns a dict shaped like ``ModelSlotResolver.call()``:
+    ``{content, model, usage, latency_ms, cost_usd, error, error_message}``.
+
+    Resolution order for credentials and base URL:
+      1. If the model row has ``custom_base_url`` and ``custom_api_key``
+         (``is_custom=1``), use those.
+      2. Otherwise use ``AIP_OPENAI_API_KEY`` env var and the default
+         OpenRouter base URL.
+
+    Never raises — returns an error dict on failure so the comparison
+    report can degrade gracefully instead of failing entirely.
+    """
+    row = await _lookup_library_model(model_id)
+    display_name = (row or {}).get("display_name") or model_id
+
+    # Resolve base_url + api_key
+    if row and row.get("is_custom") == 1 and row.get("custom_base_url") and row.get("custom_api_key"):
+        base_url = row["custom_base_url"]
+        api_key = row["custom_api_key"]
+    else:
+        base_url = _OPENROUTER_DEFAULT_BASE_URL
+        api_key = os.environ.get("AIP_OPENAI_API_KEY", "")
+
+    if not api_key:
+        return {
+            "content": "",
+            "model": model_id,
+            "usage": {},
+            "latency_ms": 0,
+            "cost_usd": 0.0,
+            "error": True,
+            "error_message": (
+                f"No API key configured for library model '{model_id}'. "
+                f"Set AIP_OPENAI_API_KEY in the environment."
+            ),
+        }
+
+    try:
+        import httpx
+    except ImportError as exc:
+        return {
+            "content": "",
+            "model": model_id,
+            "usage": {},
+            "latency_ms": 0,
+            "cost_usd": 0.0,
+            "error": True,
+            "error_message": f"httpx not installed: {exc}",
+        }
+
+    url = f"{base_url.rstrip('/')}/v1/chat/completions"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+    payload = {
+        "model": model_id,
+        "messages": [{"role": "user", "content": user_prompt}],
+    }
+
+    start = time.perf_counter()
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(url, json=payload, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as exc:
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        return {
+            "content": "",
+            "model": model_id,
+            "usage": {},
+            "latency_ms": elapsed_ms,
+            "cost_usd": 0.0,
+            "error": True,
+            "error_message": f"OpenRouter call failed for '{model_id}': {exc}",
+        }
+
+    elapsed_ms = int((time.perf_counter() - start) * 1000)
+
+    content = ""
+    choices = data.get("choices", []) or []
+    if choices:
+        message = choices[0].get("message", {}) or {}
+        content = message.get("content", "") or ""
+
+    usage = data.get("usage", {}) or {}
+    usage_data = {
+        "prompt_tokens": usage.get("prompt_tokens", 0),
+        "completion_tokens": usage.get("completion_tokens", 0),
+        "total_tokens": usage.get("total_tokens", 0),
+    }
+
+    # display_name is returned alongside model_id so callers can render a
+    # friendly label in the per-model result card.
+    return {
+        "content": content,
+        "model": data.get("model", model_id),
+        "display_name": display_name,
+        "usage": usage_data,
+        "latency_ms": elapsed_ms,
+        "cost_usd": 0.0,
+        "error": False,
+    }
+
+
+# ---------------------------------------------------------------------------
 # POST endpoint — run model comparison
 # ---------------------------------------------------------------------------
 
@@ -215,42 +405,58 @@ async def compare_models(
     now = datetime.now(timezone.utc).isoformat()
     artifact_id = _council_artifact_id(request.turn_id, request.session_id)
 
-    # --- No model provider — honest degradation ---
-    if container.model_provider is None:
+    # --- Resolve slot-based comparison models ---
+    # ``comparison_slots`` is [] when model_provider is None or when no
+    # slots are configured. Library model IDs are processed independently
+    # and don't require a model_provider.
+    if container.model_provider is not None:
+        comparison_slots = _resolve_comparison_slots(container.model_provider, request.selected_model_slots)
+    else:
+        comparison_slots = []
+
+    # Deduplicate requested library model IDs (preserve order)
+    seen_ids: set[str] = set()
+    comparison_model_ids: list[str] = []
+    for mid in request.selected_model_ids:
+        if mid and mid not in seen_ids:
+            seen_ids.add(mid)
+            comparison_model_ids.append(mid)
+
+    total_usable = len(comparison_slots) + len(comparison_model_ids)
+
+    if total_usable < 2:
+        excluded_results: list[PerModelResult] = [
+            PerModelResult(
+                model_slot=s,
+                model_id=_safe_model_id(container.model_provider, s) if container.model_provider else f"<{s}>",
+                provider=_safe_provider(container.model_provider, s) if container.model_provider else "unknown",
+                status="excluded",
+                source="slot",
+            )
+            for s in comparison_slots
+        ] + [
+            PerModelResult(
+                model_slot="",
+                model_id=mid,
+                provider="openrouter",
+                status="excluded",
+                source="library",
+            )
+            for mid in comparison_model_ids
+        ]
         return ModelCouncilResponse(
             id=artifact_id,
             status="insufficient_models",
             prompt=request.prompt[:500],
             turn_id=request.turn_id,
             session_id=request.session_id,
-            error="No model provider configured — cannot run Model Council",
-            created_at=now,
-            synthesis_status="unavailable",
-        )
-
-    # --- Resolve which slots to compare ---
-    comparison_slots = _resolve_comparison_slots(container.model_provider, request.selected_model_slots)
-
-    if len(comparison_slots) < 2:
-        return ModelCouncilResponse(
-            id=artifact_id,
-            status="insufficient_models",
-            prompt=request.prompt[:500],
-            turn_id=request.turn_id,
-            session_id=request.session_id,
-            selected_models=[
-                PerModelResult(
-                    model_slot=s,
-                    model_id=_safe_model_id(container.model_provider, s),
-                    provider=_safe_provider(container.model_provider, s),
-                    status="excluded",
-                )
-                for s in comparison_slots
-            ],
+            selected_models=excluded_results,
             error=(
-                f"Insufficient text-generation model slots for comparison. "
-                f"Found {len(comparison_slots)} usable slot(s): {comparison_slots}. "
-                f"Need at least 2. Embedding slot is excluded from text generation."
+                f"Insufficient usable models for comparison. "
+                f"Found {len(comparison_slots)} slot(s) + {len(comparison_model_ids)} library ID(s) "
+                f"= {total_usable} total. Need at least 2. "
+                f"Embedding slot is excluded from text generation. "
+                f"Enable more models on the Models page or add more [models.*] slots in config."
             ),
             created_at=now,
             synthesis_status="unavailable",
@@ -270,10 +476,17 @@ async def compare_models(
 
     user_prompt = f"""{request.prompt[:4000]}{sources_text}{existing_answer_block}"""
 
-    # --- Call each model slot concurrently ---
-    per_model_tasks = {}
+    # --- Call each model concurrently (slots + library IDs in parallel) ---
+    # Build a unified task map keyed by a stable identifier we can
+    # reverse-map back to {source, slot_name|model_id} afterwards.
+    # Keys: "slot:<slot_name>" for slots, "library:<model_id>" for library IDs.
+    per_model_tasks: dict[str, Any] = {}
     for slot_name in comparison_slots:
-        per_model_tasks[slot_name] = _call_model_slot(container.model_provider, slot_name, user_prompt)
+        per_model_tasks[f"slot:{slot_name}"] = _call_model_slot(
+            container.model_provider, slot_name, user_prompt,
+        )
+    for model_id in comparison_model_ids:
+        per_model_tasks[f"library:{model_id}"] = _call_library_model_id(model_id, user_prompt)
 
     # Run all model calls concurrently
     results_map: dict[str, dict] = {}
@@ -281,9 +494,9 @@ async def compare_models(
     task_coros = [per_model_tasks[k] for k in task_keys]
     task_results = await asyncio.gather(*task_coros, return_exceptions=True)
 
-    for slot_name, result in zip(task_keys, task_results):
+    for task_key, result in zip(task_keys, task_results):
         if isinstance(result, Exception):
-            results_map[slot_name] = {
+            results_map[task_key] = {
                 "content": "",
                 "model": "",
                 "usage": {},
@@ -293,16 +506,17 @@ async def compare_models(
                 "error_message": str(result),
             }
         else:
-            results_map[slot_name] = result
+            results_map[task_key] = result
 
-    # --- Build per-model results ---
+    # --- Build per-model results (slots first, then library IDs) ---
     per_model_results: list[PerModelResult] = []
     degraded_models: list[str] = []
     failed_models: list[str] = []
     successful_count = 0
 
+    # Slots
     for slot_name in comparison_slots:
-        r = results_map.get(slot_name, {})
+        r = results_map.get(f"slot:{slot_name}", {})
         model_id = r.get("model", _safe_model_id(container.model_provider, slot_name))
         provider = _safe_provider(container.model_provider, slot_name)
         usage = r.get("usage", {})
@@ -318,6 +532,7 @@ async def compare_models(
                     status="failed",
                     error=r.get("error_message", "Model call failed"),
                     latency_ms=r.get("latency_ms"),
+                    source="slot",
                 )
             )
         else:
@@ -334,15 +549,66 @@ async def compare_models(
                     completion_tokens=usage.get("completion_tokens"),
                     total_tokens=usage.get("total_tokens"),
                     cost_usd=r.get("cost_usd"),
+                    source="slot",
+                )
+            )
+
+    # Library model IDs
+    for model_id in comparison_model_ids:
+        r = results_map.get(f"library:{model_id}", {})
+        # Library calls return ``display_name`` alongside ``model`` for a
+        # friendly label; fall back to the model_id if absent.
+        display_name = r.get("display_name") or model_id
+        actual_model_id = r.get("model", model_id)
+        usage = r.get("usage", {})
+        is_error = r.get("error", False)
+        label = display_name if display_name != model_id else model_id
+
+        if is_error:
+            failed_models.append(label)
+            per_model_results.append(
+                PerModelResult(
+                    model_slot="",
+                    model_id=actual_model_id,
+                    provider="openrouter",
+                    status="failed",
+                    error=r.get("error_message", "Model call failed"),
+                    latency_ms=r.get("latency_ms"),
+                    source="library",
+                )
+            )
+        else:
+            successful_count += 1
+            per_model_results.append(
+                PerModelResult(
+                    model_slot="",
+                    model_id=actual_model_id,
+                    provider="openrouter",
+                    status="completed",
+                    answer=r.get("content", ""),
+                    latency_ms=r.get("latency_ms"),
+                    prompt_tokens=usage.get("prompt_tokens"),
+                    completion_tokens=usage.get("completion_tokens"),
+                    total_tokens=usage.get("total_tokens"),
+                    cost_usd=r.get("cost_usd"),
+                    source="library",
                 )
             )
 
     # --- Determine overall status ---
     if successful_count == 0:
         overall_status = "error"
-    elif successful_count < len(comparison_slots):
+    elif successful_count < total_usable:
         overall_status = "partial"
-        degraded_models = [s for s in comparison_slots if s not in failed_models]
+        # ``degraded_models`` lists models that succeeded but whose peers
+        # failed. Use friendly labels for library models.
+        successful_labels = {
+            (pm.model_slot if pm.source == "slot" else pm.model_id)
+            for pm in per_model_results
+            if pm.status == "completed"
+        }
+        failed_set = set(failed_models)
+        degraded_models = [m for m in successful_labels if m not in failed_set]
     else:
         overall_status = "completed"
 
@@ -355,12 +621,30 @@ async def compare_models(
     beast_conclusion = ""
     recommended_decision = ""
 
-    if successful_count >= 2:
-        # Build the synthesis prompt with per-model answers
+    # Synthesis requires a model_provider with a "beast" slot. If
+    # model_provider is None (e.g. only library model IDs were used),
+    # we cannot run Beast synthesis — return per-model results only.
+    if successful_count >= 2 and container.model_provider is None:
+        synthesis_status = "unavailable"
+        beast_conclusion = (
+            "Beast synthesis unavailable — no model_provider configured for "
+            "the 'beast' slot. Per-model results from library IDs are "
+            "available for individual review."
+        )
+    elif successful_count >= 2:
+        # Build the synthesis prompt with per-model answers. Use a
+        # friendly label for each: "<slot_name> (<model_id>)" for slots,
+        # "<display_name> (<model_id>)" for library models (model_slot=""
+        # for library models).
         answers_block = ""
         for pm in per_model_results:
             if pm.status == "completed":
-                answers_block += f"\n## {pm.model_slot} ({pm.model_id})\n{pm.answer[:2000]}\n"
+                if pm.source == "slot":
+                    label = pm.model_slot or "slot"
+                else:
+                    # Library model — model_id IS the friendly identifier
+                    label = pm.model_id
+                answers_block += f"\n## {label} ({pm.model_id})\n{pm.answer[:2000]}\n"
 
         soul_text = _load_soul_text()
 
@@ -483,6 +767,7 @@ Provide your synthesis as structured JSON."""
                 "turn_id": request.turn_id,
                 "session_id": request.session_id,
                 "comparison_slots": ",".join(comparison_slots),
+                "comparison_model_ids": ",".join(comparison_model_ids),
                 "status": overall_status,
             }
             await container.artifact_store.write(

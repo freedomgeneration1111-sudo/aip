@@ -1353,6 +1353,7 @@ class AipApiClient:
         existing_answer: str = "",
         sources: list[dict] | None = None,
         selected_model_slots: list[str] | None = None,
+        selected_model_ids: list[str] | None = None,
         save_as_artifact: bool = False,
     ) -> dict[str, Any]:
         """Run a Model Council multi-model comparison report.
@@ -1361,6 +1362,16 @@ class AipApiClient:
         Returns an advisory comparison report with per-model results,
         convergence, disagreements, risks, and Beast synthesis.
         Reports are ADVISORY ONLY — never auto-approved.
+
+        Two parallel model sources are accepted:
+          - ``selected_model_slots`` — TOML slot names routed via
+            ModelSlotResolver (synthesis, evaluation, beast, …)
+          - ``selected_model_ids``   — OpenRouter model IDs from the
+            enabled_models SQLite library (e.g.
+            ``deepseek/deepseek-v4-flash:free``), routed via direct
+            OpenRouter calls.
+        Both lists are merged; the backend requires ≥2 usable models
+        total (slots + library IDs combined).
         """
         client = self._get_http_client()
         payload: dict[str, Any] = {
@@ -1370,6 +1381,7 @@ class AipApiClient:
             "existing_answer": existing_answer,
             "sources": sources or [],
             "selected_model_slots": selected_model_slots or [],
+            "selected_model_ids": selected_model_ids or [],
             "save_as_artifact": save_as_artifact,
         }
         try:
