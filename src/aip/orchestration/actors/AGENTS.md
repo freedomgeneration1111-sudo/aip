@@ -106,12 +106,28 @@ sexton.py (get_status_summary)
   in `_compute_embedding_backfill_state()` or rate-limited state is masked.
 - **`sexton_pass.state` never existed**: Old code read this phantom attribute.
   Always read `_embedding_backfill_state` instead.
+- **Wiki artifact_type must be `beast_wiki`** (NOT `sexton_wiki`): Sexton writes
+  wiki artifacts with `artifact_type: "beast_wiki"`. All consumers (wiki_channel.py,
+  chat.py, /wiki/articles route) filter on `beast_wiki`. The old value `sexton_wiki`
+  made wiki artifacts invisible to all downstream consumers. Verified by
+  `tests/test_wiki_artifact_contract.py`.
+- **Wiki generation requires tagged corpus turns**: `_run_wiki_generation` skips
+  domains where `get_domain_stats()` returns `total_turns=0`. Turns must have
+  `tagging_version > 0` to be counted. If tagging hasn't run or hasn't
+  completed, wiki generation silently skips all domains.
+- **Domain registry path is CWD-relative**: `load_registry("docs/beast_domain_registry_v1.md")`
+  uses a relative path. If the app CWD is not the project root, the registry
+  won't be found and wiki generation returns `{"skipped": "registry_not_found"}`.
 
 ## Last Cycle
 - **Commit 14d3a73**: Added `asyncio.Lock` concurrency guard to Sexton `run_cycle()`.
   Added rate limit detection (429 handling with backoff). Fixed `_compute_embedding_backfill_state()`
   to check rate_limited before mock/fake detection. Added `_rate_limited`, `_rate_limited_until`,
   `_rate_limited_reason` attributes. Coordinated startup/scheduler in `app.py`.
+- **Wiki contract fix**: Changed `artifact_type` from `"sexton_wiki"` to `"beast_wiki"`
+  in `_write_wiki_artifact()` and `_wiki_needs_generation()`. This was the #1 bug —
+  wiki artifacts were written with a type no consumer reads. Also added `sexton:wiki:%`
+  to the `/wiki/articles` SQL LIKE patterns in `adapter/api/routes/wiki.py`.
 
 ## Key Files
 | File | Role |

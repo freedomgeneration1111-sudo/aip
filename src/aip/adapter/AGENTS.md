@@ -110,6 +110,13 @@ config/aip.config.toml ([models] section)
   A store that initializes `my_store.db` violates the unified DB contract.
 - **23+ routers must be registered in app.py**: Adding a new route file
   without registering it in `api/app.py` means the route silently doesn't exist.
+- **Wiki artifact_type must be `beast_wiki`**: The `/wiki/articles` route, wiki_channel,
+  and chat route all filter on `artifact_type: "beast_wiki"`. Sexton must write this
+  same value (was incorrectly `sexton_wiki`). Also, `/wiki/articles` SQL must include
+  `sexton:wiki:%` in the LIKE conditions for existing artifacts with that ID prefix.
+- **Corpus turn store must be initialized for wiki generation**: Sexton's
+  `_run_wiki_generation` requires `corpus_turn_store` to be wired in the container.
+  If `container.corpus_turn_store is None`, the entire wiki pass skips.
 
 ## Last Cycle
 - **Commit 14d3a73**: `model_slot_resolver.py` now detects HTTP 429 before

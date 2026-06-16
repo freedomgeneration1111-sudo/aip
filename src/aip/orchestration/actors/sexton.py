@@ -1372,7 +1372,7 @@ Example response structure:
         """Return (needs_generation, last_wiki_created_at_or_None)."""
         last_wiki_ts: str | None = None
         try:
-            arts = await self._artifacts.list_artifacts_by_metadata(key="artifact_type", value="sexton_wiki", limit=200)
+            arts = await self._artifacts.list_artifacts_by_metadata(key="artifact_type", value="beast_wiki", limit=200)
             domain_arts = [a for a in arts if (a.get("metadata", {}) or {}).get("domain") == domain_id]
             if domain_arts:
                 domain_arts.sort(key=lambda a: a.get("created_at", ""), reverse=True)
@@ -1550,7 +1550,7 @@ CRITICAL CONSTRAINTS:
 
             word_count = len(wiki_content.split())
             meta = {
-                "artifact_type": "sexton_wiki",
+                "artifact_type": "beast_wiki",  # CONTRACT: must match wiki_channel.py and chat.py readers
                 "domain": domain_id,
                 "domain_display": getattr(domain_entry, "domain_id", domain_id),
                 "generated_at": ts,

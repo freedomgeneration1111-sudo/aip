@@ -1,6 +1,6 @@
 """Wiki API routes — browse, create, and edit wiki/CODEX articles.
 
-Wiki articles are stored as artifacts (beast:wiki:* / beast:proposal:* / wiki:*)
+Wiki articles are stored as artifacts (beast:wiki:* / beast:proposal:* / wiki:* / sexton:wiki:*)
 via the container's artifact_store with ECS state tracking. This route module provides:
 
   GET  /wiki/articles           — List articles (existing, enhanced with WikiArticle schema)
@@ -180,7 +180,7 @@ def _row_to_article(
         # Convenience fields
         "domain": article_domain,
         "artifact_type": "wiki"
-        if artifact_id.startswith("beast:wiki:") or artifact_id.startswith("wiki:")
+        if artifact_id.startswith("beast:wiki:") or artifact_id.startswith("wiki:") or artifact_id.startswith("sexton:wiki:")
         else "proposal",
         "version": row["version"],
         "word_count": len(content_text.split()) if content_text else 0,
@@ -217,7 +217,7 @@ async def list_wiki_articles(
     items: list[dict] = []
 
     # Build WHERE clause
-    conditions = ["(a.id LIKE 'beast:wiki:%' OR a.id LIKE 'beast:proposal:%' OR a.id LIKE 'wiki:%')"]
+    conditions = ["(a.id LIKE 'beast:wiki:%' OR a.id LIKE 'beast:proposal:%' OR a.id LIKE 'wiki:%' OR a.id LIKE 'sexton:wiki:%')"]
     params: list[str] = []
 
     if state:

@@ -98,6 +98,10 @@ sexton.py (_embedding_backfill_state, _rate_limited)
   Fixed `_do_ingest`/`_do_backfill`/`_do_retry` definition order before button references.
 - **Commit 4c9e94d**: Fixed UnboundLocalError on `_do_backfill` by reordering
   inner async function definitions above `ui.button(on_click=...)` calls.
+- **Wiki contract fix**: The artifacts page and wiki page now correctly display
+  Sexton-generated wiki articles (IDs matching `sexton:wiki:*`). The
+  `artifact_type` contract was fixed upstream in `sexton.py` from `"sexton_wiki"`
+  to `"beast_wiki"` so all consumers see the artifacts.
 
 ## Brand System (applies here)
 - Background: `#0d1117` | Accent: `#4A9B8E` slate-teal | Amber: `#D4A843`
