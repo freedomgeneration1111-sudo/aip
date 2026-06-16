@@ -296,3 +296,97 @@ Stage Summary:
 - All changes are pure layout/CSS — no backend or API changes
 - Pre-existing test_no_dead_nav_items failure is NOT caused by these changes (verified via git stash)
 
+
+---
+Task ID: 12
+Agent: Super Z (main)
+Task: Multi-Cast + turn_id + council dialogs — restore multi-model send, fix per-turn actions, kill right drawers
+
+Work Log:
+- Orient: read gui/AGENTS.md, src/aip/adapter/AGENTS.md, full chat WebSocket
+  flow (chat.py:340-720), auto_save_chat_turn (ingest.py:178-300),
+  make_turn_id (foundation/schemas/corpus_turn.py:164), ask.py on_response
+  handler, BeastPanel + ModelCouncilPanel right_drawer call sites, answer_card
+  action-button contracts, gui/state.py GuiState attributes
+- Contract check (the bug is always in the gap):
+  Producer: src/aip/adapter/api/routes/chat.py:557-583 built response_payload
+  WITHOUT turn_id. Consumer: gui/pages/ask.py on_response built turn_data
+  WITHOUT turn_id. Downstream consumers (_handle_beast_counsel,
+  _handle_link_wiki, _handle_model_council) all read turn_data["turn_id"],
+  got "", and bailed. Fixed both sides of the contract.
+- Code change 1 (backend): chat.py now imports make_turn_id from
+  aip.foundation.schemas.corpus_turn, computes chat_turn_id = make_turn_id(
+  session_id, turn_index) BEFORE building response_payload, includes it in
+  every "type":"response" message (both normal and no-provider degraded
+  path). The downstream auto_save_chat_turn already uses the same
+  make_turn_id(session_id, turn_index) so the surfaced ID matches the
+  persisted turn.
+- Code change 2 (frontend): ask.py on_response reads resp["turn_id"] into
+  turn_data; direct-model fallback path explicitly leaves turn_id="" with a
+  comment explaining why (no backend = no persisted turn to point at).
+- Code change 3 (BeastPanel): replaced ui.right_drawer() in all three call
+  sites (show_counsel, _refresh_for_mode, _run_counsel re-render) with
+  ui.dialog() centered modal. Added _open_dialog() helper that creates the
+  dialog, assigns it to self._drawer, creates an inner ui.column() with
+  max-height:85vh; overflow-y:auto, assigns it to self._content_container,
+  and calls dialog.open(). All subsequent render methods add to
+  self._content_container (not self._drawer) so children appear inside the
+  scrollable region rather than as siblings of it. close() clears both
+  _drawer and _content_container.
+- Code change 4 (ModelCouncilPanel): same ui.right_drawer() -> ui.dialog()
+  conversion across all three call sites (show_council, _run_comparison
+  loading state, _run_comparison results state). Same _open_dialog() helper
+  pattern. _render_initial_state now opens with `with self._content_container:`
+  instead of `with ui.column().classes("w-full").style("padding:16px;")`.
+- Code change 5 (Multi-Cast UI + handler): added GuiState.multicast_enabled
+  and multicast_selected_slots fields. Added Multi-Cast toggle button in
+  Ask page chat header. When toggled on, a slot selection row appears
+  below the header with checkboxes for every text-gen slot (excluding
+  embedding). Defaults pre-populated to ["synthesis", "evaluation", "beast"]
+  if those slot names are present. send_fn now routes through
+  _dispatch_send which checks state.multicast_enabled: if True and ≥2 slots
+  selected and backend reachable, calls _send_multicast; otherwise falls
+  back to the normal _send_prompt. _send_multicast calls
+  api_client.run_model_council(prompt=prompt, turn_id="", session_id=...,
+  existing_answer="", sources=[], selected_model_slots=selected_slots),
+  then renders each per-model answer as its own answer card and a final
+  Beast synthesis card (markdown with sections for Convergence,
+  Disagreements, Unique Contributions, Risks, Beast Conclusion,
+  Recommended Decision). The synthesis is ADVISORY ONLY — never auto-saved
+  or auto-approved.
+- Verify: all 5 modified modules (chat.py, ask.py, state.py, beast_panel.py,
+  model_council_panel.py) compile cleanly. UI integration test suite: 21/22
+  pass (the 1 failure is test_no_dead_nav_items, pre-existing and confirmed
+  unrelated via git stash). Layer discipline + GUI import boundary tests
+  show only pre-existing aiosqlite-not-installed environment failures.
+- Document: updated src/aip/adapter/AGENTS.md (added "Chat WebSocket
+  response MUST include turn_id" gotcha + Multi-Cast Last Cycle entry).
+  Updated gui/AGENTS.md with five new gotchas: left_drawer width prop,
+  right_drawer forbidden, element.style() additivity, turn_id contract,
+  Multi-Cast send path. Updated Last Cycle section.
+
+Stage Summary:
+- 5 concerns addressed in one pass per the coding protocol
+- turn_id contract gap fixed on both producer (chat.py) and consumer (ask.py)
+  sides — Beast Counsel, Link Wiki, and Model Council turn linkage all work now
+- BeastPanel + ModelCouncilPanel converted from right_drawer to centered dialog
+  (max-width:900px / 1000px, scrollable inner column, no right sidebar anywhere)
+- Multi-Cast pre-send UX restored: toggle in chat header, slot checkboxes,
+  _dispatch_send routes to _send_multicast which calls run_model_council
+  directly and renders per-model answer cards + Beast synthesis card
+- All changes are advisory-only by default; no auto-approve, auto-save, or
+  auto-export. Multi-Cast synthesis explicitly marked ADVISORY ONLY.
+- Pre-existing test_no_dead_nav_items failure confirmed unrelated (git stash)
+- All 5 modified modules compile cleanly
+
+Files changed:
+- src/aip/adapter/api/routes/chat.py (turn_id in response_payload, both paths)
+- gui/pages/ask.py (turn_data turn_id, Multi-Cast toggle + slot row,
+  _toggle_multicast, _toggle_multicast_slot, _dispatch_send, _send_multicast,
+  updated docstring)
+- gui/components/beast_panel.py (_open_dialog helper, all 3 right_drawer
+  sites converted to ui.dialog, _content_container pattern)
+- gui/components/model_council_panel.py (same dialog conversion pattern)
+- gui/state.py (multicast_enabled + multicast_selected_slots fields)
+- src/aip/adapter/AGENTS.md (turn_id gotcha + Last Cycle entry)
+- gui/AGENTS.md (5 new gotchas + Last Cycle entry)

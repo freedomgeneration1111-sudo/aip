@@ -6,12 +6,21 @@ UI Cycle 4 upgrades the migrated Ask page into the Full Dogfood Ask Workbench.
 Every assistant answer is now inspectable, source-grounded, and linkable, with
 visible retrieval health and degraded/direct-model warnings.
 
+Multi-Cast mode (added this cycle): a Multi-Cast toggle in the chat header
+switches the send handler from the normal single-model WebSocket path to a
+multi-model path that dispatches the prompt to every selected text-gen slot
+via POST /beast/compare-models. Each per-model answer renders as its own
+answer card; the Beast/synthesis model then produces a final advisory
+synthesis card covering convergence, disagreements, risks, and recommended
+decision. The synthesis is ADVISORY ONLY — never auto-approved.
+
 Flow:
   1. API key check on load
   2. Backend health check with 4s timeout
   3. Model slot loading from /api/v1/models/slots
   4. Session creation via POST /api/v1/sessions
   5. WebSocket chat via ws://backend/api/v1/chat/session_id
+     (or Multi-Cast via POST /beast/compare-models when toggle is on)
   6. Message types: message, response, gate, error, pong
   7. Gate handling: approve/reject buttons for DEFINER gates
   8. Auto-save toggle with session update
@@ -20,9 +29,13 @@ Flow:
   10. Per-answer status strip: retrieval healthy / degraded / lexical only /
       no sources / direct model only / trace unavailable
   11. Per-answer actions: Show Sources, Show Trace, Save as Artifact,
-      Link Wiki (not wired), Run Model Council (not wired)
+      Link Wiki, Beast Counsel, Model Council
+      (Beast Counsel + Link Wiki require turn_id from the WS response —
+      the backend now echoes turn_id back so these actions work)
   12. Source panel: drawer with source title/path, snippet, score, channel
   13. Trace panel: drawer with channels attempted/used, degradation, warnings
+  14. Beast Counsel + Model Council panels open as centered modal dialogs
+      (ui.dialog) — no longer ui.right_drawer (per "no right sidebar" rule)
 
 CRITICAL RULES:
   - Direct model fallback must be labeled
@@ -31,7 +44,7 @@ CRITICAL RULES:
   - If retrieval trace/source data is unavailable, show unavailable honestly.
   - Do not create fake traces.
   - Do not silently save artifacts, mutate wiki, approve gates, or export.
-  - Beast Counsel and Model Council are shown as disabled/unavailable.
+  - Beast Counsel and Model Council are ADVISORY ONLY.
 """
 
 from __future__ import annotations
@@ -298,6 +311,75 @@ async def _ask_page_impl():
                 on_change=lambda e: asyncio.create_task(_on_auto_save_toggled(e.value, state)),
             ).style(f"color:{C_MUTED}; font-size:10px;")
 
+            ui.separator().props("vertical").style(f"margin:0 12px; color:{C_INK40};")
+
+            # Multi-Cast toggle — when on, the send handler dispatches the
+            # prompt to every selected text-gen slot concurrently via
+            # POST /beast/compare-models, then renders per-model answer
+            # cards plus a Beast synthesis card. This restores the original
+            # "send-to-many-then-synthesize" UX from earlier cycles.
+            multicast_btn = ui.button(
+                "Multi-Cast: OFF",
+                on_click=lambda: _toggle_multicast(state, multicast_btn, multicast_row),
+            ).props("dense flat").style(
+                f"color:{C_INK60 if not state.multicast_enabled else C_AMBER}; "
+                f"font-size:10px; font-weight:600; letter-spacing:0.5px;"
+            )
+
+        # ── Multi-Cast slot selection row (hidden when toggle is off) ──
+        # Populated from the already-loaded slots list, filtered to exclude
+        # the embedding slot (which is not a text-generation slot).
+        text_gen_slots = [s for s in slots if s.get("slot_name", "") != "embedding"]
+        # Pre-populate selected slots with the defaults that are actually present
+        if not state.multicast_selected_slots:
+            _DEFAULT_MC_SLOTS = ["synthesis", "evaluation", "beast"]
+            available_names = [s.get("slot_name", "") for s in text_gen_slots]
+            state.multicast_selected_slots = [n for n in _DEFAULT_MC_SLOTS if n in available_names]
+            # If no defaults matched, select all available
+            if not state.multicast_selected_slots and available_names:
+                state.multicast_selected_slots = list(available_names)
+
+        multicast_row = (
+            ui.row()
+            .classes("w-full items-center")
+            .style(
+                f"padding:8px 16px; background:{C_GROUND}; border-bottom:0.5px solid {C_INK40};"
+            )
+        )
+        # Set visibility via the proper NiceGUI API (not display:none in style,
+        # because .style() is additive and we couldn't cleanly toggle it back).
+        multicast_row.visible = state.multicast_enabled
+        with multicast_row:
+            ui.label("Multi-Cast Slots").style(
+                f"font-size:10px; font-weight:600; color:{C_AMBER}; letter-spacing:0.5px; margin-right:8px;"
+            )
+            if not text_gen_slots:
+                ui.label(
+                    "No text-generation slots configured — Multi-Cast requires ≥2 slots. "
+                    "Configure them on the Models page."
+                ).style(f"font-size:10px; color:{C_WARN_FG}; font-family:{F_MONO};")
+            else:
+                for s in text_gen_slots:
+                    sn = s.get("slot_name", "")
+                    model_id = s.get("model", f"<{sn}>")
+                    is_real = not (model_id.startswith("<") and model_id.endswith(">"))
+                    is_checked = sn in state.multicast_selected_slots
+                    (
+                        ui.checkbox(
+                            f"{sn}{' (' + model_id + ')' if is_real else ' (unconfigured)'}",
+                            value=is_checked,
+                            on_change=lambda e, name=sn: _toggle_multicast_slot(state, name, e.value),
+                        )
+                        .props("dense size=xs")
+                        .style(
+                            f"color:{C_AMBER if is_real else C_INK60}; "
+                            f"font-size:10px; font-family:{F_MONO};"
+                        )
+                    )
+                ui.label(f"{len(state.multicast_selected_slots)} selected").style(
+                    f"font-size:9px; color:{C_MUTED}; font-family:{F_MONO}; margin-left:8px;"
+                )
+
         # ── Direct model fallback banner ──────────────────────────
         if not state.backend_reachable:
             with (
@@ -338,10 +420,15 @@ async def _ask_page_impl():
                 )
 
         # ── Chat input ────────────────────────────────────────────
+        # The send handler dispatches based on the Multi-Cast toggle:
+        #   - multicast_enabled=False → normal single-model _send_prompt
+        #   - multicast_enabled=True  → multi-cast _send_multicast that
+        #     fans the prompt out to every selected slot via run_model_council
+        #     and renders per-model answer cards + a Beast synthesis card.
         input_field = build_chat_input(
             state,
             chat_container,
-            send_fn=lambda: _send_prompt(
+            send_fn=lambda: _dispatch_send(
                 state,
                 chat_container,
                 input_field,
@@ -423,6 +510,306 @@ async def _on_auto_save_toggled(enabled: bool, state: GuiState) -> None:
     else:
         status = "enabled" if enabled else "disabled"
         ui.notify(f"Auto-save will be {status} for next session", color="info")
+
+
+# ── Multi-Cast helpers ─────────────────────────────────────────────────
+
+
+def _toggle_multicast(state: GuiState, btn: ui.button, row: ui.row) -> None:
+    """Toggle Multi-Cast mode on/off and update the UI accordingly.
+
+    When turning on, shows the slot selection row. When turning off, hides
+    it and falls back to the normal single-model send path.
+    """
+    state.multicast_enabled = not state.multicast_enabled
+    state.reset_session()
+    if state.multicast_enabled:
+        btn.text = "Multi-Cast: ON"
+        btn.style(f"color:{C_AMBER}; font-size:10px; font-weight:600; letter-spacing:0.5px;")
+        row.visible = True  # show the slot selection row
+        count = len(state.multicast_selected_slots)
+        if count < 2:
+            ui.notify(
+                f"Multi-Cast ON — select ≥2 slots ({count} selected)",
+                color="warning",
+            )
+        else:
+            ui.notify(
+                f"Multi-Cast ON — {count} slots selected",
+                color="positive",
+            )
+    else:
+        btn.text = "Multi-Cast: OFF"
+        btn.style(f"color:{C_INK60}; font-size:10px; font-weight:600; letter-spacing:0.5px;")
+        row.visible = False  # hide the slot selection row
+        ui.notify("Multi-Cast OFF — using normal single-model send", color="info")
+
+
+def _toggle_multicast_slot(state: GuiState, slot_name: str, checked: bool) -> None:
+    """Add or remove a slot from the multicast selection list."""
+    if checked and slot_name not in state.multicast_selected_slots:
+        state.multicast_selected_slots.append(slot_name)
+    elif not checked and slot_name in state.multicast_selected_slots:
+        state.multicast_selected_slots.remove(slot_name)
+    log.debug(
+        "multicast_slot_toggled slot=%s checked=%s selected=%s",
+        slot_name,
+        checked,
+        state.multicast_selected_slots,
+    )
+
+
+async def _dispatch_send(
+    state: GuiState,
+    chat_container,
+    input_field: ui.input,
+    source_panel: SourcePanel,
+    trace_panel: TracePanel,
+    beast_panel: BeastPanel,
+    model_council_panel: ModelCouncilPanel,
+) -> None:
+    """Dispatch the send action based on the Multi-Cast toggle.
+
+    - multicast_enabled=False → normal single-model _send_prompt
+    - multicast_enabled=True  → multi-cast _send_multicast (≥2 slots required)
+    """
+    if state.multicast_enabled:
+        if len(state.multicast_selected_slots) < 2:
+            ui.notify(
+                "Multi-Cast requires ≥2 selected slots — pick more in the header",
+                color="warning",
+            )
+            return
+        if not state.backend_reachable:
+            ui.notify(
+                "Multi-Cast requires a live backend (POST /beast/compare-models)",
+                color="negative",
+            )
+            return
+        await _send_multicast(
+            state,
+            chat_container,
+            input_field,
+            source_panel,
+            trace_panel,
+            beast_panel,
+            model_council_panel,
+        )
+    else:
+        await _send_prompt(
+            state,
+            chat_container,
+            input_field,
+            source_panel,
+            trace_panel,
+            beast_panel,
+            model_council_panel,
+        )
+
+
+async def _send_multicast(
+    state: GuiState,
+    chat_container,
+    input_field: ui.input,
+    source_panel: SourcePanel,
+    trace_panel: TracePanel,
+    beast_panel: BeastPanel,
+    model_council_panel: ModelCouncilPanel,
+) -> None:
+    """Send the prompt to every selected text-gen slot via POST /beast/compare-models.
+
+    The backend calls each slot concurrently with the same prompt, then runs
+    Beast synthesis on the per-model responses. We render each per-model
+    answer as its own answer card, then render a final Beast Synthesis card
+    summarizing convergence / disagreements / risks / recommended decision.
+
+    The synthesis is ADVISORY ONLY — never auto-approved.
+    """
+    prompt = input_field.value.strip()
+    if not prompt:
+        return
+
+    selected_slots = list(state.multicast_selected_slots)
+    log.info(
+        "send_multicast: slots=%s backend_reachable=%s prompt_len=%d",
+        selected_slots,
+        state.backend_reachable,
+        len(prompt),
+    )
+
+    add_message(chat_container, "user", prompt)
+    input_field.value = ""
+
+    with chat_container:
+        thinking_label = ui.label(
+            f"Multi-Casting to {len(selected_slots)} slots... (this may take 30-90s)"
+        ).style(f"color:{C_MUTED}; font-size:11px;")
+
+    try:
+        session_id = await state.ensure_session()
+    except Exception as exc:
+        log.warning("send_multicast: ensure_session failed: %s", exc)
+        thinking_label.delete()
+        add_system_message(chat_container, f"Session creation failed: {exc}")
+        return
+
+    try:
+        result = await state.api_client.run_model_council(
+            prompt=prompt,
+            turn_id="",  # No originating turn — multi-cast is a fresh prompt
+            session_id=session_id,
+            existing_answer="",  # Pre-send mode: no existing answer to compare
+            sources=[],
+            selected_model_slots=selected_slots,
+        )
+    except Exception as exc:
+        log.exception("send_multicast: run_model_council failed: %s", exc)
+        thinking_label.delete()
+        add_system_message(chat_container, f"Multi-Cast failed: {exc}")
+        ui.notify(f"Multi-Cast failed: {exc}", color="negative")
+        return
+
+    thinking_label.delete()
+
+    status = result.get("status", "error")
+    if status == "error":
+        err = result.get("error", "Unknown error")
+        add_system_message(chat_container, f"Multi-Cast error: {err}")
+        ui.notify(f"Multi-Cast error: {err}", color="negative")
+        return
+
+    if status == "insufficient_models":
+        err = result.get("error", "Insufficient text-generation slots")
+        add_system_message(chat_container, f"Multi-Cast unavailable: {err}")
+        ui.notify(
+            "Multi-Cast needs ≥2 configured text-gen slots — see Models page",
+            color="warning",
+            timeout=8000,
+        )
+        return
+
+    per_model = result.get("selected_models", [])
+    # Render one answer card per model that completed
+    completed_count = 0
+    for pm in per_model:
+        pm_status = pm.get("status", "unknown")
+        slot_name = pm.get("model_slot", "unknown")
+        model_id = pm.get("model_id", "")
+        answer = pm.get("answer", "")
+        error = pm.get("error", "")
+        latency = pm.get("latency_ms")
+
+        if pm_status == "completed" and answer:
+            completed_count += 1
+            turn_data = {
+                "session_id": session_id,
+                "turn_id": "",  # No originating chat turn
+                "content": answer,
+                "model": f"{slot_name} ({model_id})",
+                "mode": "multicast",
+                "sources": [],
+                "trace_available": False,
+                "lexical_only": False,
+                "vector_contributed": False,
+                "direct_model": False,
+            }
+            add_answer_card(
+                chat_container,
+                content=answer,
+                model=f"{slot_name} ({model_id})",
+                latency_ms=latency,
+                sources=[],
+                trace_available=False,
+                lexical_only=False,
+                vector_contributed=False,
+                direct_model=False,
+                mode="multicast",
+                on_show_sources=None,
+                on_show_trace=None,
+                on_save_artifact=lambda td: _handle_save_artifact(state, td),
+                on_beast_counsel=None,  # No originating turn to counsel on
+                on_link_wiki=None,
+                on_run_model_council=None,  # Already a council result
+                turn_data=turn_data,
+            )
+        elif pm_status == "failed" and error:
+            add_system_message(
+                chat_container,
+                f"Multi-Cast slot '{slot_name}' FAILED: {error[:200]}",
+            )
+
+    # Render the Beast synthesis as a final answer card if available
+    synthesis_status = result.get("synthesis_status", "unavailable")
+    beast_conclusion = result.get("beast_conclusion", "")
+    convergence = result.get("convergence", "")
+    disagreements = result.get("disagreements", "")
+    unique_contributions = result.get("unique_contributions", "")
+    risks = result.get("risks", "")
+    recommended_decision = result.get("recommended_decision", "")
+
+    if synthesis_status == "completed" and (beast_conclusion or convergence):
+        synth_lines = ["## Beast Synthesis (ADVISORY ONLY)"]
+        if convergence:
+            synth_lines.append(f"**Convergence:** {convergence}")
+        if disagreements:
+            synth_lines.append(f"**Disagreements:** {disagreements}")
+        if unique_contributions:
+            synth_lines.append(f"**Unique Contributions:** {unique_contributions}")
+        if risks:
+            synth_lines.append(f"**Risks:** {risks}")
+        if beast_conclusion:
+            synth_lines.append(f"**Beast Conclusion:** {beast_conclusion}")
+        if recommended_decision:
+            synth_lines.append(f"**Recommended Decision:** {recommended_decision}")
+        synth_content = "\n\n".join(synth_lines)
+
+        synth_turn_data = {
+            "session_id": session_id,
+            "turn_id": "",
+            "content": synth_content,
+            "model": "Beast Synthesis",
+            "mode": "multicast",
+            "sources": [],
+            "trace_available": False,
+            "lexical_only": False,
+            "vector_contributed": False,
+            "direct_model": False,
+        }
+        add_answer_card(
+            chat_container,
+            content=synth_content,
+            model="Beast Synthesis",
+            latency_ms=None,
+            sources=[],
+            trace_available=False,
+            lexical_only=False,
+            vector_contributed=False,
+            direct_model=False,
+            mode="multicast",
+            on_show_sources=None,
+            on_show_trace=None,
+            on_save_artifact=lambda td: _handle_save_artifact(state, td),
+            on_beast_counsel=None,
+            on_link_wiki=None,
+            on_run_model_council=None,
+            turn_data=synth_turn_data,
+        )
+    elif synthesis_status == "unavailable":
+        add_system_message(
+            chat_container,
+            "Beast synthesis unavailable — per-model results above for individual review",
+        )
+    elif synthesis_status == "failed":
+        add_system_message(
+            chat_container,
+            "Beast synthesis call failed — per-model results above for individual review",
+        )
+
+    add_system_message(
+        chat_container,
+        f"Multi-Cast complete — {completed_count}/{len(per_model)} slots returned, "
+        f"synthesis: {synthesis_status}",
+    )
 
 
 def _handle_beast_counsel(state: GuiState, turn_data: dict, panel: BeastPanel) -> None:
@@ -640,10 +1027,12 @@ async def _send_prompt_inner(
             lexical_only = resp.get("lexical_only", False)
             vector_contributed = resp.get("vector_contributed", False)
             direct_model = resp.get("direct_model", False)
+            turn_id = resp.get("turn_id", "")
 
             # Build turn_data for action callbacks
             turn_data = {
                 "session_id": state.session_id,
+                "turn_id": turn_id,
                 "content": content,
                 "model": model,
                 "mode": mode,
@@ -739,9 +1128,14 @@ async def _send_prompt_inner(
             add_system_message(chat_container, f"Error: {result.get('content', 'Unknown error')}")
             ui.notify(result.get("content", "Chat failed"), color="negative")
         else:
-            # Direct model fallback — use answer card with direct_model=True
+            # Direct model fallback — use answer card with direct_model=True.
+            # turn_id is intentionally empty here: the backend is unreachable,
+            # so no turn is being persisted to corpus_turns. Per-turn actions
+            # (Beast Counsel, Link Wiki) will honestly report "missing turn
+            # info" rather than fabricate an ID that points at nothing.
             turn_data = {
                 "session_id": state.session_id,
+                "turn_id": "",
                 "content": result.get("content", ""),
                 "model": result.get("model", chat_model),
                 "mode": "normal",

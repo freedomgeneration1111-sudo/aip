@@ -27,6 +27,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from aip.adapter.api.dependencies import get_container
 from aip.adapter.api.routes.sessions import get_session_meta, increment_turn_count
+from aip.foundation.schemas.corpus_turn import make_turn_id
 from aip.logging import get_logger
 
 logger = get_logger(__name__)
@@ -534,6 +535,18 @@ async def chat_websocket(websocket: WebSocket, session_id: str):
                         if _pre_meta:
                             turn_index = _pre_meta.get("turn_count", 0)
 
+                        # Compute deterministic turn_id upfront so it can be
+                        # echoed back to the GUI in the response payload AND
+                        # used by the downstream auto-save path. The
+                        # auto_save_chat_turn() helper computes the same ID
+                        # via make_turn_id(session_id, turn_index), so the
+                        # value we surface here will match the persisted turn.
+                        # The GUI uses turn_id to power per-turn actions like
+                        # Beast Counsel, Link Wiki, and Model Council turn
+                        # linkage — without this, every per-turn action fails
+                        # with "No turn ID available".
+                        chat_turn_id = make_turn_id(session_id, turn_index)
+
                         # Increment turn counter
                         increment_turn_count(session_id, _container)
 
@@ -557,6 +570,7 @@ async def chat_websocket(websocket: WebSocket, session_id: str):
                         response_payload = {
                             "type": "response",
                             "content": response_content,
+                            "turn_id": chat_turn_id,
                             "model_slot": effective_slot,
                             "model": model_used,
                             "artifacts": [],
@@ -699,10 +713,22 @@ async def chat_websocket(websocket: WebSocket, session_id: str):
                         )
                 else:
                     # No model provider configured — return degradation notice
+                    # Still compute turn_id so the GUI's per-turn action
+                    # buttons don't bail with "No turn ID available" even in
+                    # this degraded path. The turn may not be persisted (no
+                    # real response content), but the ID is deterministic and
+                    # safe to surface.
+                    _pre_meta_degraded = get_session_meta(session_id)
+                    _degraded_turn_index = (
+                        _pre_meta_degraded.get("turn_count", 0) if _pre_meta_degraded else 0
+                    )
+                    _degraded_turn_id = make_turn_id(session_id, _degraded_turn_index)
+                    increment_turn_count(session_id, _container)
                     await websocket.send_json(
                         {
                             "type": "response",
                             "content": f"[No model provider configured] Echo: {content}",
+                            "turn_id": _degraded_turn_id,
                             "model_slot": effective_slot,
                             "model": "none",
                             "artifacts": [],

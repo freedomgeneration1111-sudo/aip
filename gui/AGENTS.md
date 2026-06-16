@@ -90,8 +90,51 @@ sexton.py (_embedding_backfill_state, _rate_limited)
   surface errors via `ui.notify(type="negative")`. Never silently swallow.
 - **Session reset**: If a debugging session hits 50+ messages on the same issue,
   close and restart with a sharper success criterion.
+- **`ui.left_drawer()` width is set via Quasar props, not CSS**: NiceGUI's
+  `ui.left_drawer()` wraps Quasar's `q-drawer`, which re-applies its own inline
+  pixel width on render. Setting `width:100px` via `.style()` gets overridden.
+  Use `.props("width=100; mini=false; bordered=false")` to tell Quasar at the
+  component level so the drawer actually shrinks.
+- **`ui.right_drawer()` is FORBIDDEN in this codebase**: Per the no-right-sidebar
+  rule, no page or component may use `ui.right_drawer()`. The Beast Counsel and
+  Model Council panels use `ui.dialog()` (centered modal) instead. The old
+  `build_right_rail()` in `layout.py` is a no-op stub kept only for backward
+  compatibility — do not call it from new code.
+- **`element.style()` is additive, not replacing**: Calling `.style("X")` on a
+  NiceGUI element APPENDS the CSS string to the element's existing style. To
+  toggle visibility, use `element.visible = True/False` (or `.set_visibility()`),
+  NOT `element.style("display:none;")` followed by `element.style("padding:...;")`
+  — the latter leaves `display:none` in place forever.
+- **`turn_id` contract on chat WebSocket responses**: The backend chat route
+  (`src/aip/adapter/api/routes/chat.py`) now echoes `turn_id` in every
+  `"type": "response"` payload. The GUI's `on_response` handler in
+  `gui/pages/ask.py` MUST read `resp.get("turn_id", "")` into `turn_data` —
+  without it, every per-turn action (Beast Counsel, Link Wiki, Model Council
+  turn linkage) bails with "No turn ID available".
+- **Multi-Cast send path**: When `state.multicast_enabled` is True, the send
+  handler dispatches via `_send_multicast` → `api_client.run_model_council`
+  → `POST /beast/compare-models`. This bypasses the normal WebSocket chat
+  path entirely. Per-model results render as separate answer cards; Beast
+  synthesis renders as a final advisory card. The synthesis is ADVISORY ONLY.
 
 ## Last Cycle
+- **Layout pass + turn_id + Multi-Cast + dialogs**:
+  - Right sidebar (`build_right_rail`) removed from all pages — info relocated
+    to Maintenance page. The function is kept as a no-op stub for backward compat.
+  - Left sidebar (`build_left_nav`) width set via Quasar `width=100` prop
+    instead of CSS (which Quasar overrode on render).
+  - `BeastPanel` and `ModelCouncilPanel` converted from `ui.right_drawer()`
+    to `ui.dialog()` (centered modal with max-width:900px / 1000px and a
+    scrollable inner column).
+  - Backend chat WebSocket route now echoes `turn_id` in every `response`
+    message — the GUI reads it into `turn_data` so Beast Counsel, Link Wiki,
+    and Model Council turn linkage all work.
+  - Multi-Cast toggle added to Ask page chat header: when on, the send
+    handler fans the prompt out to every selected text-gen slot via
+    `POST /beast/compare-models` and renders per-model answer cards + a
+    Beast synthesis card. Defaults: synthesis + evaluation + beast.
+  - Ask page state: `GuiState.multicast_enabled` and
+    `multicast_selected_slots` added.
 - **Commit 14d3a73**: Fixed backfill state reading (was `sexton_pass.state`, now
   `embedding_progress["backfill_state"]`). Added `rate_limited` flag to
   CorpusActions. Added `try/except Exception` guards to all dialog handlers.

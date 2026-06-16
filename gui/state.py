@@ -205,6 +205,16 @@ class GuiState:
         # ── UI Cycle 3: Consolidated status summary from /api/v1/status/summary ──
         self.status_summary: dict[str, Any] = {}
 
+        # ── Multi-Cast toggle (Ask page) ──
+        # When True, the send handler dispatches the prompt to all selected
+        # text-generation slots concurrently via POST /beast/compare-models,
+        # then renders per-model answer cards + a Beast synthesis card.
+        # When False (default), the normal single-model send path is used.
+        self.multicast_enabled: bool = False
+        # Slot names selected for multi-cast (e.g. ["synthesis", "evaluation", "beast"]).
+        # Populated from the backend's text-generation-slots endpoint.
+        self.multicast_selected_slots: list[str] = []
+
     async def ensure_session(self) -> str:
         """Create a session if one doesn't exist, or return the existing one."""
         if self.session_id is not None:

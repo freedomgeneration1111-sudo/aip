@@ -117,12 +117,26 @@ config/aip.config.toml ([models] section)
 - **Corpus turn store must be initialized for wiki generation**: Sexton's
   `_run_wiki_generation` requires `corpus_turn_store` to be wired in the container.
   If `container.corpus_turn_store is None`, the entire wiki pass skips.
+- **Chat WebSocket response MUST include `turn_id`**: The chat WebSocket
+  route (`routes/chat.py`) computes a deterministic `turn_id` upfront via
+  `make_turn_id(session_id, turn_index)` BEFORE building the response
+  payload, and echoes it back in every `"type": "response"` message.
+  The downstream `auto_save_chat_turn` uses the same `make_turn_id(session_id,
+  turn_index)` so the surfaced ID matches the persisted turn. Without this,
+  the GUI's per-turn actions (Beast Counsel, Link Wiki, Model Council turn
+  linkage) all bail with "No turn ID available". Never send a `response`
+  message without `turn_id`.
 
 ## Last Cycle
 - **Commit 14d3a73**: `model_slot_resolver.py` now detects HTTP 429 before
   `raise_for_status()`, returns error dict with `retry_after`. Added
   `backfill_state`, `rate_limited`, `rate_limited_reason`, `cycle_active`
   to `/corpus/embedding-progress` response.
+- **Multi-cast + turn_id cycle**: `routes/chat.py` now echoes `turn_id` in
+  every WebSocket `response` payload (including the no-provider degraded
+  path). The existing `POST /beast/compare-models` endpoint already
+  supported the no-existing-answer case, so the GUI's Multi-Cast feature
+  reuses it directly — no new endpoint needed.
 
 ## Ownership
 Each storage adapter owns its database schema and migration path.

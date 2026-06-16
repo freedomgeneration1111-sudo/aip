@@ -52,6 +52,14 @@ BEAST_MODES = {
     "risk": "Risk — what could go wrong",
 }
 
+# Dialog container width — single source of truth for all Beast Counsel dialogs.
+# Was previously a right-side drawer (width:420px). Moved to centered modal in
+# this cycle so it doesn't compete with main content for horizontal space.
+_DIALOG_STYLE = (
+    f"width:90vw; max-width:900px; background:{C_GROUND}; "
+    f"border:0.5px solid {C_INK40}; border-radius:{R_SM}; padding:0;"
+)
+
 
 class BeastPanel:
     """Beast Counsel panel — advisory side panel for turn-level commentary.
@@ -67,7 +75,12 @@ class BeastPanel:
     """
 
     def __init__(self) -> None:
+        # _drawer holds the ui.dialog; _content_container holds the inner
+        # scrollable column. Content rendering methods must add to
+        # _content_container (not _drawer) so new children appear inside the
+        # scrollable region rather than as siblings of it.
         self._drawer: Any = None
+        self._content_container: Any = None
         self._current_turn_id: str = ""
         self._current_mode: str = "continuity"
         self._loading: bool = False
@@ -80,6 +93,33 @@ class BeastPanel:
         self._trace_available: bool = False
         self._lexical_only: bool = False
         self._vector_contributed: bool = False
+
+    def _open_dialog(self) -> Any:
+        """Open a fresh centered dialog and return the inner content column.
+
+        Replaces the previous right-drawer surface. The dialog itself is
+        assigned to ``self._drawer`` and its inner scrollable column to
+        ``self._content_container`` so subsequent render methods can append
+        children inside the scrollable region.
+        """
+        self.close()
+        dialog = (
+            ui.dialog()
+            .props("persistent=false; maximized=false")
+            .style(_DIALOG_STYLE)
+        )
+        self._drawer = dialog
+        content_column = (
+            ui.column()
+            .classes("w-full")
+            .style("max-height:85vh; overflow-y:auto;")
+        )
+        self._content_container = content_column
+        try:
+            dialog.open()
+        except Exception as exc:
+            log.debug("beast_dialog_open_failed: %s", exc)
+        return content_column
 
     async def show_counsel(
         self,
@@ -113,16 +153,9 @@ class BeastPanel:
         self._vector_contributed = vector_contributed
         self._loading = True
 
-        # Close existing drawer if open
-        self.close()
-
-        with (
-            ui.right_drawer(bordered=True)
-            .classes(f"bg-{C_GROUND}")
-            .style(f"width: 420px; background: {C_GROUND}; border-left: 1px solid {C_INK40};") as drawer
-        ):
-            self._drawer = drawer
-
+        # Open fresh dialog and capture the inner content column
+        content_column = self._open_dialog()
+        with content_column:
             # Header with mode selector
             self._render_header(turn_id)
 
@@ -170,13 +203,8 @@ class BeastPanel:
 
     async def _refresh_for_mode(self, mode: str) -> None:
         """Re-render the panel for a specific mode by fetching fresh data."""
-        self.close()
-        with (
-            ui.right_drawer(bordered=True)
-            .classes(f"bg-{C_GROUND}")
-            .style(f"width: 420px; background: {C_GROUND}; border-left: 1px solid {C_INK40};") as drawer
-        ):
-            self._drawer = drawer
+        content_column = self._open_dialog()
+        with content_column:
             self._render_header(self._current_turn_id)
             loading_label = ui.label("Loading commentary...").style(
                 f"font-size: 11px; color: {C_INK60}; font-family: {F_MONO}; padding: 16px;"
@@ -195,8 +223,8 @@ class BeastPanel:
 
         self._loading = False
 
-        # Update drawer content
-        with self._drawer:
+        # Update content (added inside the scrollable column, not the dialog)
+        with self._content_container:
             loading_label.set_text("")  # Clear loading
             loading_label.visible = False
 
@@ -326,13 +354,8 @@ class BeastPanel:
                     turn_id, session_id=session_id, mode=selected_mode, **kwargs
                 )
                 # Re-render with result
-                self.close()
-                with (
-                    ui.right_drawer(bordered=True)
-                    .classes(f"bg-{C_GROUND}")
-                    .style(f"width: 420px; background: {C_GROUND}; border-left: 1px solid {C_INK40};") as drawer
-                ):
-                    self._drawer = drawer
+                content_column = self._open_dialog()
+                with content_column:
                     self._render_header(turn_id)
 
                     if result.get("status") == "available":
@@ -405,7 +428,7 @@ class BeastPanel:
             )
 
     def close(self) -> None:
-        """Close the Beast Counsel drawer."""
+        """Close the Beast Counsel dialog."""
         if self._drawer is not None:
             try:
                 self._drawer.close()

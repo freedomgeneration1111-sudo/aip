@@ -40,6 +40,14 @@ log = logging.getLogger("gui.components.model_council_panel")
 # Default text-generation slots to pre-select if none provided
 _DEFAULT_SELECTED_SLOTS = ["synthesis", "evaluation", "beast"]
 
+# Dialog container width — single source of truth for all Model Council dialogs.
+# Was previously a right-side drawer (width:480px). Moved to centered modal in
+# this cycle so it doesn't compete with main content for horizontal space.
+_DIALOG_STYLE = (
+    f"width:90vw; max-width:1000px; background:{C_GROUND}; "
+    f"border:0.5px solid {C_INK40}; border-radius:{R_SM}; padding:0;"
+)
+
 
 class ModelCouncilPanel:
     """Model Council panel — advisory multi-model comparison report.
@@ -51,13 +59,45 @@ class ModelCouncilPanel:
     """
 
     def __init__(self) -> None:
+        # _drawer holds the ui.dialog; _content_container holds the inner
+        # scrollable column. Content rendering methods must add to
+        # _content_container (not _drawer) so new children appear inside the
+        # scrollable region rather than as siblings of it.
         self._drawer: Any = None
+        self._content_container: Any = None
         self._loading: bool = False
         self._last_report: dict[str, Any] | None = None
         self._available_slots: list[dict[str, Any]] = []
         self._selected_slots: list[str] = []
         self._slots_loaded: bool = False
         self._slots_sufficient: bool = False
+
+    def _open_dialog(self) -> Any:
+        """Open a fresh centered dialog and return the inner content column.
+
+        Replaces the previous right-drawer surface. The dialog itself is
+        assigned to ``self._drawer`` and its inner scrollable column to
+        ``self._content_container`` so subsequent render methods can append
+        children inside the scrollable region.
+        """
+        self.close()
+        dialog = (
+            ui.dialog()
+            .props("persistent=false; maximized=false")
+            .style(_DIALOG_STYLE)
+        )
+        self._drawer = dialog
+        content_column = (
+            ui.column()
+            .classes("w-full")
+            .style("max-height:85vh; overflow-y:auto;")
+        )
+        self._content_container = content_column
+        try:
+            dialog.open()
+        except Exception as exc:
+            log.debug("model_council_dialog_open_failed: %s", exc)
+        return content_column
 
     async def show_council(
         self,
@@ -82,27 +122,21 @@ class ModelCouncilPanel:
         self._slots_sufficient = False
         self._available_slots = []
 
-        self.close()
-
-        with (
-            ui.right_drawer(bordered=True)
-            .classes(f"bg-{C_GROUND}")
-            .style(f"width: 480px; background: {C_GROUND}; border-left: 1px solid {C_INK40};") as drawer
-        ):
-            self._drawer = drawer
-
+        # Open fresh dialog and capture the inner content column
+        content_column = self._open_dialog()
+        with content_column:
             # Header
             self._render_header()
 
-            # Load slots and show initial state
-            await self._load_slots_and_render(
-                api_client=api_client,
-                prompt=prompt,
-                turn_id=turn_id,
-                session_id=session_id,
-                existing_answer=existing_answer,
-                sources=sources or [],
-            )
+        # Load slots and show initial state
+        await self._load_slots_and_render(
+            api_client=api_client,
+            prompt=prompt,
+            turn_id=turn_id,
+            session_id=session_id,
+            existing_answer=existing_answer,
+            sources=sources or [],
+        )
 
     async def _load_slots_and_render(
         self,
@@ -168,7 +202,7 @@ class ModelCouncilPanel:
         sources: list[dict],
     ) -> None:
         """Render initial state with slot selector and run button."""
-        with ui.column().classes("w-full").style("padding: 16px;"):
+        with self._content_container:
             if not prompt and not existing_answer:
                 ui.label("No prompt or answer available for Model Council.").style(
                     f"font-size: 12px; color: {C_INK60}; font-family: {F_SANS};"
@@ -337,13 +371,8 @@ class ModelCouncilPanel:
         self._loading = True
 
         # Close and reopen with loading state
-        self.close()
-        with (
-            ui.right_drawer(bordered=True)
-            .classes(f"bg-{C_GROUND}")
-            .style(f"width: 480px; background: {C_GROUND}; border-left: 1px solid {C_INK40};") as drawer
-        ):
-            self._drawer = drawer
+        content_column = self._open_dialog()
+        with content_column:
             self._render_header()
             ui.label("Running Model Council comparison...").style(
                 f"font-size: 11px; color: {C_INK60}; font-family: {F_MONO}; padding: 16px;"
@@ -366,13 +395,8 @@ class ModelCouncilPanel:
         self._last_report = result
 
         # Re-render with results
-        self.close()
-        with (
-            ui.right_drawer(bordered=True)
-            .classes(f"bg-{C_GROUND}")
-            .style(f"width: 480px; background: {C_GROUND}; border-left: 1px solid {C_INK40};") as drawer
-        ):
-            self._drawer = drawer
+        content_column = self._open_dialog()
+        with content_column:
             self._render_header()
             self._render_report(result, api_client)
 
@@ -621,10 +645,11 @@ class ModelCouncilPanel:
             )
 
     def close(self) -> None:
-        """Close the Model Council drawer."""
+        """Close the Model Council dialog."""
         if self._drawer is not None:
             try:
                 self._drawer.close()
             except Exception as exc:
                 log.debug("drawer_close_error: %s", exc)
             self._drawer = None
+            self._content_container = None
