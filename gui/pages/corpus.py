@@ -36,7 +36,7 @@ from gui.components.corpus_problems import CorpusProblems
 from gui.components.corpus_summary import CorpusSummaryCards
 from gui.components.document_detail import DocumentDetail
 from gui.components.document_table import DocumentTable
-from gui.components.layout import build_left_nav, build_right_rail, build_top_bar
+from gui.components.layout import build_left_nav, build_top_bar
 from gui.state import get_session_state
 from gui.theme import (
     C_AMBER,
@@ -160,8 +160,6 @@ async def corpus_page():
         problems_container = ui.column().classes("w-full")
         with problems_container:
             problems_panel.render({"available": False})
-
-    build_right_rail(state)
 
     # ── Data loading ───────────────────────────────────────────────
 

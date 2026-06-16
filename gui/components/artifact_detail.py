@@ -81,18 +81,18 @@ def render_artifact_detail(
 
     with container:
         # Header
-        with ui.row().classes("w-full items-center").style(f"padding:8px 12px; border-bottom:0.5px solid {C_INK40};"):
+        with ui.row().classes("w-full items-center").style(f"padding:12px 20px; border-bottom:0.5px solid {C_INK40};"):
             ui.label("ARTIFACT DETAIL").style(
-                f"font-size:9px; font-weight:600; letter-spacing:1px; "
+                f"font-size:11px; font-weight:600; letter-spacing:1px; "
                 f"color:{C_AMBER}; text-transform:uppercase; font-family:{F_MONO};"
             )
             ui.space()
             ui.button(
                 "↻", on_click=lambda: asyncio.ensure_future(_load(state, api_client, container, on_action_complete))
-            ).props("flat dense unelevated size=xs").style(f"color:{C_INK60}; font-size:12px; font-family:{F_MONO};")
+            ).props("flat dense unelevated size=xs").style(f"color:{C_INK60}; font-size:14px; font-family:{F_MONO};")
 
-        # Content area (populated after load)
-        content_area = ui.column().classes("w-full").style("max-height:calc(100vh - 280px); overflow-y:auto;")
+        # Content area (populated after load) — expanded height for readability
+        content_area = ui.column().classes("w-full").style("max-height:calc(100vh - 160px); overflow-y:auto;")
         state["_content_area"] = content_area
 
     # Initial load
@@ -180,23 +180,21 @@ def _render_content(
         with (
             ui.row()
             .classes("w-full items-center")
-            .style(f"padding:12px 12px 8px 12px; border-bottom:0.5px solid {C_INK40};")
+            .style(f"padding:16px 20px; border-bottom:0.5px solid {C_INK40};")
         ):
             render_artifact_state_badge(
                 ecs_state,
                 has_needs_revision=has_needs_revision,
                 has_export=has_export,
             )
-            with ui.column().style("margin-left:8px; flex:1; min-width:0;"):
+            with ui.column().style("margin-left:12px; flex:1; min-width:0;"):
                 ui.label(title).style(
-                    f"font-size:13px; color:{C_CREAM}; font-family:{F_SANS}; "
-                    f"font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; "
-                    f"max-width:300px;"
+                    f"font-size:18px; color:{C_CREAM}; font-family:{F_SANS}; "
+                    f"font-weight:600; line-height:1.3; word-break:break-word;"
                 )
                 ui.label(artifact_id).style(
-                    f"font-size:9px; color:{C_INK60}; font-family:{F_MONO}; "
-                    f"overflow:hidden; text-overflow:ellipsis; white-space:nowrap; "
-                    f"max-width:300px;"
+                    f"font-size:10px; color:{C_INK60}; font-family:{F_MONO}; "
+                    f"word-break:break-all;"
                 )
 
         # ── Review Action Panel ────────────────────────────────
@@ -213,23 +211,22 @@ def _render_content(
         )
 
         # ── Content Preview ────────────────────────────────────
-        with ui.column().classes("w-full").style(f"padding:8px 12px; border-bottom:0.5px solid {C_INK40};"):
+        with ui.column().classes("w-full").style(f"padding:16px 20px; border-bottom:0.5px solid {C_INK40};"):
             _render_section_label("CONTENT PREVIEW")
             if content:
-                # Truncate for display
-                display_content = content[:1000] + "..." if len(content) > 1000 else content
-                ui.label(display_content).style(
-                    f"font-size:10px; color:{C_MUTED}; font-family:{F_MONO}; "
+                # Show full content — no truncation, scrollable
+                ui.label(content).style(
+                    f"font-size:13px; color:{C_CREAM}; font-family:{F_MONO}; "
                     f"white-space:pre-wrap; word-break:break-word; "
-                    f"max-height:200px; overflow-y:auto; "
-                    f"background:{C_GROUND}; border-radius:{R_SM}; padding:8px; "
-                    f"line-height:1.5;"
+                    f"max-height:60vh; overflow-y:auto; "
+                    f"background:{C_GROUND}; border-radius:{R_MD}; padding:16px; "
+                    f"line-height:1.6; flex:1;"
                 )
             else:
-                ui.label("(empty content)").style(f"font-size:10px; color:{C_INK60}; font-family:{F_MONO};")
+                ui.label("(empty content)").style(f"font-size:11px; color:{C_INK60}; font-family:{F_MONO};")
 
         # ── Metadata ──────────────────────────────────────────
-        with ui.column().classes("w-full").style(f"padding:8px 12px; border-bottom:0.5px solid {C_INK40};"):
+        with ui.column().classes("w-full").style(f"padding:16px 20px; border-bottom:0.5px solid {C_INK40};"):
             _render_section_label("METADATA")
             meta_rows = [
                 ("Type", artifact_type),
@@ -245,32 +242,31 @@ def _render_content(
 
             for label, value in meta_rows:
                 if value:
-                    with ui.row().classes("items-center").style("margin-top:2px;"):
+                    with ui.row().classes("items-center").style("margin-top:4px;"):
                         ui.label(f"{label}:").style(
-                            f"font-size:9px; color:{C_INK60}; font-family:{F_MONO}; min-width:80px; font-weight:600;"
+                            f"font-size:11px; color:{C_INK60}; font-family:{F_MONO}; min-width:100px; font-weight:600;"
                         )
                         ui.label(value).style(
-                            f"font-size:9px; color:{C_CREAM}; font-family:{F_MONO}; "
-                            f"overflow:hidden; text-overflow:ellipsis; white-space:nowrap; "
-                            f"max-width:250px;"
+                            f"font-size:11px; color:{C_CREAM}; font-family:{F_MONO}; "
+                            f"word-break:break-all;"
                         )
 
         # ── Sources ───────────────────────────────────────────
-        with ui.column().classes("w-full").style(f"padding:8px 12px; border-bottom:0.5px solid {C_INK40};"):
+        with ui.column().classes("w-full").style(f"padding:16px 20px; border-bottom:0.5px solid {C_INK40};"):
             _render_section_label("SOURCES")
             source_ids = data.get("source_ids", [])
             if source_ids:
                 for sid in source_ids[:10]:
                     display_sid = sid[:40] + "..." if len(sid) > 40 else sid
                     ui.label(f"  {display_sid}").style(
-                        f"font-size:9px; color:{C_INK60}; font-family:{F_MONO}; margin-top:2px;"
+                        f"font-size:10px; color:{C_INK60}; font-family:{F_MONO}; margin-top:4px; word-break:break-all;"
                     )
                 if len(source_ids) > 10:
                     ui.label(f"  + {len(source_ids) - 10} more sources").style(
-                        f"font-size:9px; color:{C_INK60}; font-family:{F_MONO};"
+                        f"font-size:10px; color:{C_INK60}; font-family:{F_MONO};"
                     )
             else:
-                ui.label("No source links recorded").style(f"font-size:10px; color:{C_INK60}; font-family:{F_MONO};")
+                ui.label("No source links recorded").style(f"font-size:11px; color:{C_INK60}; font-family:{F_MONO};")
 
         # ── Review History ────────────────────────────────────
         review_notes = data.get("review_notes", [])
@@ -319,8 +315,8 @@ async def _on_action_complete(
 def _render_section_label(text: str) -> None:
     """Render a section label."""
     ui.label(text).style(
-        f"font-size:8px; font-weight:700; font-family:{F_MONO}; "
-        f"color:{C_INK60}; letter-spacing:0.5px; margin-bottom:4px; "
+        f"font-size:10px; font-weight:700; font-family:{F_MONO}; "
+        f"color:{C_INK60}; letter-spacing:0.5px; margin-bottom:8px; "
         f"text-transform:uppercase;"
     )
 
@@ -330,7 +326,7 @@ def _render_review_history(
     transition_history: list[dict],
 ) -> None:
     """Render review history section."""
-    with ui.column().classes("w-full").style(f"padding:8px 12px; border-bottom:0.5px solid {C_INK40};"):
+    with ui.column().classes("w-full").style(f"padding:16px 20px; border-bottom:0.5px solid {C_INK40};"):
         _render_section_label("REVIEW HISTORY")
 
         if not review_notes and not transition_history:

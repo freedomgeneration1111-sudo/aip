@@ -226,3 +226,73 @@ Stage Summary:
 - 26 new tests passing
 - No blockers, no fake data, no secret exposure, no mutation, no synthesis
 - Sanitation clean: 0 fixes needed
+
+---
+Task ID: wiki-contract-fix
+Agent: Super Z (main)
+Task: Diagnose and fix wiki articles not appearing on artifacts page (AGENTS.md Coding Cycle Protocol)
+
+Work Log:
+- Followed AGENTS.md Coding Cycle Protocol: Orient → Contract Check → Code → Verify → Document
+- Orient: Read 6 AGENTS.md files + 12 source files across full wiki data flow chain
+- Contract Check: Found 3 contract mismatches between producer (sexton.py) and consumers
+- BUG #1: sexton.py wrote artifact_type="sexton_wiki" but wiki_channel.py and chat.py read "beast_wiki"
+- BUG #2: /wiki/articles SQL LIKE patterns didn't include sexton:wiki:*, making existing articles invisible
+- BUG #3: _row_to_article didn't classify sexton:wiki:* IDs as "wiki" type
+- DB inspection revealed: main db/state.db has NO corpus_turns table at all; demo DB has 60 turns
+- Wiki generation also requires: sexton model slot configured, tagged corpus turns, domain registry accessible
+- Fixed sexton.py: Changed artifact_type from "sexton_wiki" to "beast_wiki" in writer and reader
+- Fixed wiki.py: Added sexton:wiki:% to SQL LIKE conditions and artifact_type classification
+- Created scripts/wiki_contract_fix.py: Diagnostic + backfill tool for existing DB
+- Created tests/test_wiki_artifact_contract.py: 8 regression tests (all passing)
+- Updated AGENTS.md for actors/, adapter/, and gui/ with contract gotchas
+- Committed and pushed to fix/operator-console-status-seed-graph
+
+Stage Summary:
+- 3 contract mismatches fixed in code (sexton.py, wiki.py)
+- 8 regression tests passing
+- DB diagnostic revealed corpus not seeded in main DB (user needs to verify DB path)
+- Wiki generation requires sexton model slot + tagged turns (may need additional investigation)
+- Pushed as commit 401058b
+
+---
+Task ID: 11
+Agent: Super Z (main)
+Task: UI Layout Improvements — remove right sidebar globally, narrow left sidebar, improve artifact workbench + wiki page readability
+
+Work Log:
+- Explored codebase: layout.py (3-region shell), right_rail.py (5-section status panel), artifacts.py (workbench), wiki.py + wiki_article_view.py (article page with nested sidebar)
+- Removed right rail globally:
+  * Made build_right_rail() in layout.py a no-op stub (kept for backward compat)
+  * Removed build_right_rail import + call from all 10 pages: dashboard, ask, models, corpus, graph, retrieval_lab, wiki, artifacts, maintenance, settings
+  * Relocated right rail info to Maintenance page: added Retrieval Health, Pending Gates, Warnings sections (dogfood mode + actor status already there)
+  * Added 3 module-level helpers in maintenance.py: _render_retrieval_health, _render_pending_gates, _render_warnings
+- Narrowed left sidebar from 200px to 100px:
+  * Changed layout from horizontal (icon+text side-by-side) to vertical (icon on top, small label below)
+  * Reduced padding 10px 16px → 8px 4px, icon 18px → 20px, font 12px → 9px
+  * This recovers ~100px of horizontal space on every page
+- Improved Artifact Workbench readability:
+  * artifact_detail.py: Removed content truncation (was 1000 chars), increased content preview max-height 200px → 60vh, font 10px → 13px
+  * Removed max-width:300px constraint on title (was truncating with ellipsis)
+  * Increased all section paddings from 8px 12px → 16px 20px for breathing room
+  * Bumped section label font 8px → 10px, metadata font 9px → 11px
+  * artifact_review_panel.py: Bumped button font 10px → 12px, padding 4px 10px → 6px 14px for better click targets
+  * artifacts.py: Narrowed left list 360px → 280px, increased detail padding 16px → 24px
+- Improved Wiki page readability:
+  * wiki_article_view.py: Removed nested 2-column layout (was main content + sidebar)
+  * Article content now uses full width
+  * Backlinks/Related/Contradictions/Open Questions moved to horizontal card row BELOW the article content
+  * Increased article title 20px → 24px, body font 11px → 13px, summary font 12px → 14px, line-height 1.6 → 1.7
+  * wiki.py: Narrowed left article list 280px → 240px, reduced page padding 24px → 16px
+  * Added _render_related_info_row() to replace _render_sidebar() (old function kept as deprecated wrapper)
+- Updated test_ui_integration_cycle14.py: removed build_right_rail from required_calls (was enforcing every page call it)
+- Verified: all 14 modified modules import cleanly; 21/22 UI integration tests pass (1 pre-existing failure in test_no_dead_nav_items confirmed unrelated by git stash test)
+
+Stage Summary:
+- Right sidebar removed from all 10 pages; status info relocated to Maintenance page
+- Left sidebar halved (200px → 100px) with vertical icon+label layout
+- Artifact workbench: content no longer truncated, much larger preview area, bigger fonts/buttons
+- Wiki page: article content full-width, related info as horizontal cards below
+- All changes are pure layout/CSS — no backend or API changes
+- Pre-existing test_no_dead_nav_items failure is NOT caused by these changes (verified via git stash)
+

@@ -15,7 +15,7 @@ from typing import Any
 from nicegui import context, ui
 
 from gui.api_client import get_api_client
-from gui.components.layout import build_left_nav, build_right_rail, build_top_bar
+from gui.components.layout import build_left_nav, build_top_bar
 from gui.state import get_session_state
 from gui.theme import (
     C_AMBER,
@@ -243,8 +243,6 @@ async def _graph_page_impl():
             ui.link("Maintenance Center", "/maintenance").style(
                 f"font-size:10px; color:{C_AMBER}; text-decoration:underline;"
             )
-
-    build_right_rail(state)
 
 
 def _stat_card(label: str, value: Any) -> None:

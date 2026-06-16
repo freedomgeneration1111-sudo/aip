@@ -27,7 +27,7 @@ from typing import Any
 from nicegui import context, ui
 
 from gui.api_client import get_api_client
-from gui.components.layout import build_left_nav, build_right_rail, build_top_bar
+from gui.components.layout import build_left_nav, build_top_bar
 from gui.state import get_session_state
 from gui.theme import (
     C_AMBER,
@@ -130,8 +130,6 @@ async def models_page():
 
     # ── Initial load ────────────────────────────────────────────
     await _load_models(api, models_container, search_input)
-
-    build_right_rail(state)
 
 
 # ── Async handlers ──────────────────────────────────────────────────

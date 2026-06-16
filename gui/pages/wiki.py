@@ -22,7 +22,7 @@ import logging
 from nicegui import context, ui
 
 from gui.api_client import AipApiClient
-from gui.components.layout import build_left_nav, build_right_rail, build_top_bar
+from gui.components.layout import build_left_nav, build_top_bar
 from gui.components.wiki_article_list import render_wiki_article_list
 from gui.components.wiki_article_view import render_wiki_article_view
 from gui.components.wiki_editor import WikiEditorDialog
@@ -68,11 +68,11 @@ async def wiki_page():
     with (
         ui.column()
         .classes("flex-1")
-        .style(f"background:{C_GROUND}; padding:24px; overflow-y:auto; min-height:calc(100vh - 44px);")
+        .style(f"background:{C_GROUND}; padding:16px; overflow-y:auto; min-height:calc(100vh - 44px);")
     ):
         # Page heading
-        with ui.row().classes("w-full items-center").style("margin-bottom:16px;"):
-            ui.label("Wiki / CODEX").style(f"font-family:{F_SANS}; font-size:28px; font-weight:700; color:{C_CREAM};")
+        with ui.row().classes("w-full items-center").style("margin-bottom:12px;"):
+            ui.label("Wiki / CODEX").style(f"font-family:{F_SANS}; font-size:24px; font-weight:700; color:{C_CREAM};")
             ui.space()
             ui.button("Create Article", on_click=editor.open_create).props("flat dense unelevated").style(
                 f"color:{C_GROUND}; background:{C_AMBER}; border-radius:{R_SM}; "
@@ -80,7 +80,7 @@ async def wiki_page():
             )
 
         # Status bar
-        with ui.row().classes("w-full items-center").style("margin-bottom:16px; gap:12px; flex-wrap:wrap;"):
+        with ui.row().classes("w-full items-center").style("margin-bottom:12px; gap:12px; flex-wrap:wrap;"):
             # Backend status
             if not state.backend_reachable:
                 ui.label("UNAVAILABLE — backend unreachable").style(
@@ -104,14 +104,14 @@ async def wiki_page():
                 if generated > 0:
                     ui.label(f"Pending: {generated}").style(f"font-size:10px; color:{C_WARN_FG}; font-family:{F_MONO};")
 
-        # Main layout: three columns
-        # Left: article list | Center: article view | Right: handled by article view sidebar
-        with ui.row().classes("w-full").style("gap:16px;"):
+        # Main layout: two columns
+        # Left: article list | Center: article view (full width, no nested sidebar)
+        with ui.row().classes("w-full").style("gap:12px;"):
             # Left panel: article list
             with ui.column().style(
-                f"width:280px; min-width:240px; background:{C_SURFACE}; "
+                f"width:240px; min-width:200px; background:{C_SURFACE}; "
                 f"border:0.5px solid {C_INK40}; border-radius:{R_MD}; padding:0; "
-                f"max-height:calc(100vh - 180px); overflow-y:auto;"
+                f"max-height:calc(100vh - 140px); overflow-y:auto;"
             ):
                 # Search bar
                 with (
@@ -152,11 +152,9 @@ async def wiki_page():
                 .style(
                     f"min-width:0; background:{C_SURFACE}; "
                     f"border:0.5px solid {C_INK40}; border-radius:{R_MD}; "
-                    f"max-height:calc(100vh - 180px); overflow-y:auto;"
+                    f"max-height:calc(100vh - 140px); overflow-y:auto;"
                 )
             )
-
-    build_right_rail(state)
 
     # ── Data loading and rendering ──────────────────────────────────────
 

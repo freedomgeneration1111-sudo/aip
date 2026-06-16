@@ -13,7 +13,7 @@ import logging
 
 from nicegui import context, ui
 
-from gui.components.layout import build_left_nav, build_right_rail, build_top_bar
+from gui.components.layout import build_left_nav, build_top_bar
 from gui.state import GuiState, get_session_state
 from gui.theme import (
     C_AMBER,
@@ -82,8 +82,6 @@ async def dashboard_page():
         with ui.row().classes("w-full gap-4").style("flex-wrap:wrap; margin-top:16px;"):
             _warnings_card(state)
             _recent_activity_card(state)
-
-    build_right_rail(state)
 
 
 # ── Card helpers ───────────────────────────────────────────────────────

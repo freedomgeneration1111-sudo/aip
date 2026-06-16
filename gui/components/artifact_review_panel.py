@@ -66,19 +66,19 @@ def render_artifact_review_panel(
     Returns:
         The container column
     """
-    container = ui.column().classes("w-full").style(f"padding:8px 12px; border-bottom:0.5px solid {C_INK40};")
+    container = ui.column().classes("w-full").style(f"padding:16px 20px; border-bottom:0.5px solid {C_INK40};")
 
     with container:
         # Section header
         with ui.row().classes("w-full items-center"):
             ui.label("REVIEW ACTIONS").style(
-                f"font-size:8px; font-weight:700; font-family:{F_MONO}; "
+                f"font-size:10px; font-weight:700; font-family:{F_MONO}; "
                 f"color:{C_INK60}; letter-spacing:0.5px; text-transform:uppercase;"
             )
 
         # State indicator
-        with ui.row().classes("w-full items-center").style("margin-top:4px;"):
-            ui.label("State:").style(f"font-size:9px; color:{C_INK60}; font-family:{F_MONO}; font-weight:600;")
+        with ui.row().classes("w-full items-center").style("margin-top:8px;"):
+            ui.label("State:").style(f"font-size:11px; color:{C_INK60}; font-family:{F_MONO}; font-weight:600;")
             state_color = {
                 "GENERATED": C_AMBER,
                 "REVIEWED": C_AMBER,
@@ -88,16 +88,16 @@ def render_artifact_review_panel(
                 "FAILED": C_ERR_FG,
             }.get(ecs_state, C_MUTED)
             ui.label(ecs_state).style(
-                f"font-size:9px; color:{state_color}; font-family:{F_MONO}; font-weight:700; margin-left:4px;"
+                f"font-size:11px; color:{state_color}; font-family:{F_MONO}; font-weight:700; margin-left:6px;"
             )
 
             if has_needs_revision:
                 ui.label("(has revision request)").style(
-                    f"font-size:8px; color:{C_WARN_FG}; font-family:{F_MONO}; font-style:italic; margin-left:6px;"
+                    f"font-size:10px; color:{C_WARN_FG}; font-family:{F_MONO}; font-style:italic; margin-left:8px;"
                 )
 
         # Action buttons
-        with ui.row().classes("w-full items-center").style("margin-top:8px; flex-wrap:wrap; gap:6px;"):
+        with ui.row().classes("w-full items-center").style("margin-top:12px; flex-wrap:wrap; gap:8px;"):
             # Approve — only for GENERATED/REVIEWED
             if ecs_state in ("GENERATED", "REVIEWED"):
                 ui.button(
@@ -105,8 +105,8 @@ def render_artifact_review_panel(
                     on_click=lambda: asyncio.ensure_future(_do_approve(artifact_id, api_client, on_action_complete)),
                 ).props("dense unelevated size=sm").style(
                     f"background:{C_OK_FG}; color:#0E0800; border:0.5px solid {C_OK_FG}; "
-                    f"border-radius:{R_SM}; font-size:10px; font-weight:600; "
-                    f"font-family:{F_MONO}; padding:4px 10px;"
+                    f"border-radius:{R_SM}; font-size:12px; font-weight:600; "
+                    f"font-family:{F_MONO}; padding:6px 14px;"
                 )
 
                 # Reject
@@ -115,8 +115,8 @@ def render_artifact_review_panel(
                     on_click=lambda: asyncio.ensure_future(_do_reject(artifact_id, api_client, on_action_complete)),
                 ).props("dense unelevated size=sm").style(
                     f"background:{C_ERR_FG}; color:#0E0800; border:0.5px solid {C_ERR_FG}; "
-                    f"border-radius:{R_SM}; font-size:10px; font-weight:600; "
-                    f"font-family:{F_MONO}; padding:4px 10px;"
+                    f"border-radius:{R_SM}; font-size:12px; font-weight:600; "
+                    f"font-family:{F_MONO}; padding:6px 14px;"
                 )
 
                 # Needs Revision
@@ -127,8 +127,8 @@ def render_artifact_review_panel(
                     ),
                 ).props("dense unelevated size=sm").style(
                     f"background:transparent; color:{C_WARN_FG}; border:0.5px solid {C_WARN_FG}; "
-                    f"border-radius:{R_SM}; font-size:10px; font-weight:500; "
-                    f"font-family:{F_MONO}; padding:4px 10px;"
+                    f"border-radius:{R_SM}; font-size:12px; font-weight:500; "
+                    f"font-family:{F_MONO}; padding:6px 14px;"
                 )
 
             # Export — only for APPROVED
@@ -138,8 +138,8 @@ def render_artifact_review_panel(
                     on_click=lambda: asyncio.ensure_future(_do_export(artifact_id, api_client, on_action_complete)),
                 ).props("dense unelevated size=sm").style(
                     f"background:{C_AMBER}; color:#0E0800; border:0.5px solid {C_AMBER}; "
-                    f"border-radius:{R_SM}; font-size:10px; font-weight:600; "
-                    f"font-family:{F_MONO}; padding:4px 10px;"
+                    f"border-radius:{R_SM}; font-size:12px; font-weight:600; "
+                    f"font-family:{F_MONO}; padding:6px 14px;"
                 )
 
             # Force Export — visibly dangerous, available for non-APPROVED states
@@ -150,8 +150,8 @@ def render_artifact_review_panel(
                 ).props("dense unelevated size=sm").style(
                     f"background:{C_ERR_BG}; color:{C_ERR_FG}; "
                     f"border:1px solid {C_ERR_FG}; "
-                    f"border-radius:{R_SM}; font-size:10px; font-weight:700; "
-                    f"font-family:{F_MONO}; padding:4px 10px; "
+                    f"border-radius:{R_SM}; font-size:12px; font-weight:700; "
+                    f"font-family:{F_MONO}; padding:6px 14px; "
                     f"text-transform:uppercase; letter-spacing:0.5px;"
                 )
 

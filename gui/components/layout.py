@@ -106,7 +106,7 @@ def _dogfood_badge(mode: str) -> None:
 def build_left_nav(state: GuiState, active_page: str = "") -> None:
     """Build the left navigation drawer."""
     with ui.left_drawer().style(
-        f"background:{C_SURFACE}; border-right:0.5px solid {C_INK40}; width:200px; min-width:200px; padding:0;"
+        f"background:{C_SURFACE}; border-right:0.5px solid {C_INK40}; width:100px; min-width:100px; padding:0;"
     ):
         for label, route, icon in _NAV_ITEMS:
             is_active = active_page == route or (active_page == "" and route == "/")
@@ -115,26 +115,30 @@ def build_left_nav(state: GuiState, active_page: str = "") -> None:
             fg = C_AMBER if is_active else C_CREAM
 
             with (
-                ui.row()
+                ui.column()
                 .classes("w-full items-center cursor-pointer")
-                .style(f"padding:10px 16px; background:{bg}; border-left:{border_left}; transition:background 0.15s;")
+                .style(f"padding:8px 4px; background:{bg}; border-left:{border_left}; transition:background 0.15s;")
                 .on("click", lambda r=route: ui.navigate.to(r))
             ):
-                ui.icon(icon, size="18px").style(f"color:{fg}; margin-right:10px;")
+                ui.icon(icon, size="20px").style(f"color:{fg};")
                 ui.label(label).style(
-                    f"font-size:12px; font-family:{F_SANS}; color:{fg}; font-weight:{'600' if is_active else '400'};"
+                    f"font-size:9px; font-family:{F_SANS}; color:{fg}; font-weight:{'600' if is_active else '400'}; "
+                    f"text-align:center; margin-top:2px; line-height:1.1; "
+                    f"overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:88px;"
                 )
 
 
 def build_right_rail(state: GuiState) -> None:
-    """Build the right rail using the full right_rail panel from gui.panels.
+    """No-op — right rail has been removed.
 
-    UI Cycle 3: Delegates to gui.panels.right_rail.build_right_rail()
-    which consumes the consolidated /status/summary data.
+    The status info formerly shown in the right rail (dogfood mode,
+    actor status, retrieval health, pending gates, warnings) is now
+    available in Settings and Maintenance pages where it belongs.
+
+    This function is kept as a stub so that existing page imports
+    don't break; it can be removed in a later cleanup pass.
     """
-    from gui.panels.right_rail import build_right_rail as _build_full_rail
-
-    _build_full_rail(state)
+    pass
 
 
 def _section_label(text: str) -> None:

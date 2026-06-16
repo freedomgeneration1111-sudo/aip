@@ -17,7 +17,7 @@ from nicegui import context, ui
 
 from gui.api_client import get_api_client
 from gui.components.actor_status_table import ActorStatusTable
-from gui.components.layout import build_left_nav, build_right_rail, build_top_bar
+from gui.components.layout import build_left_nav, build_top_bar
 from gui.components.maintenance_jobs import MaintenanceJobs
 from gui.components.maintenance_log import MaintenanceLog
 from gui.components.maintenance_problem_panel import MaintenanceProblemPanel
@@ -108,6 +108,30 @@ async def maintenance_page():
         )
         actors_container = ui.column().classes("w-full").style("gap:0;")
 
+        # ── Retrieval health (moved from right rail) ───────────────────
+        ui.label("RETRIEVAL HEALTH").style(
+            f"font-size:11px; font-weight:600; letter-spacing:1px; "
+            f"color:{C_AMBER}; text-transform:uppercase; font-family:{F_SANS}; "
+            f"margin-top:20px;"
+        )
+        retrieval_container = ui.column().classes("w-full").style("gap:0;")
+
+        # ── Pending gates (moved from right rail) ──────────────────────
+        ui.label("PENDING GATES").style(
+            f"font-size:11px; font-weight:600; letter-spacing:1px; "
+            f"color:{C_AMBER}; text-transform:uppercase; font-family:{F_SANS}; "
+            f"margin-top:20px;"
+        )
+        gates_container = ui.column().classes("w-full").style("gap:0;")
+
+        # ── Warnings (moved from right rail) ───────────────────────────
+        ui.label("WARNINGS").style(
+            f"font-size:11px; font-weight:600; letter-spacing:1px; "
+            f"color:{C_ERR_FG}; text-transform:uppercase; font-family:{F_SANS}; "
+            f"margin-top:20px;"
+        )
+        warnings_container = ui.column().classes("w-full").style("gap:0;")
+
         # ── Maintenance jobs ───────────────────────────────────────────
         jobs_container = ui.column().classes("w-full").style("margin-top:20px;")
 
@@ -124,8 +148,6 @@ async def maintenance_page():
 
         # ── Action result notification area ────────────────────────────
         ui.label("").style(f"font-size:11px; color:{C_MUTED}; font-family:{F_SANS}; margin-top:12px; min-height:20px;")
-
-    build_right_rail(state)
 
     # ── Data loading functions ─────────────────────────────────────────
 
@@ -183,6 +205,21 @@ async def maintenance_page():
         actors_container.clear()
         with actors_container:
             actor_table.render(maintenance_status)
+
+        # Retrieval health (moved from right rail)
+        retrieval_container.clear()
+        with retrieval_container:
+            _render_retrieval_health(state)
+
+        # Pending gates (moved from right rail)
+        gates_container.clear()
+        with gates_container:
+            _render_pending_gates(state)
+
+        # Warnings (moved from right rail)
+        warnings_container.clear()
+        with warnings_container:
+            _render_warnings(state)
 
         # Jobs
         backfill_running = maintenance_status.get("backfill", {}).get("running", False)
@@ -427,3 +464,104 @@ async def maintenance_page():
 
     # ── Initial data load ──────────────────────────────────────────────
     await _load_all()
+
+
+# ── Module-level helpers (moved from right rail) ─────────────────────────
+
+
+def _render_retrieval_health(state: Any) -> None:
+    """Render retrieval health section from status_summary data.
+
+    Moved here from gui.panels.right_rail so that all live system status
+    lives in Settings/Maintenance instead of a persistent right sidebar.
+    """
+    if not state.backend_reachable:
+        for ch in ("Lexical", "Vector", "Graph", "CODEX", "Procedural"):
+            ui.label(f"  {ch}: UNAVAILABLE").style(
+                f"font-size:11px; color:{C_ERR_FG}; font-family:{F_MONO}; margin-top:2px;"
+            )
+        return
+
+    summary = state.status_summary
+    retrieval_summary = summary.get("retrieval_health_summary", state.retrieval_health)
+
+    if retrieval_summary:
+        channel_display = {
+            "fts": "Lexical",
+            "vector": "Vector",
+            "graph": "Graph",
+            "wiki": "CODEX",
+            "corpus": "Corpus",
+            "procedural": "Procedural",
+            "codex": "CODEX",
+        }
+
+        for ch_key, ch_data in retrieval_summary.items():
+            display_name = channel_display.get(ch_key, ch_key.capitalize())
+
+            if isinstance(ch_data, dict):
+                ch_state = ch_data.get("state", "unknown")
+                latency = ch_data.get("latency_ms", None)
+
+                if ch_state in ("available", "active"):
+                    status = "OK"
+                    color = C_OK_FG
+                elif ch_state in ("not_configured", "not_wired"):
+                    status = "NOT CONFIGURED"
+                    color = C_AMBER
+                elif ch_state == "degraded":
+                    status = "DEGRADED"
+                    color = C_WARN_FG
+                elif ch_state == "unavailable":
+                    status = "UNAVAILABLE"
+                    color = C_ERR_FG
+                elif ch_state == "empty":
+                    status = "EMPTY"
+                    color = C_MUTED
+                else:
+                    status = ch_state.upper()
+                    color = C_MUTED
+
+                latency_info = f" ({latency}ms)" if latency is not None else ""
+                ui.label(f"  {display_name}: {status}{latency_info}").style(
+                    f"font-size:11px; font-family:{F_MONO}; color:{color}; margin-top:2px;"
+                )
+            else:
+                ui.label(f"  {display_name}: NO DATA").style(
+                    f"font-size:11px; font-family:{F_MONO}; color:{C_MUTED}; margin-top:2px;"
+                )
+    else:
+        for ch in ("Lexical", "Vector", "Graph", "CODEX", "Procedural"):
+            ui.label(f"  {ch}: NOT WIRED").style(
+                f"font-size:11px; font-family:{F_MONO}; color:{C_MUTED}; margin-top:2px;"
+            )
+
+
+def _render_pending_gates(state: Any) -> None:
+    """Render pending gates count.
+
+    Moved here from gui.panels.right_rail.
+    """
+    count = state.pending_gates_count
+    color = C_AMBER if count > 0 else C_MUTED
+    ui.label(f"{count} pending review{'s' if count != 1 else ''}").style(
+        f"font-size:12px; font-family:{F_MONO}; color:{color}; margin-top:2px;"
+    )
+    if count > 0:
+        ui.label("Review pending artifacts on the Artifacts page.").style(
+            f"font-size:10px; font-family:{F_MONO}; color:{C_MUTED}; margin-top:2px;"
+        )
+
+
+def _render_warnings(state: Any) -> None:
+    """Render active warnings.
+
+    Moved here from gui.panels.right_rail.
+    """
+    if state.warnings:
+        for w in state.warnings[:12]:
+            ui.label(f"! {w}").style(
+                f"font-size:11px; font-family:{F_MONO}; color:{C_ERR_FG}; margin-top:2px;"
+            )
+    else:
+        ui.label("None").style(f"font-size:11px; font-family:{F_MONO}; color:{C_MUTED}; margin-top:2px;")

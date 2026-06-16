@@ -55,8 +55,15 @@ class TestNavigationReachability:
             )
 
     def test_all_pages_use_standard_layout(self):
-        """Every page module must call build_top_bar, build_left_nav, build_right_rail."""
-        required_calls = {"build_top_bar", "build_left_nav", "build_right_rail"}
+        """Every page module must call build_top_bar and build_left_nav.
+
+        Note: build_right_rail was removed — the status info it showed
+        (dogfood mode, actor status, retrieval health, pending gates,
+        warnings) now lives in Settings and Maintenance pages where it
+        belongs. The build_right_rail function still exists as a no-op
+        stub for backward compatibility.
+        """
+        required_calls = {"build_top_bar", "build_left_nav"}
         for route, module_name in self.EXPECTED_PAGES.items():
             filepath = PAGES_ROOT / f"{module_name}.py"
             source = filepath.read_text()
