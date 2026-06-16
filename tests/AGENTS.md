@@ -60,7 +60,39 @@ CI runs on every push to main — failures block merge.
   Forgetting the mark causes the test to be skipped silently.
 
 ## Last Cycle
-- **Phase 1 Fusion tests (this cycle)**: Added `test_model_council_fusion.py`
+- **Phase 1 Fix A/B/C regression tests (this cycle)**: Added 6 new
+  tests to `test_model_council_fusion.py` (total now 28) covering the
+  three fixes from this cycle:
+  - `TestFusionPerCallTimeouts::test_hung_panel_model_does_not_block_gather`
+    — patches `_PANEL_CALL_TIMEOUT_S` down to 0.3s, hangs the
+    `evaluation` slot forever, asserts the gather completes, the
+    hung slot is recorded as `status="failed"` with `"timed out"` in
+    the error message, the fast slots still complete, and the Fusion
+    pipeline still runs.
+  - `TestFusionPerCallTimeouts::test_judge_timeout_yields_failed_synthesis_empty_judge_analysis`
+    — patches `_JUDGE_CALL_TIMEOUT_S` down to 0.3s, hangs the
+    Judge-Beast call forever, asserts `synthesis_status="failed"`,
+    `fusion_answer=""`, `judge_analysis={}`.
+  - `TestFusionPerCallTimeouts::test_synth_timeout_preserves_judge_analysis`
+    — patches `_SYNTH_CALL_TIMEOUT_S` down to 0.3s, hangs the
+    Synth-Beast call forever, asserts `synthesis_status="failed"`,
+    `fusion_answer=""`, but `judge_analysis` is still populated
+    (Judge succeeded earlier).
+  - `TestFusionJudgePromptContract::test_judge_prompt_contains_model_label_contract`
+    — source-string contract check that the Judge system prompt in
+    `model_council.py` contains the MODEL LABEL CONTRACT block, the
+    "EXACT <LABEL>" instruction, the "Do NOT invent your own labels"
+    prohibition, and the `anthropic/claude-3-opus` concrete example.
+  - `TestFusionGuiRendersJudgeAnalysis::test_ask_page_reads_judge_analysis`
+    — AST/string contract check that `ask.py` reads
+    `result.get("judge_analysis"` and defines
+    `_format_judge_analysis_markdown`.
+  - `TestFusionGuiRendersJudgeAnalysis::test_panel_renders_judge_analysis`
+    — AST/string contract check that `model_council_panel.py` reads
+    `data.get("judge_analysis"` and defines `_render_judge_analysis`.
+  All 28 fusion tests pass. All 141 council + import/layering tests
+  pass (was 135 before this cycle).
+- **Phase 1 Fusion tests (prior cycle)**: Added `test_model_council_fusion.py`
   with 22 tests covering the new two-stage Fusion pipeline (Judge-Beast →
   Synth-Beast). Tests assert:
   - Schema additions: `fusion_answer` and `judge_analysis` fields exist
@@ -111,7 +143,7 @@ CI runs on every push to main — failures block merge.
 ## Test File Map
 | File | Domain |
 |------|--------|
-| `test_model_council_fusion.py` | Phase 1 Fusion pipeline — Judge+Synth two-stage Beast synthesis (22 tests) |
+| `test_model_council_fusion.py` | Phase 1 Fusion pipeline — Judge+Synth two-stage Beast synthesis + per-call timeouts + Judge label contract + GUI judge_analysis rendering (28 tests) |
 | `test_model_council_cycle6.py` | UI Cycle 6 — Model Council schema, multi-model exec, partial failure, save-as-artifact |
 | `test_model_council_cycle6_1.py` | UI Cycle 6.1 — selected_model_slots honoring, embedding exclusion, text-generation-slots endpoint |
 | `test_model_council_library_ids.py` | Library model-ID bridge — selected_model_ids, PerModelResult.source, combined insufficient gate |

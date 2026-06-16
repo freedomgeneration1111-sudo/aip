@@ -95,6 +95,36 @@ Synth-Beast succeed. If Judge succeeds but Synth fails,
 `synthesis_status = "failed"` but `judge_analysis` is still populated
 (the Judge output is still useful for audit).
 
+**Phase 1 Fix A — per-call timeouts (this cycle):** every model call
+in the Fusion pipeline is now wrapped in `asyncio.wait_for` with an
+upper-bound timeout, so a single hung model cannot hold the entire
+response hostage. Constants (module-level in `routes/model_council.py`):
+
+- `_PANEL_CALL_TIMEOUT_S = 30.0` — each panel call (slot or library ID)
+- `_JUDGE_CALL_TIMEOUT_S = 60.0` — Judge-Beast call (reads all panel outputs)
+- `_SYNTH_CALL_TIMEOUT_S = 60.0` — Synth-Beast call (reads Judge JSON)
+
+A timed-out panel call is captured by `asyncio.gather(return_exceptions=True)`
+and recorded as `PerModelResult.status="failed"` with
+`error="timed out after Ns"`. A timed-out Judge or Synth call is
+caught by the existing `except asyncio.TimeoutError` clause (added
+ahead of the generic `except Exception`), logged as
+`council_judge_call_timed_out` / `council_synth_call_timed_out`, and
+sets `synthesis_status="failed"`. The rest of the pipeline completes
+with whatever succeeded.
+
+**Phase 1 Fix C — MODEL LABEL CONTRACT (this cycle):** the Judge
+system prompt now contains an explicit MODEL LABEL CONTRACT block
+instructing the model to use the EXACT `<LABEL>` string from the
+answers_block section header (`## <LABEL> (<model_id>)`) in every
+`model` field of its JSON output — never invent generic labels like
+`model_a`, never fall back to `beast` when `beast` isn't a section
+label, never use the parenthesized `model_id`. The prompt includes a
+concrete example showing correct vs. incorrect label usage. This
+fixes the prior defect where the Judge emitted legacy slot names
+(`synthesis=`, `beast=`) instead of the per-model identifiers the
+human needs to attribute stances and insights.
+
 ### Model Slot Resolver Contract
 - `model_slot_resolver.py` resolves per-slot provider routing
 - `_call_openai_compatible()` detects HTTP 429 before `raise_for_status()`
@@ -176,7 +206,49 @@ config/aip.config.toml ([models] section)
   message without `turn_id`.
 
 ## Last Cycle
-- **Phase 1 Fusion pipeline (this cycle)**: `routes/model_council.py`
+- **Phase 1 Fix A/B/C (this cycle)**: three fixes to the Phase 1 Fusion
+  pipeline based on the first dogfood run:
+  - **Fix A — per-call timeouts**: every model call in the Fusion
+    pipeline (panel gather, Judge-Beast, Synth-Beast) is now wrapped
+    in `asyncio.wait_for` with module-level timeout constants
+    (`_PANEL_CALL_TIMEOUT_S=30`, `_JUDGE_CALL_TIMEOUT_S=60`,
+    `_SYNTH_CALL_TIMEOUT_S=60`). A single hung model no longer holds
+    the entire response hostage — it gets cut loose at its timeout,
+    recorded as `PerModelResult.status="failed"` (panel) or
+    `synthesis_status="failed"` (Judge/Synth), and the rest of the
+    pipeline completes. This fixes the 4-model timeout the user
+    observed on the first dogfood run.
+  - **Fix B — render `judge_analysis` in GUI**: the rich structured
+    Judge JSON was previously returned by the backend but never
+    surfaced in the GUI — only the flattened legacy strings
+    (`convergence`, `disagreements`, etc.) were rendered, losing the
+    per-model attribution that the new schema provides.
+    `gui/components/model_council_panel.py::_render_judge_analysis`
+    now renders `analysis.consensus[]` (bulleted), `contradictions[]`
+    (per-topic stance table with per-model stance cells),
+    `partial_coverage[]` (per-model-attributed bullets),
+    `unique_insights[]` (per-model-attributed bullets), `blind_spots[]`
+    (italicized bullets — the gaps NO model addressed), plus a
+    collapsible raw-JSON disclosure (`ui.expansion` + `ui.code`) for
+    full audit. `gui/pages/ask.py::_format_judge_analysis_markdown`
+    renders the equivalent as markdown (stance table + bullets +
+    `<details>`/fenced JSON block) in the Multi-Cast synthesis card.
+  - **Fix C — MODEL LABEL CONTRACT in Judge prompt**: the Judge system
+    prompt now contains an explicit MODEL LABEL CONTRACT block
+    instructing the model to use the EXACT `<LABEL>` string from the
+    answers_block section header (`## <LABEL> (<model_id>)`) in every
+    `model` field of its JSON output — never invent generic labels
+    like `model_a`, never fall back to `beast` when `beast` isn't a
+    section label, never use the parenthesized `model_id`. The prompt
+    includes a concrete example showing correct vs. incorrect label
+    usage. This fixes the prior defect where the Judge emitted legacy
+    slot names (`synthesis=`, `beast=`) instead of the per-model
+    identifiers the human needs to attribute stances and insights.
+  - 6 new regression tests in `tests/test_model_council_fusion.py`
+    (panel timeout, Judge timeout, Synth timeout, Judge prompt
+    contract, ask.py reads judge_analysis, panel reads judge_analysis).
+    All 141 council + import/layering tests pass (was 135 before).
+- **Phase 1 Fusion pipeline (prior cycle)**: `routes/model_council.py`
   `POST /beast/compare-models` Beast synthesis now runs as a two-stage
   OpenRouter Fusion pipeline by default (replaces the legacy single-call
   bare comparison). Stage 1 (Judge-Beast): single `beast` slot call with

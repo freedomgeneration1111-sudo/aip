@@ -46,6 +46,7 @@ specifically.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -847,3 +848,354 @@ class TestFusionGuiConsumerContract:
         assert 'data.get("fusion_answer"' in source, (
             "model_council_panel.py must render data['fusion_answer'] as the new headline section"
         )
+
+
+# ── Phase 1 Fix A/B/C regression tests ────────────────────────────────
+
+
+class TestFusionPerCallTimeouts:
+    """Fix A: per-call ``asyncio.wait_for`` wrappers ensure a single hung
+    model cannot hold the entire panel (or the Judge, or the Synth)
+    hostage. Each call is cut loose at its timeout and recorded as
+    failed; the rest of the pipeline completes.
+    """
+
+    @pytest.fixture
+    def panel_with_one_hung_model(self):
+        """Container where the ``evaluation`` slot hangs forever; the other
+        two slots return immediately. The panel gather must complete
+        (without waiting for the hung slot) and the hung slot must be
+        recorded as ``status="failed"`` with a timeout message.
+        """
+        # Patch the panel timeout DOWN to 0.3s so the test is fast.
+        # We patch the module-level constant that the gather wraps use.
+        async def mock_call(slot_name, messages, **kwargs):
+            if slot_name == "synthesis":
+                return {
+                    "content": "synthesis fast answer",
+                    "model": "gpt-4",
+                    "usage": {},
+                    "latency_ms": 50,
+                    "error": False,
+                }
+            if slot_name == "evaluation":
+                # Hang forever — should be cut loose by the timeout
+                await asyncio.sleep(60)
+                return {
+                    "content": "should never reach here",
+                    "model": "claude-3-opus",
+                    "usage": {},
+                    "latency_ms": 60000,
+                    "error": False,
+                }
+            if slot_name == "beast":
+                # beast slot participates in the panel AND in Fusion.
+                # Distinguish by system prompt.
+                system_content = ""
+                for msg in messages:
+                    if msg.get("role") == "system":
+                        system_content = msg.get("content", "")
+                if "JUDGE" in system_content:
+                    return {
+                        "content": json.dumps({
+                            "status": "completed",
+                            "analysis": {
+                                "consensus": ["synthesis answered"],
+                                "contradictions": [],
+                                "partial_coverage": [],
+                                "unique_insights": [],
+                                "blind_spots": ["evaluation hung — no stance captured"],
+                            },
+                            "responses": [{"model": "synthesis", "content": "fast answer"}],
+                        }),
+                        "model": "deepseek-chat",
+                        "usage": {},
+                        "latency_ms": 100,
+                        "error": False,
+                    }
+                if "SYNTHESIZER" in system_content:
+                    return {
+                        "content": "Fusion answer with only synthesis available.",
+                        "model": "deepseek-chat",
+                        "usage": {},
+                        "latency_ms": 100,
+                        "error": False,
+                    }
+                # beast as panelist
+                return {
+                    "content": "beast panel answer",
+                    "model": "deepseek-chat",
+                    "usage": {},
+                    "latency_ms": 50,
+                    "error": False,
+                }
+            return {"content": "", "error": True, "error_message": f"Unknown slot: {slot_name}"}
+
+        return _make_three_slot_container(mock_call)
+
+    @pytest.mark.asyncio
+    async def test_hung_panel_model_does_not_block_gather(self, panel_with_one_hung_model):
+        """A single hung panel model is cut loose at the panel timeout and
+        recorded as ``status="failed"``; the rest of the panel completes
+        and the overall response still returns.
+        """
+        from aip.adapter.api.routes import model_council as mc_mod
+        from aip.adapter.api.routes.model_council import ModelCouncilRequest, compare_models
+
+        request = ModelCouncilRequest(prompt="Test hung panel model")
+        # Patch the panel timeout DOWN to 0.3s so the test runs fast.
+        original = mc_mod._PANEL_CALL_TIMEOUT_S
+        mc_mod._PANEL_CALL_TIMEOUT_S = 0.3
+        try:
+            with patch("aip.adapter.api.routes.model_council.logger"):
+                # Also patch asyncio.wait_for's timeout by patching the
+                # constant the wrappers reference. The wrappers themselves
+                # are already created at call time using the module
+                # constant, so this works.
+                result = await compare_models(request, container=panel_with_one_hung_model)
+        finally:
+            mc_mod._PANEL_CALL_TIMEOUT_S = original
+
+        # The gather completed (we got a response, not a hang).
+        assert result.status in ("completed", "partial")
+        # The hung 'evaluation' slot must be recorded as failed.
+        eval_result = next(
+            (pm for pm in result.selected_models if pm.model_slot == "evaluation"),
+            None,
+        )
+        assert eval_result is not None, "evaluation slot missing from selected_models"
+        assert eval_result.status == "failed"
+        assert "timed out" in (eval_result.error or "").lower(), (
+            f"Expected timeout message in error, got: {eval_result.error!r}"
+        )
+        # The fast slots still completed.
+        synth_result = next(
+            (pm for pm in result.selected_models if pm.model_slot == "synthesis"),
+            None,
+        )
+        assert synth_result is not None
+        assert synth_result.status == "completed"
+        assert synth_result.answer == "synthesis fast answer"
+        # Fusion still ran (beast + synthesis succeeded = 2 successful).
+        # Judge + Synth each succeeded.
+        assert result.synthesis_status == "completed"
+        assert result.fusion_answer != ""
+
+    @pytest.mark.asyncio
+    async def test_judge_timeout_yields_failed_synthesis_empty_judge_analysis(self):
+        """Judge-Beast call timeout → ``synthesis_status='failed'`` and
+        ``judge_analysis={}`` (Judge never produced output).
+        """
+        from aip.adapter.api.routes import model_council as mc_mod
+        from aip.adapter.api.routes.model_council import ModelCouncilRequest, compare_models
+
+        async def mock_call(slot_name, messages, **kwargs):
+            if slot_name in ("synthesis", "evaluation"):
+                return {
+                    "content": f"{slot_name} answer",
+                    "model": slot_name,
+                    "usage": {},
+                    "latency_ms": 50,
+                    "error": False,
+                }
+            if slot_name == "beast":
+                system_content = ""
+                for msg in messages:
+                    if msg.get("role") == "system":
+                        system_content = msg.get("content", "")
+                if "JUDGE" in system_content:
+                    # Hang forever — should be cut loose by the Judge timeout
+                    await asyncio.sleep(60)
+                    return {"content": "should never reach here", "error": False}
+                if "SYNTHESIZER" in system_content:
+                    return {
+                        "content": "synth answer (should not be reached if Judge timed out)",
+                        "model": "deepseek-chat",
+                        "usage": {},
+                        "latency_ms": 50,
+                        "error": False,
+                    }
+                # beast as panelist
+                return {
+                    "content": "beast panel answer",
+                    "model": "deepseek-chat",
+                    "usage": {},
+                    "latency_ms": 50,
+                    "error": False,
+                }
+            return {"content": "", "error": True, "error_message": f"Unknown slot: {slot_name}"}
+
+        container = _make_three_slot_container(mock_call)
+        request = ModelCouncilRequest(prompt="Test Judge timeout")
+        original_judge = mc_mod._JUDGE_CALL_TIMEOUT_S
+        original_panel = mc_mod._PANEL_CALL_TIMEOUT_S
+        mc_mod._JUDGE_CALL_TIMEOUT_S = 0.3
+        mc_mod._PANEL_CALL_TIMEOUT_S = 5.0  # panel slots return fast; no impact
+        try:
+            with patch("aip.adapter.api.routes.model_council.logger"):
+                result = await compare_models(request, container=container)
+        finally:
+            mc_mod._JUDGE_CALL_TIMEOUT_S = original_judge
+            mc_mod._PANEL_CALL_TIMEOUT_S = original_panel
+
+        assert result.synthesis_status == "failed"
+        assert result.fusion_answer == ""
+        assert result.judge_analysis == {}, (
+            f"Judge timed out — judge_analysis should be empty, got: {result.judge_analysis}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_synth_timeout_preserves_judge_analysis(self):
+        """Synth-Beast call timeout → ``synthesis_status='failed'`` but
+        ``judge_analysis`` is still populated (Judge succeeded earlier).
+        """
+        from aip.adapter.api.routes import model_council as mc_mod
+        from aip.adapter.api.routes.model_council import ModelCouncilRequest, compare_models
+
+        async def mock_call(slot_name, messages, **kwargs):
+            if slot_name in ("synthesis", "evaluation"):
+                return {
+                    "content": f"{slot_name} answer",
+                    "model": slot_name,
+                    "usage": {},
+                    "latency_ms": 50,
+                    "error": False,
+                }
+            if slot_name == "beast":
+                system_content = ""
+                for msg in messages:
+                    if msg.get("role") == "system":
+                        system_content = msg.get("content", "")
+                if "JUDGE" in system_content:
+                    return {
+                        "content": json.dumps({
+                            "status": "completed",
+                            "analysis": {
+                                "consensus": ["x"],
+                                "contradictions": [],
+                                "partial_coverage": [],
+                                "unique_insights": [],
+                                "blind_spots": ["y"],
+                            },
+                            "responses": [],
+                        }),
+                        "model": "deepseek-chat",
+                        "usage": {},
+                        "latency_ms": 50,
+                        "error": False,
+                    }
+                if "SYNTHESIZER" in system_content:
+                    # Hang forever — should be cut loose by the Synth timeout
+                    await asyncio.sleep(60)
+                    return {"content": "should never reach here", "error": False}
+                # beast as panelist
+                return {
+                    "content": "beast panel answer",
+                    "model": "deepseek-chat",
+                    "usage": {},
+                    "latency_ms": 50,
+                    "error": False,
+                }
+            return {"content": "", "error": True, "error_message": f"Unknown slot: {slot_name}"}
+
+        container = _make_three_slot_container(mock_call)
+        request = ModelCouncilRequest(prompt="Test Synth timeout")
+        original_synth = mc_mod._SYNTH_CALL_TIMEOUT_S
+        original_panel = mc_mod._PANEL_CALL_TIMEOUT_S
+        original_judge = mc_mod._JUDGE_CALL_TIMEOUT_S
+        mc_mod._SYNTH_CALL_TIMEOUT_S = 0.3
+        mc_mod._PANEL_CALL_TIMEOUT_S = 5.0
+        mc_mod._JUDGE_CALL_TIMEOUT_S = 5.0
+        try:
+            with patch("aip.adapter.api.routes.model_council.logger"):
+                result = await compare_models(request, container=container)
+        finally:
+            mc_mod._SYNTH_CALL_TIMEOUT_S = original_synth
+            mc_mod._PANEL_CALL_TIMEOUT_S = original_panel
+            mc_mod._JUDGE_CALL_TIMEOUT_S = original_judge
+
+        assert result.synthesis_status == "failed"
+        assert result.fusion_answer == ""
+        # Judge succeeded, so judge_analysis should still be populated
+        assert result.judge_analysis != {}
+        assert result.judge_analysis.get("status") == "completed"
+
+
+class TestFusionJudgePromptContract:
+    """Fix C: the Judge system prompt must instruct the model to use the
+    EXACT label string from the answers_block section header (e.g.
+    'synthesis' or 'anthropic/claude-3-opus'), never invent generic
+    labels like 'model_a' or fall back to 'beast' when 'beast' isn't
+    a section label.
+    """
+
+    def test_judge_prompt_contains_model_label_contract(self):
+        """The Judge system prompt source contains the MODEL LABEL CONTRACT
+        instruction block.
+        """
+        from pathlib import Path
+
+        mc_path = (
+            Path(__file__).resolve().parent.parent
+            / "src" / "aip" / "adapter" / "api" / "routes" / "model_council.py"
+        )
+        source = mc_path.read_text(encoding="utf-8")
+        # The contract block heading
+        assert "MODEL LABEL CONTRACT" in source, (
+            "Judge system prompt must contain the MODEL LABEL CONTRACT block"
+        )
+        # The "EXACT" emphasis — instructs the model not to invent labels
+        assert "EXACT <LABEL>" in source, (
+            "Judge prompt must instruct model to use the EXACT <LABEL> string"
+        )
+        # The "Do NOT invent your own labels" prohibition
+        assert "Do NOT invent your own labels" in source, (
+            "Judge prompt must prohibit inventing labels"
+        )
+        # The concrete example showing correct label usage
+        assert "anthropic/claude-3-opus" in source, (
+            "Judge prompt must include a concrete library-model label example"
+        )
+
+
+class TestFusionGuiRendersJudgeAnalysis:
+    """Fix B: the GUI consumers must render the ``judge_analysis`` dict,
+    not just the flattened legacy strings. Verified by source-string
+    contract check (the GUI files are not import-safe in the test env
+    due to nicegui transitive deps, so we AST/string-check instead —
+    consistent with the existing TestFusionGuiConsumerContract pattern).
+    """
+
+    def test_ask_page_reads_judge_analysis(self):
+        """The ask.py _send_multicast path reads ``judge_analysis`` from
+        the result and renders it via ``_format_judge_analysis_markdown``.
+        """
+        from pathlib import Path
+
+        ask_path = Path(__file__).resolve().parent.parent / "gui" / "pages" / "ask.py"
+        source = ask_path.read_text(encoding="utf-8")
+        assert 'result.get("judge_analysis"' in source, (
+            "ask.py _send_multicast must read result['judge_analysis'] to surface the structured JSON"
+        )
+        assert "_format_judge_analysis_markdown" in source, (
+            "ask.py must define and call _format_judge_analysis_markdown to render the structured JSON"
+        )
+
+    def test_panel_renders_judge_analysis(self):
+        """The model_council_panel renders the ``judge_analysis`` field
+        via ``_render_judge_analysis``.
+        """
+        from pathlib import Path
+
+        panel_path = (
+            Path(__file__).resolve().parent.parent
+            / "gui" / "components" / "model_council_panel.py"
+        )
+        source = panel_path.read_text(encoding="utf-8")
+        assert 'data.get("judge_analysis"' in source, (
+            "model_council_panel.py must read data['judge_analysis'] to surface the structured JSON"
+        )
+        assert "_render_judge_analysis" in source, (
+            "model_council_panel.py must define _render_judge_analysis to render the structured JSON"
+        )
+

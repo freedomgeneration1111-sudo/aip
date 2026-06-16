@@ -13,6 +13,7 @@ Never imports from aip.orchestration.
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -477,6 +478,11 @@ class ModelCouncilPanel:
             if beast_conclusion and beast_conclusion != fusion_answer:
                 self._render_section("Beast Conclusion", beast_conclusion, C_CREAM)
             self._render_section("Recommended Decision", data.get("recommended_decision", ""), C_AMBER)
+            # Phase 1 Fix B: render the full structured Judge JSON
+            # (consensus / contradictions stance table / partial_coverage /
+            # unique_insights / blind_spots) plus a collapsible raw-JSON
+            # disclosure for audit. Empty dict → nothing rendered.
+            self._render_judge_analysis(data.get("judge_analysis", {}))
         elif synthesis_status == "unavailable":
             with ui.column().classes("w-full").style("padding: 8px 16px;"):
                 ui.label("SYNTHESIS UNAVAILABLE").style(
@@ -654,6 +660,140 @@ class ModelCouncilPanel:
         with ui.row().classes("w-full").style("padding: 8px 16px 2px 16px; margin-top: 4px;"):
             ui.label(text.upper()).style(
                 f"font-size: 9px; font-weight: 700; font-family: {F_MONO}; color: {C_INK60}; letter-spacing: 0.5px;"
+            )
+
+    def _render_judge_analysis(self, judge_analysis: dict[str, Any]) -> None:
+        """Render the full structured Judge JSON for audit visibility.
+
+        Phase 1 Fix B: previously the rich ``judge_analysis`` dict was
+        returned by the backend but never surfaced in the GUI — only the
+        flattened legacy strings (``convergence``, ``disagreements``,
+        etc.) were rendered, losing the per-model attribution that the
+        new schema provides. This method renders:
+
+          - ``analysis.consensus[]`` as a bulleted list
+          - ``analysis.contradictions[]`` as a per-topic stance table
+            (each row = one topic, with per-model stance cells)
+          - ``analysis.partial_coverage[]`` as a per-model-attributed list
+          - ``analysis.unique_insights[]`` as a per-model-attributed list
+          - ``analysis.blind_spots[]`` as a bulleted list (the gaps NO
+            model addressed — the most important field for the human)
+          - a collapsible raw-JSON disclosure at the end (``ui.expansion``)
+            for full audit
+
+        Empty/missing dict → nothing rendered (no empty sections).
+        """
+        if not judge_analysis or not isinstance(judge_analysis, dict):
+            return
+
+        analysis = judge_analysis.get("analysis")
+        if not isinstance(analysis, dict):
+            # Judge produced something but no ``analysis`` key — fall back
+            # to showing just the raw JSON disclosure so the human still
+            # has visibility.
+            analysis = {}
+
+        # ── Consensus ──
+        consensus = analysis.get("consensus", [])
+        if isinstance(consensus, list) and consensus:
+            self._render_section_label("Judge · Consensus (all models agree)")
+            with ui.column().classes("w-full").style("padding: 2px 16px 8px 24px;"):
+                for point in consensus:
+                    ui.label(f"• {point}").style(
+                        f"font-size: 11px; color: {C_OK_FG}; font-family: {F_SANS}; line-height: 1.5;"
+                    )
+
+        # ── Contradictions stance table ──
+        contradictions = analysis.get("contradictions", [])
+        if isinstance(contradictions, list) and contradictions:
+            self._render_section_label("Judge · Contradictions (per-model stances)")
+            with ui.column().classes("w-full").style("padding: 2px 16px 8px 16px;"):
+                for c in contradictions:
+                    if not isinstance(c, dict):
+                        continue
+                    topic = c.get("topic", "?")
+                    stances = c.get("stances", [])
+                    with (
+                        ui.column()
+                        .classes("w-full")
+                        .style(
+                            f"padding: 6px 10px; margin: 2px 0; "
+                            f"border-left: 2px solid {C_AMBER}; background: {C_GROUND};"
+                        )
+                    ):
+                        ui.label(topic).style(
+                            f"font-size: 11px; font-weight: 700; color: {C_CREAM}; "
+                            f"font-family: {F_SANS}; margin-bottom: 4px;"
+                        )
+                        if isinstance(stances, list):
+                            for s in stances:
+                                if not isinstance(s, dict):
+                                    continue
+                                model = s.get("model", "?")
+                                stance = s.get("stance", "?")
+                                with ui.row().classes("w-full").style("gap: 6px;"):
+                                    ui.label(model).style(
+                                        f"font-size: 10px; font-weight: 600; color: {C_AMBER}; "
+                                        f"font-family: {F_MONO}; min-width: 120px; max-width: 200px; "
+                                        f"word-break: break-all;"
+                                    )
+                                    ui.label(stance).style(
+                                        f"font-size: 10px; color: {C_INK60}; "
+                                        f"font-family: {F_SANS}; line-height: 1.4; flex: 1;"
+                                    )
+
+        # ── Partial coverage ──
+        partial = analysis.get("partial_coverage", [])
+        if isinstance(partial, list) and partial:
+            self._render_section_label("Judge · Partial Coverage (some models only)")
+            with ui.column().classes("w-full").style("padding: 2px 16px 8px 24px;"):
+                for p in partial:
+                    if not isinstance(p, dict):
+                        continue
+                    models = p.get("models", [])
+                    point = p.get("point", "?")
+                    models_str = ", ".join(str(m) for m in models) if isinstance(models, list) else str(models)
+                    ui.label(f"• [{models_str}] {point}").style(
+                        f"font-size: 11px; color: {C_CREAM}; font-family: {F_SANS}; line-height: 1.5;"
+                    )
+
+        # ── Unique insights ──
+        unique = analysis.get("unique_insights", [])
+        if isinstance(unique, list) and unique:
+            self._render_section_label("Judge · Unique Insights (per-model)")
+            with ui.column().classes("w-full").style("padding: 2px 16px 8px 24px;"):
+                for u in unique:
+                    if not isinstance(u, dict):
+                        continue
+                    model = u.get("model", "?")
+                    insight = u.get("insight", "?")
+                    ui.label(f"• [{model}] {insight}").style(
+                        f"font-size: 11px; color: {C_CREAM}; font-family: {F_SANS}; line-height: 1.5;"
+                    )
+
+        # ── Blind spots (the most important field for the human) ──
+        blind = analysis.get("blind_spots", [])
+        if isinstance(blind, list) and blind:
+            self._render_section_label("Judge · Blind Spots (no model addressed)")
+            with ui.column().classes("w-full").style("padding: 2px 16px 8px 24px;"):
+                for b in blind:
+                    ui.label(f"• {b}").style(
+                        f"font-size: 11px; color: {C_ERR_FG}; font-family: {F_SANS}; "
+                        f"line-height: 1.5; font-style: italic;"
+                    )
+
+        # ── Collapsible raw JSON for full audit ──
+        try:
+            raw_json = json.dumps(judge_analysis, ensure_ascii=False, indent=2)
+        except (TypeError, ValueError):
+            raw_json = str(judge_analysis)
+        with ui.expansion(
+            "Judge Analysis (raw JSON)",
+            icon="format_quote",
+        ).classes("w-full").style(f"padding: 4px 16px; font-family: {F_MONO};"):
+            ui.code(raw_json, language="json").style(
+                f"font-size: 10px; font-family: {F_MONO}; "
+                f"background: {C_GROUND}; color: {C_INK60};"
             )
 
     def close(self) -> None:

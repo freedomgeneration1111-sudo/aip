@@ -50,6 +50,7 @@ CRITICAL RULES:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from typing import Any
 
@@ -656,6 +657,110 @@ async def _dispatch_send(
         )
 
 
+def _format_judge_analysis_markdown(judge_analysis: dict[str, Any]) -> str:
+    """Format the structured Judge JSON as markdown for the Multi-Cast card.
+
+    Phase 1 Fix B: the synthesis card previously rendered only the
+    flattened legacy strings (``convergence``, ``disagreements``, etc.)
+    which lose per-model attribution. This helper appends the full
+    structured Judge analysis as markdown sections:
+
+      - ``### Judge · Consensus`` — bulleted list
+      - ``### Judge · Contradictions`` — per-topic stance table
+      - ``### Judge · Partial Coverage`` — per-model-attributed bullets
+      - ``### Judge · Unique Insights`` — per-model-attributed bullets
+      - ``### Judge · Blind Spots`` — italicized bullets (the gaps)
+      - A fenced ``json`` block with the full raw JSON for audit
+
+    Returns empty string if ``judge_analysis`` is empty/missing — caller
+    should skip appending in that case.
+    """
+    if not judge_analysis or not isinstance(judge_analysis, dict):
+        return ""
+
+    analysis = judge_analysis.get("analysis")
+    if not isinstance(analysis, dict):
+        analysis = {}
+
+    lines: list[str] = []
+
+    # Consensus
+    consensus = analysis.get("consensus", [])
+    if isinstance(consensus, list) and consensus:
+        lines.append("### Judge · Consensus (all models agree)")
+        for point in consensus:
+            lines.append(f"- {point}")
+
+    # Contradictions stance table
+    contradictions = analysis.get("contradictions", [])
+    if isinstance(contradictions, list) and contradictions:
+        lines.append("### Judge · Contradictions (per-model stances)")
+        lines.append("")
+        lines.append("| Topic | Model | Stance |")
+        lines.append("|---|---|---|")
+        for c in contradictions:
+            if not isinstance(c, dict):
+                continue
+            topic = str(c.get("topic", "?")).replace("|", "\\|")
+            stances = c.get("stances", [])
+            if not isinstance(stances, list) or not stances:
+                lines.append(f"| {topic} | _none_ | _none_ |")
+                continue
+            for s in stances:
+                if not isinstance(s, dict):
+                    continue
+                model = str(s.get("model", "?")).replace("|", "\\|")
+                stance = str(s.get("stance", "?")).replace("|", "\\|").replace("\n", " ")
+                lines.append(f"| {topic} | {model} | {stance} |")
+        lines.append("")
+
+    # Partial coverage
+    partial = analysis.get("partial_coverage", [])
+    if isinstance(partial, list) and partial:
+        lines.append("### Judge · Partial Coverage (some models only)")
+        for p in partial:
+            if not isinstance(p, dict):
+                continue
+            models = p.get("models", [])
+            point = p.get("point", "?")
+            models_str = ", ".join(str(m) for m in models) if isinstance(models, list) else str(models)
+            lines.append(f"- **[{models_str}]** {point}")
+
+    # Unique insights
+    unique = analysis.get("unique_insights", [])
+    if isinstance(unique, list) and unique:
+        lines.append("### Judge · Unique Insights (per-model)")
+        for u in unique:
+            if not isinstance(u, dict):
+                continue
+            model = u.get("model", "?")
+            insight = u.get("insight", "?")
+            lines.append(f"- **[{model}]** {insight}")
+
+    # Blind spots
+    blind = analysis.get("blind_spots", [])
+    if isinstance(blind, list) and blind:
+        lines.append("### Judge · Blind Spots (no model addressed)")
+        for b in blind:
+            lines.append(f"- *{b}*")
+
+    # Collapsible raw JSON (HTML <details> renders in markdown)
+    try:
+        raw_json = json.dumps(judge_analysis, ensure_ascii=False, indent=2)
+    except (TypeError, ValueError):
+        raw_json = str(judge_analysis)
+    lines.append("")
+    lines.append("<details><summary>Judge Analysis (raw JSON)</summary>")
+    lines.append("")
+    lines.append("```json")
+    lines.append(raw_json)
+    lines.append("```")
+    lines.append("")
+    lines.append("</details>")
+
+    return "\n".join(lines)
+
+
 async def _send_multicast(
     state: GuiState,
     chat_container,
@@ -803,6 +908,11 @@ async def _send_multicast(
     unique_contributions = result.get("unique_contributions", "")
     risks = result.get("risks", "")
     recommended_decision = result.get("recommended_decision", "")
+    # Phase 1 Fix B: surface the full structured Judge JSON for audit.
+    # The flattened legacy strings above lose per-model attribution; the
+    # raw dict retains it. We render it as a markdown stance table +
+    # bulleted lists + a fenced JSON block at the end.
+    judge_analysis = result.get("judge_analysis", {})
 
     if synthesis_status == "completed" and (fusion_answer or beast_conclusion or convergence):
         synth_lines = ["## Beast Fusion Synthesis (ADVISORY ONLY)"]
@@ -824,6 +934,11 @@ async def _send_multicast(
             synth_lines.append(f"**Beast Conclusion:** {beast_conclusion}")
         if recommended_decision:
             synth_lines.append(f"**Recommended Decision:** {recommended_decision}")
+        # Phase 1 Fix B: append the structured Judge analysis as markdown
+        # sections + a collapsible raw-JSON block.
+        judge_md = _format_judge_analysis_markdown(judge_analysis)
+        if judge_md:
+            synth_lines.append(judge_md)
         synth_content = "\n\n".join(synth_lines)
 
         synth_turn_data = {

@@ -71,6 +71,19 @@ _OPENROUTER_DEFAULT_BASE_URL = "https://openrouter.ai/api"
 # State DB path — kept in sync with models_library.py.
 _STATE_DB = "db/state.db"
 
+# ── Per-call timeouts ──────────────────────────────────────────────────
+# A single hung model must not hold the entire panel hostage. Each panel
+# call is wrapped in ``asyncio.wait_for`` so a slow/hung model is cut
+# loose at the panel timeout (recorded as ``status="failed"`` with the
+# timeout message), letting the gather complete as soon as the slowest
+# *cooperative* model returns. Judge and Synth get longer timeouts
+# because they process the full panel context (longer prompts, more
+# reasoning work). These are upper bounds — fast models return well
+# before the timeout fires.
+_PANEL_CALL_TIMEOUT_S = 30.0   # single panel model call (Q&A)
+_JUDGE_CALL_TIMEOUT_S = 60.0   # Judge-Beast (reads all panel outputs)
+_SYNTH_CALL_TIMEOUT_S = 60.0   # Synth-Beast (reads Judge JSON)
+
 
 # ---------------------------------------------------------------------------
 # Pydantic models
@@ -509,13 +522,20 @@ async def compare_models(
     # Build a unified task map keyed by a stable identifier we can
     # reverse-map back to {source, slot_name|model_id} afterwards.
     # Keys: "slot:<slot_name>" for slots, "library:<model_id>" for library IDs.
+    # Each call is wrapped in ``asyncio.wait_for`` with
+    # ``_PANEL_CALL_TIMEOUT_S`` so a single hung model cannot hold the
+    # entire gather hostage — it gets cut loose and recorded as failed.
     per_model_tasks: dict[str, Any] = {}
     for slot_name in comparison_slots:
-        per_model_tasks[f"slot:{slot_name}"] = _call_model_slot(
-            container.model_provider, slot_name, user_prompt,
+        per_model_tasks[f"slot:{slot_name}"] = asyncio.wait_for(
+            _call_model_slot(container.model_provider, slot_name, user_prompt),
+            timeout=_PANEL_CALL_TIMEOUT_S,
         )
     for model_id in comparison_model_ids:
-        per_model_tasks[f"library:{model_id}"] = _call_library_model_id(model_id, user_prompt)
+        per_model_tasks[f"library:{model_id}"] = asyncio.wait_for(
+            _call_library_model_id(model_id, user_prompt),
+            timeout=_PANEL_CALL_TIMEOUT_S,
+        )
 
     # Run all model calls concurrently
     results_map: dict[str, dict] = {}
@@ -525,6 +545,13 @@ async def compare_models(
 
     for task_key, result in zip(task_keys, task_results):
         if isinstance(result, Exception):
+            # ``asyncio.TimeoutError`` from ``wait_for`` has an empty
+            # ``str()`` — surface a clear message so the per-model card
+            # shows "timed out after Ns" instead of an empty error.
+            if isinstance(result, asyncio.TimeoutError):
+                err_msg = f"timed out after {_PANEL_CALL_TIMEOUT_S:.0f}s"
+            else:
+                err_msg = str(result) or result.__class__.__name__
             results_map[task_key] = {
                 "content": "",
                 "model": "",
@@ -532,7 +559,7 @@ async def compare_models(
                 "latency_ms": 0,
                 "cost_usd": 0.0,
                 "error": True,
-                "error_message": str(result),
+                "error_message": err_msg,
             }
         else:
             results_map[task_key] = result
@@ -699,31 +726,58 @@ async def compare_models(
             "or change model slots\n"
             "- Be honest about uncertainty — flag weak signals explicitly\n"
             "- Do not fabricate consensus, contradictions, or insights\n\n"
+            "MODEL LABEL CONTRACT (CRITICAL):\n"
+            "The user message contains a section per model, each starting with "
+            "a markdown header in the form:\n"
+            "    ## <LABEL> (<model_id>)\n"
+            "For TOML slot-sourced models, <LABEL> is the slot name "
+            "(e.g. 'synthesis', 'evaluation', 'beast'). For OpenRouter "
+            "library models, <LABEL> is the model ID (e.g. "
+            "'anthropic/claude-3-opus', 'openai/gpt-4o').\n\n"
+            "In EVERY ``model`` field of your JSON output (in contradictions[].stances[].model, "
+            "partial_coverage[].models[], unique_insights[].model, and responses[].model), "
+            "you MUST use the EXACT <LABEL> string as it appears between '## ' and ' (' in "
+            "the corresponding section header. Do NOT invent your own labels. Do NOT use "
+            "generic labels like 'model_a', 'model_b', 'the first model', 'beast' (unless "
+            "'beast' is actually one of the section labels). Do NOT use the model_id "
+            "(the parenthesized part) — use the <LABEL>.\n\n"
+            "For example, if the user message contains:\n"
+            "    ## synthesis (gpt-4o)\n"
+            "    ## anthropic/claude-3-opus (anthropic/claude-3-opus)\n"
+            "then a contradiction stance must be written as:\n"
+            "    {\"topic\": \"...\", \"stances\": [\n"
+            "      {\"model\": \"synthesis\", \"stance\": \"...\"},\n"
+            "      {\"model\": \"anthropic/claude-3-opus\", \"stance\": \"...\"}\n"
+            "    ]}\n"
+            "NOT as {\"model\": \"gpt-4o\", ...} and NOT as {\"model\": \"model_a\", ...}.\n\n"
             "Respond with a JSON object with EXACTLY this shape:\n"
             "{\n"
             '  "status": "completed" | "partial" | "insufficient",\n'
             '  "analysis": {\n'
             '    "consensus": ["points ALL successful models agree on"],\n'
             '    "contradictions": [\n'
-            '      {"topic": "...", "stances": [{"model": "...", "stance": "..."}]}\n'
+            '      {"topic": "...", "stances": [{"model": "<LABEL>", "stance": "..."}]}\n'
             '    ],\n'
             '    "partial_coverage": [\n'
-            '      {"models": ["model_a", "model_b"], "point": "topic only some models covered"}\n'
+            '      {"models": ["<LABEL_A>", "<LABEL_B>"], "point": "topic only some models covered"}\n'
             '    ],\n'
             '    "unique_insights": [\n'
-            '      {"model": "...", "insight": "..."}\n'
+            '      {"model": "<LABEL>", "insight": "..."}\n'
             '    ],\n'
             '    "blind_spots": ["topics NO model addressed"]\n'
             '  },\n'
             '  "responses": [\n'
-            '    {"model": "...", "content": "brief summary of that model\'s answer"}\n'
+            '    {"model": "<LABEL>", "content": "brief summary of that model\'s answer"}\n'
             '  ]\n'
             "}\n\n"
             "Rules:\n"
             "- consensus[] must list points where ALL successful models agree\n"
-            "- contradictions[] must attribute each stance to a specific model\n"
-            "- partial_coverage[] must list which models covered a point\n"
-            "- unique_insights[] must attribute each insight to its source model\n"
+            "- contradictions[] must attribute each stance to a specific model "
+            "using the EXACT <LABEL> from the section header\n"
+            "- partial_coverage[] must list which models covered a point, again "
+            "using the EXACT <LABEL> strings\n"
+            "- unique_insights[] must attribute each insight to its source model "
+            "using the EXACT <LABEL>\n"
             "- blind_spots[] is MANDATORY — list topics NO model addressed. "
             "Use an empty array only if you can prove coverage was complete.\n"
             "- If a field has no entries, use an empty array\n"
@@ -744,7 +798,10 @@ Return the JSON object now."""
 
         judge_succeeded = False
         try:
-            judge_result = await container.model_provider.call("beast", judge_messages)
+            judge_result = await asyncio.wait_for(
+                container.model_provider.call("beast", judge_messages),
+                timeout=_JUDGE_CALL_TIMEOUT_S,
+            )
             judge_content = judge_result.get("content", "").strip()
 
             if judge_result.get("error"):
@@ -829,6 +886,10 @@ Return the JSON object now."""
                     )
                     # Fall back: treat judge_content as raw advisory text
                     beast_conclusion = judge_content[:500]
+        except asyncio.TimeoutError:
+            logger.error(
+                "council_judge_call_timed_out timeout=%ss", _JUDGE_CALL_TIMEOUT_S,
+            )
         except Exception as exc:
             logger.error(
                 "council_judge_call_failed error=%s", str(exc), exc_info=True,
@@ -880,7 +941,10 @@ Write the final fused answer now."""
             ]
 
             try:
-                synth_result = await container.model_provider.call("beast", synth_messages)
+                synth_result = await asyncio.wait_for(
+                    container.model_provider.call("beast", synth_messages),
+                    timeout=_SYNTH_CALL_TIMEOUT_S,
+                )
                 synth_content = synth_result.get("content", "").strip()
 
                 if synth_result.get("error"):
@@ -916,6 +980,11 @@ Write the final fused answer now."""
                     synthesis_status = "completed"
                 else:
                     synthesis_status = "failed"
+            except asyncio.TimeoutError:
+                logger.error(
+                    "council_synth_call_timed_out timeout=%ss", _SYNTH_CALL_TIMEOUT_S,
+                )
+                synthesis_status = "failed"
             except Exception as exc:
                 logger.error(
                     "council_synth_call_failed error=%s", str(exc), exc_info=True,

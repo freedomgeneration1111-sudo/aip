@@ -167,22 +167,65 @@ sexton.py (_embedding_backfill_state, _rate_limited)
     headline of the synthesis card; `_send_multicast` in `ask.py`
     renders it as `**Fusion Synthesis:** ...` and labels the card
     `model="Beast Fusion"`.
-  - `judge_analysis` (dict) — the full structured Judge JSON. The
-    `ModelCouncilPanel` component can use this for audit rendering (not
-    yet surfaced in the panel — deferred to a future cycle).
+  - `judge_analysis` (dict) — the full structured Judge JSON. Both
+    `ModelCouncilPanel._render_judge_analysis` and
+    `ask.py::_format_judge_analysis_markdown` render this for audit:
+    `analysis.consensus[]` as bullets, `analysis.contradictions[]` as
+    a per-topic stance table (each row = one topic, with per-model
+    stance cells), `analysis.partial_coverage[]` as per-model-attributed
+    bullets, `analysis.unique_insights[]` as per-model-attributed
+    bullets, `analysis.blind_spots[]` as italicized bullets (the gaps
+    NO model addressed), plus a collapsible raw-JSON disclosure
+    (`ui.expansion` + `ui.code` in the panel; `<details>` + fenced
+    ```json``` block in the ask card) for full audit.
   Legacy fields (`convergence`, `disagreements`, `unique_contributions`,
   `risks`, `recommended_decision`) are still rendered by both
   `ModelCouncilPanel._render_synthesis` and `_send_multicast` as
-  supporting detail below the fusion answer. `beast_conclusion` is
-  mirrored to `fusion_answer` and only rendered separately when it
-  differs (legacy fallback path).
+  supporting detail below the fusion answer (and above the new
+  judge_analysis rendering). `beast_conclusion` is mirrored to
+  `fusion_answer` and only rendered separately when it differs
+  (legacy fallback path).
   The synthesis card label changed from `"Beast Synthesis"` to
   `"Beast Fusion"` to reflect the new pipeline. The system messages
   on unavailable/failed paths now say "Beast Fusion synthesis
   unavailable/failed" instead of just "Beast synthesis".
 
 ## Last Cycle
-- **Phase 1 Fusion rendering (this cycle)**: The backend's Beast
+- **Phase 1 Fix B — render `judge_analysis` in GUI (this cycle)**: the
+  rich structured Judge JSON was previously returned by the backend
+  but never surfaced in the GUI — only the flattened legacy strings
+  (`convergence`, `disagreements`, etc.) were rendered, losing the
+  per-model attribution that the new schema provides. Two new
+  renderers fix this:
+  - `gui/components/model_council_panel.py::_render_judge_analysis`
+    (called from `_render_report` after the legacy Convergence /
+    Disagreements / Unique Contributions / Risks / Recommended
+    Decision sections) renders `analysis.consensus[]` as a bulleted
+    list, `analysis.contradictions[]` as a per-topic stance table
+    (each row = one topic, with per-model stance cells in a row with
+    the model label in `F_MONO` + `C_AMBER` and the stance in
+    `F_SANS` + `C_INK60`), `analysis.partial_coverage[]` as
+    per-model-attributed bullets, `analysis.unique_insights[]` as
+    per-model-attributed bullets, `analysis.blind_spots[]` as
+    italicized `C_ERR_FG` bullets (the gaps NO model addressed — the
+    most important field for the human), plus a collapsible raw-JSON
+    disclosure (`ui.expansion` + `ui.code` with `language="json"`)
+    for full audit. Empty/missing dict → nothing rendered.
+  - `gui/pages/ask.py::_format_judge_analysis_markdown` (called from
+    `_send_multicast` after the legacy fields in the synthesis card
+    content) renders the equivalent as markdown: a stance table
+    (`| Topic | Model | Stance |`), bulleted lists for consensus /
+    partial_coverage / unique_insights / blind_spots, plus a
+    `<details><summary>Judge Analysis (raw JSON)</summary>` block
+    with a fenced ```json``` code block for full audit.
+  Both renderers tolerate missing/empty fields (no empty sections
+  rendered) and tolerate the Judge returning the old top-level schema
+  (no `analysis` key) by falling back to just the raw-JSON disclosure.
+  Two new AST/string-contract tests in
+  `tests/test_model_council_fusion.py::TestFusionGuiRendersJudgeAnalysis`
+  assert the GUI files read `judge_analysis` and define the renderer
+  helpers.
+- **Phase 1 Fusion rendering (prior cycle)**: The backend's Beast
   synthesis now runs as a two-stage OpenRouter Fusion pipeline
   (Judge-Beast → Synth-Beast), reusing the `beast` slot for both
   stages. The GUI consumers were updated additively to surface the
