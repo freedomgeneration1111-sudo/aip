@@ -95,6 +95,18 @@ sexton.py (_embedding_backfill_state, _rate_limited)
   pixel width on render. Setting `width:100px` via `.style()` gets overridden.
   Use `.props("width=100; mini=false; bordered=false")` to tell Quasar at the
   component level so the drawer actually shrinks.
+- **`ui.left_drawer(value=True)` is REQUIRED for push-mode (not overlay)**:
+  NiceGUI's `ui.left_drawer()` defaults to `value=None`, which sets Quasar's
+  `show-if-above=True` and leaves `model-value=None`. In that state the
+  drawer's visibility is resolved by JavaScript AFTER the WebSocket connects
+  (see `Drawer._request_value` in `nicegui/elements/drawer.py`). Until JS
+  resolves, Quasar renders the drawer as an OVERLAY — it floats on top of
+  the main content instead of offsetting it, clipping the left edge of the
+  page (e.g. "Can I trust AIP" → "an I trust AIP"). Passing `value=True`
+  sets `model-value=True` and `show-if-above=False`, so the drawer is open
+  in push-mode from the very first paint. Verified: rendered HTML shows
+  `"show-if-above":false` and `"model-value":true`. Do NOT remove the
+  `value=True` argument from `build_left_nav()`.
 - **`.q-page` must be `display:flex; flex-direction:column` or main content
   collapses to content-width**: Quasar's `.q-page` (the parent of every page's
   main content column) is `display:block` by default. NiceGUI's `ui.column()`
@@ -130,7 +142,19 @@ sexton.py (_embedding_backfill_state, _rate_limited)
   synthesis renders as a final advisory card. The synthesis is ADVISORY ONLY.
 
 ## Last Cycle
-- **q-page flex-column fix (this cycle)**: All 11 pages were rendering their
+- **Left drawer overlay fix (this cycle)**: The left sidebar was rendering as
+  an OVERLAY on top of the main content instead of pushing/offsetting it,
+  clipping the left edge of every page (e.g. "Can I trust AIP" → "an I trust
+  AIP"). Root cause: NiceGUI's `ui.left_drawer()` defaults to `value=None`,
+  which sets Quasar's `show-if-above=True` and leaves `model-value=None` —
+  the drawer's visibility is resolved by JavaScript AFTER the WebSocket
+  connects, and until then Quasar renders it as an overlay. Fix: pass
+  `value=True` to `ui.left_drawer()` so `model-value=True` and
+  `show-if-above=False`, putting the drawer in push-mode from first paint.
+  Verified via rendered HTML: `"show-if-above":false`, `"model-value":true`.
+  Combined with the prior `.q-page` flex-column CSS fix, the main content
+  now fills the full viewport width to the right of the 100px sidebar.
+- **q-page flex-column fix (prior)**: All 11 pages were rendering their
   main content column at content-width (~500px) with the browser's white body
   background filling the right half of the viewport. Root cause: Quasar's
   `.q-page` is `display:block` by default, so the main column's `flex-1`

@@ -135,13 +135,27 @@ def _dogfood_badge(mode: str) -> None:
 def build_left_nav(state: GuiState, active_page: str = "") -> None:
     """Build the left navigation drawer.
 
-    Width is set via Quasar's ``width`` prop (not CSS) because Quasar's
-    q-drawer re-applies its own inline pixel width on render and would
-    override any CSS width we set via ``.style()``. Using ``props("width=100")``
-    tells Quasar at the component level so the drawer actually shrinks.
+    Two Quasar gotchas addressed here:
+
+    1. **Width via Quasar prop, not CSS**: ``q-drawer`` re-applies its own
+       inline pixel width on render, overriding any CSS width set via
+       ``.style()``. Using ``.props("width=100")`` tells Quasar at the
+       component level so the drawer actually shrinks.
+
+    2. **``value=True`` to force push-mode (not overlay)**: NiceGUI's
+       ``ui.left_drawer()`` defaults to ``value=None``, which sets
+       Quasar's ``show-if-above=True`` and leaves ``model-value`` as
+       ``None``. In that state the drawer's visibility is resolved by
+       JavaScript AFTER the WebSocket connects (see
+       ``Drawer._request_value``). Until JS resolves, Quasar renders the
+       drawer as an OVERLAY — it floats on top of the main content
+       instead of offsetting it, clipping the left edge of the page
+       (e.g. "Can I trust AIP" → "an I trust AIP"). Passing
+       ``value=True`` sets ``model-value=True`` and ``show-if-above=False``,
+       so the drawer is open in push-mode from the very first paint.
     """
     with (
-        ui.left_drawer()
+        ui.left_drawer(value=True)
         .props("width=100; mini=false; bordered=false")
         .style(
             f"background:{C_SURFACE}; border-right:0.5px solid {C_INK40}; padding:0;"
