@@ -831,3 +831,34 @@ Test results:
 - 24 new tests in test_phase3_polish.py — all pass
 - 330 existing tests — all pass
 - 354 total focused suite — 354 passed, 1 pre-existing failure (/graph nav route — unrelated)
+
+---
+Task ID: planned-features-coverage-gradient-2026-06-17
+Agent: Super Z (main)
+Task: Create PLANNED_FEATURES.md (single source of truth for built/planned/deferred features) + fix Judge prompt coverage-gradient misclassification + recommend updated coding protocol that utilizes ALL repo docs.
+
+Work Log:
+- Orient: read root AGENTS.md (Docs Framework Rules L62 + Coding Cycle Protocol L72 + Child Docs Index L158); read TECH_DEBT.md (DEBT-006 is RESOLVED — confirmed the stale-docs finding); read ROADMAP.md (Phase 0-5 structure); read STATUS.md (maintenance mode); mapped the full doc ecosystem (10 root .md files + 10 docs/*.md files)
+- Orient: read model_council.py Judge system prompt (L1093-1125) — found the coverage-gradient misclassification site: partial_coverage rule said "topic only some models covered" without the explicit "2 to N-1 models" boundary; unique_insights rule didn't cross-reference the boundary
+- Contract Check: identified the gap between current coding protocol (AGENTS.md only) vs full doc ecosystem. The root AGENTS.md Orient step said "Read root AGENTS.md" + "Read AGENTS.md for every folder you modify/consume" — but did NOT mention ROADMAP.md, TECH_DEBT.md, STATUS.md, or the new PLANNED_FEATURES.md. This is exactly the gap that caused the external analysis to miss the DEBT-006 resolution.
+- Code Step 1: created PLANNED_FEATURES.md (NEW, ~180 lines) — single source of truth with 3 status sections (Already Built / Near-Term / Long-Term) + Operational items + Change Log. Seeded with all items from the dogfood run + Claude analysis: dynamic hybrid-retrieval weighting (already built), refined vector embeddings (already built, 98.2%), entity co-reference resolution (already built), Judge/Synth split (already built), augmented retrieval bridge (already built), per-model compression pass (already built), per-model badges (already built), dedicated [models.judge] slot (already built), Sexton actor wiring (already built — DEBT-006 RESOLVED), Judge prompt coverage-gradient fix (near-term), real-time provenance feedback widget (near-term), Context Preparer visualizer (near-term), automated consistency-checker (near-term), codebase-as-corpus (long-term Phase 1.6), adaptive per-query retrieval weighting (long-term), learned entity resolution (long-term)
+- Code Step 2: fixed Judge prompt coverage-gradient misclassification. Updated the Rules section: partial_coverage rule now explicitly says "2 to N-1 models (a SUBSET of models, but more than one). A point covered by only ONE model goes in unique_insights[], NOT partial_coverage[]." unique_insights rule now cross-references: "A point raised by only ONE model is a unique insight (NOT partial coverage)." This should lift the coverage-gradient score from 3/5 to 5/5 on the next dogfood run.
+- Verify: 10 new tests in tests/test_coverage_gradient_fix.py — all pass (4 Judge prompt boundary tests + 6 PLANNED_FEATURES.md structural tests). Full focused suite: 270 passed, 0 failures.
+- Document: updated root AGENTS.md — added Docs Framework Rule 7 (read status-tracking docs before recommending changes); updated Coding Cycle Protocol Orient step to explicitly list PLANNED_FEATURES.md + TECH_DEBT.md + ROADMAP.md + STATUS.md; updated Document step to require updating PLANNED_FEATURES.md when shipping/deferring features; added "Root Status-Tracking Docs" table after Child Docs Index. Updated worklog.md (this entry).
+
+Stage Summary:
+- PLANNED_FEATURES.md: SHIPPED. The canonical tracker is now in place — no future agent (panel model, external LLM, human, or AI assistant) should give advice that's already obsolete relative to the implementation state. The DEBT-006 resolution is explicitly documented as "Already Built" so the stale "fix DEBT-006" recommendation won't recur.
+- Judge prompt coverage-gradient fix: SHIPPED. The boundary between partial_coverage (2..N-1 models) and unique_insights (1 model) is now explicit in both directions. Expected to lift the coverage-gradient score from 3/5 to 5/5 on the next dogfood run.
+- Coding protocol update: SHIPPED in root AGENTS.md. The Orient step now requires reading PLANNED_FEATURES.md + TECH_DEBT.md + ROADMAP.md + STATUS.md before recommending changes. The Document step now requires updating PLANNED_FEATURES.md when shipping/deferring features.
+
+Files changed:
+- NEW: PLANNED_FEATURES.md (~180 lines — canonical feature tracker)
+- NEW: tests/test_coverage_gradient_fix.py (10 tests — Judge prompt boundary + PLANNED_FEATURES structural)
+- MODIFY: src/aip/adapter/api/routes/model_council.py (Judge prompt Rules section — explicit partial_coverage/unique_insights boundary)
+- MODIFY: AGENTS.md (Docs Framework Rule 7 + Orient step + Document step + Root Status-Tracking Docs table)
+- MODIFY: worklog.md (this entry)
+
+Test results:
+- 10 new tests in test_coverage_gradient_fix.py — all pass
+- 260 existing tests — all pass
+- 270 total focused suite — 270 passed, 0 failures

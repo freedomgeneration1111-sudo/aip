@@ -67,6 +67,14 @@ If you find yourself writing `from aip.orchestration import ...` inside
 5. If a shared convention changes, update root AGENTS.md first.
 6. Sibling folders are invisible unless explicitly linked. Do not assume context
    from adjacent folders you haven't read.
+7. **Read the status-tracking docs before recommending changes.** The root
+   docs (`ROADMAP.md`, `TECH_DEBT.md`, `STATUS.md`, `PLANNED_FEATURES.md`)
+   are the single source of truth for what's built, what's planned, and
+   what's deferred. Recommending a change that's already implemented — or
+   claiming something is "blocked" when the debt item is resolved — is a
+   known failure mode. `PLANNED_FEATURES.md` is the canonical tracker;
+   `TECH_DEBT.md` has the resolution status; `ROADMAP.md` has the phase
+   plan; `STATUS.md` has the current operational state.
 
 ## ============================================================
 ## CODING CYCLE PROTOCOL (Mandatory — Every Agent, Every Cycle)
@@ -77,6 +85,11 @@ sequence. There are no exceptions.
 
 ### 1. Orient (Read Phase)
 - Read root AGENTS.md (you are here)
+- Read the root status-tracking docs before recommending or planning any change:
+  - `PLANNED_FEATURES.md` — canonical tracker: what's Already Built / Near-Term / Long-Term
+  - `TECH_DEBT.md` — debt items with resolution status (don't recommend fixing a resolved debt)
+  - `ROADMAP.md` — phase plan (Phase 0-5 + long-term)
+  - `STATUS.md` — current operational state
 - Read AGENTS.md for every folder you will **MODIFY**
 - Read AGENTS.md for every folder that **CONSUMES** what you will produce
   (the bug is always in the gap between producer and consumer)
@@ -116,6 +129,10 @@ sequence. There are no exceptions.
 - Update the **"Last Cycle"** section with what changed and why
 - If you created a new contract (state machine, API field, config key),
   it MUST appear in the AGENTS.md of **both producer and consumer**
+- Update `PLANNED_FEATURES.md` if you shipped a feature (move it from
+  Near-Term/Long-Term to Already Built) or deferred one (move to Long-Term
+  with the reason). This keeps the canonical tracker current so no future
+  agent gives advice that's already obsolete.
 - Commit AGENTS.md changes alongside code changes, never separately
 
 ## ============================================================
@@ -152,6 +169,16 @@ the appropriate section; do NOT duplicate.
 | Prompts | `prompts/AGENTS.md` | Actor prompt templates (Beast, Vigil, Sexton) |
 | Scripts | `scripts/AGENTS.md` | Utility scripts, smoke test, deploy helpers |
 | Docs | `docs/AGENTS.md` | Internal documentation hierarchy |
+
+## Root Status-Tracking Docs (read before recommending changes)
+
+| Doc | Path | Role |
+|-----|------|------|
+| Planned Features | `PLANNED_FEATURES.md` | Canonical tracker: Already Built / Near-Term / Long-Term |
+| Tech Debt | `TECH_DEBT.md` | Debt items with resolution status |
+| Roadmap | `ROADMAP.md` | Phase plan (Phase 0-5 + long-term) |
+| Status | `STATUS.md` | Current operational state |
+| Dogfood Ready | `DOGFOOD_READY.md` | Dogfood readiness criteria + status |
 
 
 # ============================================================

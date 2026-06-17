@@ -1,0 +1,134 @@
+# Planned Features — AIP Brain
+
+> **Single source of truth for "what's built, what's planned, what's deferred."**
+>
+> Every agent (panel model, external LLM, human, or AI assistant) MUST read
+> this file BEFORE recommending changes — so no one gives advice that's
+> already obsolete relative to the implementation state. This file was
+> created after a dogfood run where 3 of 6 panel-model recommendations
+> were already implemented, and an external analysis missed a resolved
+> debt item (DEBT-006) — both because there was no unified tracker.
+>
+> **Last Updated:** 2026-06-17
+> **Maintained by:** Super Z (main agent) + DEFINER review
+
+## How to use this file
+
+1. **Before recommending a change**, check the "Already Built" section —
+   your recommendation may already be implemented.
+2. **Before claiming something is "blocked" or "missing"**, check
+   `TECH_DEBT.md` for the debt item's status — it may be resolved.
+3. **When you ship a feature**, move it from "Near-Term" or "Long-Term"
+   to "Already Built" in the same commit.
+4. **When you defer a feature**, move it to "Long-Term" with the reason.
+
+---
+
+## Status: Already Built (operational)
+
+These features are implemented and active. Recommendations to "build"
+them are obsolete — the gap (if any) is operational, not architectural.
+
+### Retrieval Pipeline
+
+| Feature | Implementation | Status | Notes |
+|---------|----------------|--------|-------|
+| Dynamic hybrid-retrieval weighting | `scripts/retrieval_weight_tuning.py` + `[retrieval.channel_weights]` in `aip.config.toml` (`vector=0.6, fts=0.4, corpus=0.4`) | ✅ Active | Vigil runs periodic precision@5 sampling. The adaptive per-query weighting proposed by panel models would be an enhancement, not a new build. |
+| Refined vector embeddings | `SqliteVssVectorStore` + `Sexton._run_embedding_pass` | ✅ Active, 98.2% embedded | 1.8% gap is **operational** — the server needs to run long enough for Sexton cycles to process the backlog. NOT a code fix. |
+| Entity co-reference resolution | 22-entry alias registry + `PersonalizedPageRank` in `GraphRetriever` + ADR-007 | ✅ Active | ADR-007 details the canonical alias table architecture. A "learned, context-aware resolver" would be an enhancement. |
+| FTS5 full-text index | `LexicalStore` with FTS5 | ✅ Active | Core retrieval channel. |
+| Corpus turn store | `CorpusTurnStore` with immutable turns | ✅ Active | 2,691+ turns ingested. |
+| Knowledge graph | `GraphStore` + 36 nodes, 17 edges | ✅ Active | Conversation knowledge graph (people, concepts, projects). |
+
+### Synthesis Pipeline (Fusion)
+
+| Feature | Implementation | Status | Notes |
+|---------|----------------|--------|-------|
+| Judge/Synth split (Panel → Judge → Synth) | `model_council.py::_pick_fusion_engine` + `_call_fusion_engine` | ✅ Active | Phase 1 Fusion pipeline (commit `7b63cb1`). |
+| Augmented retrieval bridge (Multi-Cast sees corpus) | `_augmented_context.py` shared helper | ✅ Active | Phase 1 retrieval bridge (commit `58d21db` + `c87a458`). Dogfood-confirmed. |
+| Per-model compression pass | `_compress_panel_outputs()` + `compress_panel_outputs` field | ✅ Active (opt-in) | Phase 2 Step 2-D (commit `8712ea5`). GUI toggle added Phase 3d. |
+| Per-model attribution badges | `_model_color()` + `_model_color_markdown()` | ✅ Active | Phase 3a/3b (commit `43fa421`). |
+| Dedicated `[models.judge]` slot | `_pick_fusion_engine` preference 0 | ✅ Active (opt-in) | Phase 3c (commit `43fa421`). Uncomment in `aip.config.toml` to use. |
+| Panel dispatch completeness (Bug 2 fix) | `[PANEL]` log markers + `DISPATCH_ERROR` stubs | ✅ Active | Panel dispatch remediation (commit `b4d9cf8`). |
+| Panel behavioral system prompt (Bug 1 fix) | `_PANEL_SYSTEM_PROMPT` | ✅ Active | Panel dispatch remediation (commit `b4d9cf8`). |
+
+### Actors
+
+| Feature | Implementation | Status | Notes |
+|---------|----------------|--------|-------|
+| Sexton actor (embedding, tagging, wiki, graph) | `orchestration/actors/sexton.py` wired into `app.py` L520-573 + scheduler L1256-1313 | ✅ Active | DEBT-006 is RESOLVED (was a stale doc claim). 1.8% embedding gap is operational. |
+| Beast actor (corpus health) | `orchestration/actors/beast.py` | ✅ Active | Background scheduler. The `beast` slot is borrowed for Fusion Judge+Synth. |
+| Vigil actor (canonical monitoring, quality eval) | `orchestration/actors/vigil.py` | ✅ Active | 4 evaluation passes: faithfulness, coherence, relevance, drift. |
+
+---
+
+## Status: Near-Term (next 1-3 sessions)
+
+These are genuine gaps worth pursuing. They are NOT yet implemented.
+
+### Synthesis Quality
+
+| Feature | Why it matters | Effort | Dependencies |
+|---------|----------------|--------|--------------|
+| **Judge prompt coverage-gradient fix** | Single-model points land in `partial_coverage` when they belong in `unique_insights`. One-line prompt clarification. | ~30 min | None — Judge prompt only. |
+| **GAPS instruction on calibration runs** | The calibration case didn't carry the GAPS system prompt, so blind_spots was empty. Ensure all Multi-Cast runs use the panel behavioral prompt (already shipped in Bug 1 fix). | ~15 min (verify) | Bug 1 fix (already shipped). |
+
+### User Experience (Phase 4.1)
+
+| Feature | Why it matters | Effort | Dependencies |
+|---------|----------------|--------|--------------|
+| **Real-time provenance feedback widget** | Display the prior turns injected into the generative prompt, allowing DEFINER to trace provenance instantly. BeastContextPreparer has the data; just doesn't surface it to UI. | ~half day | None — `response_sources` already in WS payload. |
+| **Context Preparer visualizer** | UI panel showing how FTS5, vector, and entity resolution compose the final context stack. The most powerful retrieval debugging tool in the system. | ~1 day | `RetrievalTrace` already populated; needs UI surface. |
+| **Automated consistency-checker** | Cross-turn contradiction detection. Fits naturally as Vigil's 5th evaluation pass. | ~1 day | Vigil actor architecture. |
+
+---
+
+## Status: Long-Term (roadmap — not immediate)
+
+These are architecturally significant features that are designed but not
+scheduled for the next 1-3 sessions. They belong in `ROADMAP.md` planning.
+
+### Codebase-as-Corpus (Phase 1.6)
+
+**The structural fix for "advice in the dark."** The current corpus
+contains everything Moses has *thought and said* about the codebase
+(2,691 turns) but none of the codebase itself. This closes that gap.
+
+- **Graph A** (existing): Conversation knowledge graph — 36 nodes, 17 edges
+- **Graph B** (new): Code dependency graph — modules, functions, classes, tests — with `imports`, `calls`, `tests`, `implements` edges
+- **Cross-graph edges**: A conversation turn that *references* a specific function gets a `references` edge. An ADR that *decided* a code pattern gets a `decided` edge. The graph answers: "what conversations informed this function?" and "what code exists for this architectural decision?"
+- **Implementation**: Python AST → CorpusTurn format parser. The underlying store, tagging, embedding, and graph infrastructure handle it without changes. Each "turn" = a function/class/module with `searchable_text` = module path + docstring + signature + inline comments + associated test names.
+- **Critical detail**: code changes continuously (conversation corpus is append-only and stable). The code corpus needs a re-ingest trigger — CI hook on commit OR Sexton file-watcher that detects `.py` changes and queues a re-parse pass. Without this, the code corpus ages out of sync immediately.
+- **Fits**: ADR-004's multi-corpus model (`corpora/codebase/state.db`).
+- **Retrieval implication**: cross-corpus RRF fusion across conversation AND code simultaneously. A query about DEBT-006 would return both the roadmap mention AND the actual `sexton.py` file AND the `app.py` call site.
+
+### Adaptive Per-Query Retrieval Weighting
+
+The current dynamic weighting is fixed per-config. A learned, per-query-type
+weighting (e.g. entity-heavy queries get more graph weight; conceptual
+queries get more vector weight) would be an enhancement over the existing
+`retrieval_weight_tuning.py` script.
+
+### Learned Entity Resolution
+
+The 22-entry alias registry is static. A learned, context-aware resolver
+that can map "Moses" / "Musa" / "M." based on surrounding context would
+be an enhancement over the current PersonalizedPageRank approach.
+
+---
+
+## Operational (not code changes)
+
+| Item | Action | Owner |
+|------|--------|-------|
+| Close 1.8% embedding gap | Run the server long enough for Sexton cycles to process the backlog | Operator |
+| Re-run retrieval evaluation after embedding gap closes | Establish new baseline via `scripts/retrieval_weight_tuning.py` | Operator |
+| Manual GUI review of Phase 3 polish | Verify colored badges + stance color-coding + Compress toggle render correctly | Operator |
+
+---
+
+## Change Log
+
+| Date | Change | Agent |
+|------|--------|-------|
+| 2026-06-17 | Created file. Seeded with all items from the dogfood run + Claude analysis. | Super Z (main) |
