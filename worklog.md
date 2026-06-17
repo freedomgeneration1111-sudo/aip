@@ -390,3 +390,252 @@ Files changed:
 - gui/state.py (multicast_enabled + multicast_selected_slots fields)
 - src/aip/adapter/AGENTS.md (turn_id gotcha + Last Cycle entry)
 - gui/AGENTS.md (5 new gotchas + Last Cycle entry)
+
+---
+Task ID: fusion-phase-status-2026-06-17
+Agent: Super Z (main)
+Task: Take stock of multi-model synthesis upgrade — create fusion phase checklist (Phase 1/2/3) with done/not-done status, write Phase 2 coding plan, report in-thread.
+
+Work Log:
+- Re-read PDF report (Fusion for AIP Multimodel Synthesis, 28 pages) parts V/IX/X for the original phase definitions
+- Verified current code state against the PDF's plan:
+  * `routes/_augmented_context.py` — DOES NOT EXIST (Phase 1 retrieval bridge was never extracted)
+  * `gui/pages/ask.py::_send_multicast` still sends `turn_id=""` and `sources=[]`
+  * `model_council.py` has no retrieval call — `compare_models` runs the panel with the bare prompt
+  * BUT: Phase 1 Fusion pipeline (Judge-Beast → Synth-Beast) IS implemented (`_pick_fusion_engine`, `_call_fusion_engine`, `_JUDGE_CALL_TIMEOUT_S`, `_SYNTH_CALL_TIMEOUT_S`)
+  * AND: Judge JSON schema (consensus/contradictions/partial_coverage/unique_insights/blind_spots) IS in the prompt and parsed into `judge_analysis`
+  * AND: GUI rendering of `judge_analysis` IS in `model_council_panel.py::_render_judge_analysis` and `ask.py::_format_judge_analysis_markdown`
+  * AND: Per-model attribution rendering IS in place (model labels with the LABEL CONTRACT from Fix C)
+- Phase 2 gap analysis: the Judge/Synth SPLIT is already done (Phase 1 shipped it as part of the Fusion pipeline). What's actually missing for Phase 2 is:
+  * Augmented retrieval bridge (was supposed to be Phase 1 but never shipped — the AIP-acronym bug is STILL OPEN)
+  * Per-model compression pass before the Judge reads panel outputs (Improvement #5 from the PDF)
+  * Phase 2 unit/integration tests from the PDF's Part IX testing strategy
+- Phase 3 status: nothing done (compression pass, dedicated `[models.judge]` slot, per-model attribution badges polish)
+- Read root AGENTS.md coding cycle protocol (Orient → Contract Check → Code → Verify → Document)
+- Read adapter AGENTS.md for the POST /beast/compare-models contract
+- Read actors AGENTS.md for the beast-slot-vs-Beast-actor distinction
+
+Stage Summary:
+- Phase 1 Fusion pipeline: SHIPPED (commits 7b63cb1, f01428e, 828bbd4, 2a1fd05)
+- Phase 1 retrieval bridge: NEVER SHIPPED — the AIP-acronym bug from the PDF's Part I is still open. Multi-Cast in augmented mode still sends `sources=[]` and `turn_id=""`. This is the single highest-leverage fix still pending.
+- Phase 2 Judge/Synth split: ALREADY DONE as part of Phase 1's Fusion pipeline (the pipeline already does Panel → Judge → Synth with strict JSON contract). What PDF called "Phase 2" was structurally merged into the Phase 1 Fusion commit.
+- Phase 2 remaining work: (a) augmented retrieval bridge, (b) per-model compression pass, (c) PDF Part IX test suite
+- Phase 3: NOT STARTED (per-model attribution badges polish, dedicated `[models.judge]` slot, optional config)
+- Detailed Phase 2 coding plan written below in the "Phase 2 Coding Plan" section of this entry.
+
+---
+
+# Fusion Phase Checklist (as of 2026-06-17, commit 2a1fd05)
+
+## Phase 1 — Retrieval Bridge + Fusion Pipeline (per PDF Part X)
+
+### Retrieval Bridge (PDF File A + File C — the AIP-acronym bug fix)
+- [ ] **NOT DONE** — Extract `_assemble_augmented_context()` shared helper from `chat.py` L225-441 into `src/aip/adapter/api/routes/_augmented_context.py` (NEW file). The 220-line inline retrieval block (domain resolution, `_search_corpus_turns`, `_get_wiki_overview`, `_get_graph_neighbors`, definer profile, orchestrator fallback) is still inline in `chat.py`.
+- [ ] **NOT DONE** — Refactor `chat.py` augmented branch to call the new helper (4-line replacement per PDF Part VI).
+- [ ] **NOT DONE** — Wire `model_council.py::compare_models` to call the helper when `request.assemble_augmented_context=True` and `request.turn_id` is set, prepending the augmented system messages to each panel call.
+- [ ] **NOT DONE** — Add `assemble_augmented_context: bool = False` field to `ModelCouncilRequest` (additive, safe default).
+- [ ] **NOT DONE** — Add `assemble_augmented_context=(state.current_mode == 'augmented')` to `_send_multicast` in `gui/pages/ask.py`. Currently passes nothing (defaults False).
+- [ ] **NOT DONE** — Add `turn_id=<real turn id>` to `_send_multicast` in `gui/pages/ask.py`. Currently passes `turn_id=""`.
+- [ ] **NOT DONE** — Update `gui/api_client.py::run_model_council` to forward `assemble_augmented_context`.
+- [ ] **NOT DONE** — Update `src/aip/adapter/AGENTS.md` with the new field + retrieval bridge contract.
+- [ ] **NOT DONE** — Update `gui/AGENTS.md` Multi-Model dropdown section to note augmented bridge.
+- [ ] **NOT DONE** — Tests from PDF Part IX: `test_assemble_augmented_context_helper_extracts_corpus_wiki_graph`, `test_assemble_augmented_context_returns_empty_when_no_stores`, `test_assemble_augmented_context_skipped_when_turn_id_missing`.
+
+### Fusion Pipeline (PDF File B — Panel → Judge → Synth)
+- [x] **DONE** — Two-stage pipeline (Judge-Beast reads panel outputs, Synth-Beast reads Judge JSON only) — commit `7b63cb1`
+- [x] **DONE** — `fusion_answer` field on `ModelCouncilResponse` — commit `7b63cb1`
+- [x] **DONE** — `judge_analysis` field on `ModelCouncilResponse` — commit `7b63cb1`
+- [x] **DONE** — `_PANEL_CALL_TIMEOUT_S`, `_JUDGE_CALL_TIMEOUT_S`, `_SYNTH_CALL_TIMEOUT_S` per-call timeouts — commit `f01428e` (Fix A)
+- [x] **DONE** — Engine fallback when panel models fail (`_pick_fusion_engine` picks successful panelist for Judge+Synth) — commit `828bbd4` (Fix D)
+- [x] **DONE** — Model Label Contract in Judge prompt (Fix C) — commit `f01428e`
+
+### Phase 1 GUI rendering (PDF File D)
+- [x] **DONE** — `model_council_panel.py::_render_judge_analysis` renders the 6 Judge fields (consensus, contradictions stance table, partial_coverage, unique_insights, blind_spots, raw JSON) — commit `f01428e` (Fix B)
+- [x] **DONE** — `ask.py::_format_judge_analysis_markdown` renders the same in markdown for the answer card — commit `f01428e` (Fix B)
+- [x] **DONE** — `fusion_answer` headline rendering in both panel and answer card — commit `7b63cb1`
+
+### Phase 1 tests (PDF Part IX)
+- [x] **DONE** — `test_model_council_fusion.py` (22+ tests covering schema, two-stage call, fusion_answer, judge_analysis, beast_conclusion mirror, synth reads only JSON, Judge/Synth failures, single-model-success guard, advisory_only, no auto-approve, no secret exposure) — commit `7b63cb1`, expanded `f01428e`
+- [x] **DONE** — `test_model_council_library_ids.py` (11 tests covering the OpenRouter library bridge) — commit `628d300`
+- [x] **DONE** — `test_ask_multiselect_dropdown.py` (37 tests covering the multi-select dropdown + skip_default_slots) — commit `2a1fd05`
+
+## Phase 2 — Judge/Synth Split (per PDF Part X)
+
+The PDF's Phase 2 was "ship the three-role Panel → Judge → Synth pipeline as an opt-in alternative to bare Beast synthesis." **The structural work is already done** — Phase 1's Fusion commit (`7b63cb1`) shipped the Judge/Synth split as the DEFAULT behavior (not opt-in). What's left:
+
+### Already done (was Phase 2 scope, shipped as Phase 1)
+- [x] **DONE** — Split Judge and Synthesizer into two sequential `model_provider.call()` invocations (PDF Improvement #1) — commit `7b63cb1`
+- [x] **DONE** — `blind_spots[]` as mandatory Judge JSON field (PDF Improvement #2) — commit `7b63cb1`
+- [x] **DONE** — `partial_coverage[{models[], point}]` Judge JSON field (PDF Improvement #3) — commit `7b63cb1`
+- [x] **DONE** — `unique_insights[{model, insight}]` with model attribution (PDF Improvement #4) — commit `7b63cb1`
+
+### Still pending (Phase 2 scope, NOT shipped)
+- [ ] **NOT DONE** — Augmented retrieval bridge (was Phase 1 scope but never shipped; Phase 2 doesn't make sense without it — the panel still answers blind without corpus context). See Phase 1 checklist above.
+- [ ] **NOT DONE** — Per-model compression pass before Judge reads panel outputs (PDF Improvement #5 — Phase 3 in PDF but functionally belongs with Phase 2 because long panel outputs blow the Judge's context window today).
+- [ ] **NOT DONE** — PDF Part IX Phase 2 tests:
+  - [ ] `test_fusion_mode_judge_json_parse` (mock valid 6-field judge JSON, verify JudgeAnalysis parsed, fusion_status='completed')
+  - [ ] `test_fusion_mode_judge_json_parse_failure_fallback` (mock malformed JSON, verify raw_judge_text + degraded status, synth still runs)
+  - [ ] `test_fusion_mode_passes_augmented_context_to_each_panel_model` (mock panel calls, verify each gets the same augmented prefix) — blocked on retrieval bridge
+  - [ ] `test_fusion_mode_per_model_results_still_in_response` (verify selected_models is populated alongside judge_analysis + fusion_answer)
+  - [ ] `test_compare_mode_unchanged_when_mode_compare` (verify default mode='compare' uses bare Beast synthesis — N/A since mode='fusion' is now the default; need to update test to reflect the merged pipeline)
+  - [ ] `test_fusion_artifact_persistence` (save_as_artifact=True with mode='fusion', verify council artifact stores panel_results + judge_analysis + fusion_answer; ECS transition to GENERATED only)
+- [ ] **NOT DONE** — PDF Part IX integration tests:
+  - [ ] `test_fusion_end_to_end_with_real_retrieval` — blocked on retrieval bridge
+  - [ ] `test_fusion_with_no_corpus` — blocked on retrieval bridge
+  - [ ] `test_fusion_with_partial_panel_failure` (4 selected models, 1 fails, verify successful_count=3, fusion_status='completed', failed_models has 1 entry, response.status='partial')
+
+## Phase 3 — Polish (per PDF Part X)
+
+- [ ] **NOT DONE** — Per-model attribution badges on `unique_insights[]` in `ModelCouncilPanel` (render model label as a colored badge next to each insight)
+- [ ] **NOT DONE** — Per-model stance tables on `contradictions[]` in `ModelCouncilPanel` (already rendered as a table; polish = color-code stances, sort by topic)
+- [ ] **NOT DONE** — Compression pass before Judge (improvement #5 from PDF; functionally Phase 2 but listed as Phase 3 in the PDF's rollout)
+- [ ] **NOT DONE** — Optional dedicated `[models.judge]` TOML slot (config-only change; `ModelSlotResolver` already handles new slots). Would let the user pick a different model for judging vs the Beast actor's maintenance calls.
+- [ ] **NOT DONE** — Manual review of GUI rendering on a real fusion run (PDF Phase 3 ship criteria)
+
+---
+
+# Phase 2 Coding Plan
+
+## Goal
+Ship the remaining Phase 2 deliverables so Multi-Cast in augmented mode actually sees the corpus (fixes the original AIP-acronym bug from the PDF's Part I) AND the Judge can handle long panel outputs without context overflow.
+
+## Sequencing (dependency-ordered, each step independently shippable + revertable)
+
+### Step 2-A — Extract the retrieval helper (the AIP-acronym bug fix)
+**Why first:** This is the single highest-leverage change. It fixes the AIP-acronym bug AND unlocks augmented Multi-Cast without duplicating retrieval logic. Everything else in Phase 2 depends on this being available.
+
+**Files:**
+- NEW: `src/aip/adapter/api/routes/_augmented_context.py`
+- MODIFY: `src/aip/adapter/api/routes/chat.py` (replace the inline 220-line block with 4-line helper call)
+- MODIFY: `src/aip/adapter/api/routes/model_council.py` (call helper when `request.assemble_augmented_context=True` and `request.turn_id` set)
+- MODIFY: `src/aip/adapter/api/routes/model_council.py` — add `assemble_augmented_context: bool = False` to `ModelCouncilRequest` (additive, safe default)
+
+**Helper signature (per PDF Part VI):**
+
+    # src/aip/adapter/api/routes/_augmented_context.py
+    from dataclasses import dataclass, field
+    from typing import Any
+
+    @dataclass
+    class AugmentedContext:
+        messages: list[dict] = field(default_factory=list)  # system msgs to PREPEND
+        sources: list[dict] = field(default_factory=list)   # for response payload
+        trace: Any = None                                    # RetrievalTrace | None
+        domain: str | None = None
+        assembled: bool = False                              # False = caller proceeds with bare prompt
+
+    async def assemble_augmented_context(
+        content: str,
+        session_id: str,
+        container: Any,
+        *,
+        session_meta: dict | None = None,
+    ) -> AugmentedContext:
+        '''Assemble augmented context (corpus + wiki + graph + definer).
+        Shared helper used by both routes/chat.py and routes/model_council.py.
+        Mirrors the inline block that lived at chat.py L225-441 before extraction.
+        Behavior is identical to that block; this is a pure refactor.
+        '''
+
+**Layer discipline (per root AGENTS.md):** the new module lives in `adapter/api/routes/` alongside `chat.py` and `model_council.py`. Imports only from `adapter` and `foundation`, matching the existing route module pattern. The helper accesses the container's stores via the existing Protocol interfaces — no new orchestration imports.
+
+**Contract check (per root AGENTS.md step 2):**
+- Producer (`_augmented_context.py`) exposes: `AugmentedContext.messages: list[dict]`, `AugmentedContext.sources: list[dict]`, `AugmentedContext.assembled: bool`
+- Consumer 1 (`chat.py`): currently builds `messages: list[dict]`, `response_sources: list[dict]` inline → must read `aug.messages`, `aug.sources`
+- Consumer 2 (`model_council.py`): currently builds `augmented_messages: list[dict]` from `request.sources` → must call the helper and prepend `aug.messages` to each panel call's user prompt
+
+**Verify:**
+- Run `pytest tests/test_ask.py -v` (the retrieval helper extraction must NOT break single-model augmented chat — this is the existing regression surface)
+- Run `pytest tests/test_model_council_*.py -v` (existing tests must still pass — they don't exercise augmented context, so default `assemble_augmented_context=False` keeps them green)
+- New tests (Step 2-C) will cover the helper directly
+
+**Document:**
+- `src/aip/adapter/AGENTS.md`: add `assemble_augmented_context` field to the `POST /beast/compare-models` contract section; document the new shared helper contract + the AugmentedContext dataclass fields
+- `src/aip/orchestration/AGENTS.md`: note that the RetrievalOrchestrator is now consumed by both `chat.py` (via the helper) and `model_council.py` (via the helper) — no orchestration code changes, documentation update only
+
+### Step 2-B — Wire the GUI to pass turn_id + assemble_augmented_context flag
+**Why second:** depends on Step 2-A's helper being callable from the backend. Once 2-A ships, the GUI needs to send the flag + a real turn_id so the backend actually runs retrieval.
+
+**Files:**
+- MODIFY: `gui/pages/ask.py::_send_multicast` — compute a real turn_id from the session (e.g. `make_turn_id(session_id, turn_index)` or just `session_id` if no per-turn counter exists), pass `assemble_augmented_context=(state.current_mode == 'augmented')` and `turn_id=<computed>`
+- MODIFY: `gui/api_client.py::run_model_council` — add `assemble_augmented_context: bool = False` param, include in POST payload
+
+**Contract check:**
+- Producer (`gui/api_client.py`) payload includes `"assemble_augmented_context": True/False` and `"turn_id": "<real id>"`
+- Consumer (`model_council.py::compare_models`) reads `request.assemble_augmented_context` and `request.turn_id` — both already on the request model after Step 2-A
+
+**Verify:**
+- Manual dogfood: with Multi-Cast ON + Augmented ON + corpus ingested, send "What does AIP stand for?" — panel models should now correctly identify AIP as AI Poiesis (currently they answer blind). This is the PDF's Phase 1 ship criteria.
+- New test (Step 2-C): `test_fusion_mode_passes_augmented_context_to_each_panel_model` (mock `_call_model_slot` and `_call_library_model_id` to capture their messages arg, verify each panel call's messages list starts with the same augmented_messages prefix, verify the user message is the bare prompt)
+
+**Document:**
+- `gui/AGENTS.md`: update the Multi-Model dropdown section — `assemble_augmented_context=True` is now sent when state.current_mode == 'augmented'; `turn_id` is now populated for Multi-Cast (previously empty) so per-turn actions on Multi-Cast results work
+
+### Step 2-C — Phase 2 test suite (PDF Part IX)
+**Why third:** depends on 2-A and 2-B being shippable. The PDF's Part IX testing strategy is the contract for Phase 2 acceptance.
+
+**Files:**
+- NEW: `tests/test_model_council_fusion_phase2.py` (or extend `tests/test_model_council_fusion.py` — prefer a new file to keep the Phase 1 tests stable)
+
+**Tests to add (per PDF Part IX):**
+1. `test_assemble_augmented_context_helper_extracts_corpus_wiki_graph` — mock `corpus_turn_store`, `artifact_store`, `ecs_store`, `graph_store`; verify the helper returns messages containing corpus, wiki, and graph blocks; verify sources list matches
+2. `test_assemble_augmented_context_returns_empty_when_no_stores` — when `container.corpus_turn_store` and `container.lexical_store` are both None, helper returns `AugmentedContext(assembled=False)` with empty messages/sources; no exception
+3. `test_assemble_augmented_context_skipped_when_turn_id_missing` — `assemble_augmented_context=True` but `turn_id=""`: retrieval does NOT run; panel calls proceed with bare prompt; fusion still runs (judge + synth over bare-prompt panel outputs); graceful degradation
+4. `test_fusion_mode_judge_json_parse` — mock valid 6-field judge JSON; verify `JudgeAnalysis` parsed correctly; `fusion_status='completed'`; `fusion_answer` is the synth output
+5. `test_fusion_mode_judge_json_parse_failure_fallback` — mock judge returning malformed JSON; verify raw text stored in `judge_analysis.raw_judge_text` (NOTE: this field may not exist yet — `JudgeAnalysis` is currently just `dict[str, Any]`; may need to add it as a top-level field on the response, OR document that the raw text lives under `judge_analysis["raw_judge_text"]`); `fusion_status='degraded'`; synth still runs on raw text; pipeline does not raise
+6. `test_fusion_mode_passes_augmented_context_to_each_panel_model` — mocked per Step 2-B verify section above
+7. `test_fusion_mode_per_model_results_still_in_response` — verify `selected_models` is populated alongside `judge_analysis` and `fusion_answer`; each `PerModelResult` has `status='completed'` and answer text; the user's parallel-comparison requirement is structurally enforced
+8. `test_compare_mode_unchanged_when_mode_compare` — N/A in the current architecture (Phase 1 already made `mode='fusion'` the default; there's no separate `mode='compare'` path). UPDATE this test's intent to: "verify default behavior is the Fusion pipeline; legacy `beast_conclusion` field is mirrored from `fusion_answer` for back-compat with old consumers" — this is already covered by `test_beast_conclusion_mirrored_to_fusion_answer` in `test_model_council_fusion.py`; skip
+9. `test_fusion_artifact_persistence` — `save_as_artifact=True` with mode='fusion'; verify the council artifact stores `panel_results + judge_analysis + fusion_answer` in its content JSON; verify ECS transition to GENERATED (never APPROVED — DEFINER gate still required)
+10. `test_fusion_end_to_end_with_real_retrieval` — use the existing CI fixture corpus (the same one used by `tests/test_ask.py`); run a fusion request; verify augmented context appears in the panel call messages; mock `model_provider.call` but use real retrieval; verifies the retrieval bridge works against real stores
+11. `test_fusion_with_no_corpus` — fresh DB with no ingested turns; run a fusion request with `assemble_augmented_context=True`; verify the helper returns `assembled=False`; panel calls proceed with bare prompt; fusion still produces a synthesis
+12. `test_fusion_with_partial_panel_failure` — 4 selected models, 1 fails; verify `successful_count=3`, `fusion_status='completed'` (judge + synth run on 3 successful outputs), `failed_models` list has 1 entry, `response.status='partial'` (NOTE: this may already be covered by Fix D tests — verify before writing a new one)
+
+**Verify:**
+- `pytest tests/test_model_council_fusion_phase2.py -v` — all new tests pass
+- `pytest tests/test_model_council_fusion.py tests/test_model_council_cycle6.py tests/test_model_council_cycle6_1.py tests/test_model_council_library_ids.py tests/test_ask_multiselect_dropdown.py -v` — no regressions
+
+**Document:**
+- `tests/AGENTS.md`: add the new test file to the test inventory; note that Phase 2 acceptance = all 12 tests pass
+
+### Step 2-D — Per-model compression pass (PDF Improvement #5)
+**Why last:** Phase 2 ships without this if Step 2-A/B/C are done — compression is an enhancement, not a blocker. The PDF lists it as Phase 3, but functionally it belongs with Phase 2 because long panel outputs (4+ models × 2000 chars each) can blow the Judge's context window today.
+
+**Files:**
+- MODIFY: `src/aip/adapter/api/routes/model_council.py` — add a private `_compress_panel_outputs(per_model_results, container) -> list[dict]` helper that runs a single `model_provider.call()` per panelist to summarize each output to 5-8 key claims before the Judge reads them; gate behind a `compress_panel_outputs: bool = False` field on `ModelCouncilRequest` (additive, safe default — opt-in to preserve current behavior)
+- MODIFY: `model_council.py::compare_models` — when `request.compress_panel_outputs=True`, run the compression pass after the panel gather but before the Judge call; pass the compressed claims to the Judge instead of the raw outputs
+
+**Contract check:**
+- Producer (`_compress_panel_outputs`) returns `list[dict]` with shape `[{model, claims: list[str]}]`
+- Consumer (Judge prompt construction in `compare_models`) reads the compressed claims when present, falls back to raw `panel_results` answers when absent
+
+**Verify:**
+- New test: `test_compress_panel_outputs_summarizes_each_model` — mock the compression model call, verify each panelist's output is reduced to 5-8 claims, verify the Judge prompt contains the compressed claims (not the raw outputs)
+- New test: `test_compress_panel_outputs_disabled_by_default` — `compress_panel_outputs=False` (default); verify the Judge reads the raw panel outputs (current behavior preserved)
+- Manual dogfood: run a Multi-Cast with 4+ models that produce long answers; verify the Judge still produces a valid 6-field JSON (currently at risk of context overflow on long panel outputs)
+
+**Document:**
+- `src/aip/adapter/AGENTS.md`: add `compress_panel_outputs` field to the `POST /beast/compare-models` contract; document the compression pass behavior
+
+## What needs to be done (summary, in priority order)
+
+1. **Step 2-A** (highest leverage, fixes the AIP-acronym bug): extract `_augmented_context.py` shared helper from `chat.py` L225-441; add `assemble_augmented_context: bool = False` field to `ModelCouncilRequest`; wire `model_council.py::compare_models` to call the helper. NEW file + 3 file modifications. Estimated effort: ~half day.
+2. **Step 2-B** (unlocks augmented Multi-Cast): wire `gui/pages/ask.py::_send_multicast` to send `turn_id=<real>` + `assemble_augmented_context=(state.current_mode == 'augmented')`; add the param to `gui/api_client.py::run_model_council`. 2 file modifications. Estimated effort: ~1 hour.
+3. **Step 2-C** (Phase 2 acceptance): write the 12-test suite from PDF Part IX (skipping #8 which is N/A and verifying #12 isn't already covered). NEW test file. Estimated effort: ~half day.
+4. **Step 2-D** (optional enhancement, can defer to Phase 3): per-model compression pass before Judge. 1 file modification + 2 new tests. Estimated effort: ~2 hours.
+
+**Recommended ship order:** 2-A → 2-B → manual dogfood (verify AIP-acronym fix) → 2-C → 2-D (or defer to Phase 3).
+
+## References (per coding protocol step 1: Orient)
+- Root `AGENTS.md` — coding cycle protocol (Orient → Contract Check → Code → Verify → Document)
+- `src/aip/adapter/AGENTS.md` — `POST /beast/compare-models` contract; Phase 1 Fusion pipeline doc; Fix A/B/C/D history
+- `src/aip/orchestration/actors/AGENTS.md` — `beast` slot vs Beast actor distinction (slot is routing key, actor is process)
+- `gui/AGENTS.md` — Multi-Model dropdown contract; Phase 1 Fusion rendering; the `turn_id` gotcha
+- `src/aip/adapter/api/routes/chat.py` L225-441 — the inline retrieval block to extract (the source of truth for the helper's behavior)
+- `src/aip/adapter/api/routes/model_council.py` — current `compare_models` endpoint, `_pick_fusion_engine`, `_call_fusion_engine`, `_call_library_model_id`
+- `gui/pages/ask.py::_send_multicast` — currently sends `turn_id=""` + `sources=[]`; the GUI side of the bridge
+- `gui/api_client.py::run_model_council` — POST payload construction
+- `tests/test_model_council_fusion.py` — Phase 1 test patterns to follow for Phase 2 tests
+- `tests/test_ask_multiselect_dropdown.py` — current-cycle test patterns (AST + end-to-end with mocked `_call_fusion_engine`)
+- PDF report "Fusion for AIP Multimodel Synthesis" (28 pages, 2026-06-16) — Parts V/VI/IX/X are the authoritative spec for Phase 2 scope and tests
+
