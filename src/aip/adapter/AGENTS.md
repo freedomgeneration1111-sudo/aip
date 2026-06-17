@@ -82,6 +82,20 @@ Request body fields (all optional except `prompt`):
   prefix (the Judge reads panel outputs; the Synth reads only the
   Judge JSON). Default `False` preserves the existing bare-prompt
   behavior for external API clients and existing tests.
+- `compress_panel_outputs` (bool, default `False`) — when `True`, the
+  endpoint runs a per-panelist compression pass BEFORE the Judge reads
+  the panel outputs. Each successful panelist's answer is summarized
+  to 5-8 key claims via the picked Fusion engine
+  (`_compress_panel_outputs()` helper). The compressed claims replace
+  the raw answers in the `answers_block` passed to the Judge. This
+  reduces the Judge's context window pressure on long panel outputs
+  (4+ models × 2000 chars each can blow the Judge's context today).
+  The Synth stage is unaffected — it still reads ONLY the Judge JSON.
+  Default `False` preserves the existing behavior (Judge reads raw
+  panel outputs). The GUI does NOT send this flag today (Phase 3
+  enhancement) — it's an opt-in for external API clients or future
+  GUI toggles. On per-model compression failure, the raw answer is
+  kept (graceful degrade — the Judge sees the raw text for that model).
 
 Response: `ModelCouncilResponse` with `selected_models: list[PerModelResult]`.
 Each `PerModelResult` has a `source` field (`"slot"` or `"library"`) so
@@ -350,7 +364,34 @@ config/aip.config.toml ([models] section)
   message without `turn_id`.
 
 ## Last Cycle
-- **Panel Dispatch remediation — Bug 1 + Bug 2 (this cycle)**:
+- **Phase 2 Step 2-C + 2-D (this cycle)**: shipped the Phase 2 test
+  suite (PDF Part IX) + the per-model compression pass (Improvement #5).
+  Step 2-C: new file ``tests/test_model_council_fusion_phase2.py`` (9
+  tests) covering the net-new PDF Part IX cases: Judge JSON parse
+  failure fallback (malformed JSON + markdown-fenced JSON happy path),
+  artifact persistence (full report JSON + ECS GENERATED transition +
+  never-APPROVED guard), end-to-end with retrieval (augmented context
+  appears in panel calls), no-corpus graceful degrade (empty corpus →
+  bare prompt + behavioral system prompt), helper extracts wiki + graph
+  (DOMAIN CONTEXT + GRAPH CONNECTIONS injection). The other 7 PDF Part
+  IX tests were already covered by existing files (verified, not
+  duplicated). Step 2-D: added ``compress_panel_outputs: bool = False``
+  field to ``ModelCouncilRequest`` + ``_compress_panel_outputs()``
+  helper + ``_COMPRESS_SYSTEM_PROMPT`` constant. When the flag is True,
+  each successful panelist's answer is summarized to 5-8 key claims via
+  the picked Fusion engine (concurrent ``asyncio.gather`` — added
+  latency is ~1 compression call, not N). The compressed claims replace
+  the raw answers in the ``answers_block`` passed to the Judge. On
+  per-model compression failure, the raw answer is kept (graceful
+  degrade). The Synth stage is unaffected — it still reads ONLY the
+  Judge JSON. New file ``tests/test_compress_panel_outputs.py`` (9
+  tests) covers: field exists + defaults False, helper exists + async,
+  compression runs when flag True (Judge sees compressed claims, not
+  raw), compression does NOT run when flag False (backward compat),
+  graceful degrade on per-model compression failure, Synth unaffected
+  by compression. Default ``False`` preserves backward compat — the GUI
+  does NOT send this flag today (Phase 3 enhancement).
+- **Panel Dispatch remediation — Bug 1 + Bug 2 (prior cycle)**:
   Two confirmed bugs fixed in a single pass. Bug 1: panel models were
   meta-analyzing the instructions instead of answering the question
   because normal-mode panel calls sent only a user message with no

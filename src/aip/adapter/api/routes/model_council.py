@@ -149,6 +149,21 @@ class ModelCouncilRequest(BaseModel):
     prefix (the Judge reads panel outputs; the Synth reads only the
     Judge JSON). Default ``False`` preserves the existing bare-prompt
     behavior for external API clients and existing tests.
+
+    ``compress_panel_outputs`` (default ``False``): when ``True``, the
+    endpoint runs a per-panelist compression pass BEFORE the Judge
+    reads the panel outputs. Each successful panelist's answer is
+    summarized to 5-8 key claims via a single
+    ``_call_fusion_engine()`` call (reusing the picked engine). The
+    compressed claims replace the raw answers in the
+    ``answers_block`` passed to the Judge. This reduces the Judge's
+    context window pressure on long panel outputs (4+ models × 2000
+    chars each can blow the Judge's context today). The Synth stage
+    is unaffected — it still reads ONLY the Judge JSON. Default
+    ``False`` preserves the existing behavior (Judge reads raw panel
+    outputs) for backward compat. The GUI does NOT send this flag
+    today (Phase 3 enhancement) — it's an opt-in for external API
+    clients or future GUI toggles.
     """
 
     prompt: str
@@ -161,6 +176,7 @@ class ModelCouncilRequest(BaseModel):
     save_as_artifact: bool = False
     skip_default_slots: bool = False
     assemble_augmented_context: bool = False
+    compress_panel_outputs: bool = False
 
 
 class ModelCouncilResponse(BaseModel):
@@ -941,6 +957,39 @@ async def compare_models(
             "Per-model results are available for individual review."
         )
     elif successful_count >= 2:
+        # ── Phase 2 Step 2-D: per-model compression pass ──
+        # When ``request.compress_panel_outputs`` is True, run a
+        # compression pass on each successful panelist's answer BEFORE
+        # building the answers_block for the Judge. Each answer is
+        # summarized to 5-8 key claims via the picked Fusion engine.
+        # The compressed claims replace the raw answers in the
+        # answers_block so the Judge's context window pressure is
+        # reduced on long panel outputs.
+        #
+        # On any per-model compression failure, the raw answer is kept
+        # (graceful degrade). The Synth stage is unaffected — it still
+        # reads ONLY the Judge JSON.
+        compressed_claims: dict[str, list[str]] = {}
+        if request.compress_panel_outputs:
+            try:
+                compressed_claims = await _compress_panel_outputs(
+                    per_model_results,
+                    fusion_engine_kind,
+                    fusion_engine_id,
+                    container,
+                )
+                logger.info(
+                    "council_compression_complete compressed=%d/%d",
+                    len(compressed_claims),
+                    successful_count,
+                )
+            except Exception as exc:
+                # _compress_panel_outputs never raises, but guard defensively
+                logger.warning(
+                    "council_compression_failed error=%s", str(exc)
+                )
+                compressed_claims = {}
+
         # Build the per-model answers block for the Judge. Use a
         # friendly label for each: "<slot_name> (<model_id>)" for slots,
         # "<display_name> (<model_id>)" for library models (model_slot=""
@@ -952,6 +1001,9 @@ async def compare_models(
         # in blind_spots / contradictions / partial_coverage rather than
         # silently dropping them. Previously the loop skipped failed
         # models entirely, making them invisible to the Judge.
+        #
+        # Phase 2 Step 2-D: when compressed_claims has an entry for a
+        # model, use the compressed claims instead of the raw answer.
         answers_block = ""
         for pm in per_model_results:
             if pm.source == "slot":
@@ -960,7 +1012,17 @@ async def compare_models(
                 # Library model — model_id IS the friendly identifier
                 label = pm.model_id
             if pm.status == "completed":
-                answers_block += f"\n## {label} ({pm.model_id})\n{pm.answer[:2000]}\n"
+                if label in compressed_claims:
+                    # Phase 2 Step 2-D: use compressed claims
+                    claims_list = compressed_claims[label]
+                    claims_text = "\n".join(f"- {c}" for c in claims_list)
+                    answers_block += (
+                        f"\n## {label} ({pm.model_id})\n"
+                        f"[Compressed — {len(claims_list)} key claims]\n"
+                        f"{claims_text}\n"
+                    )
+                else:
+                    answers_block += f"\n## {label} ({pm.model_id})\n{pm.answer[:2000]}\n"
             else:
                 # Bug 2: include failed models as explicit error stubs
                 # so the Judge sees every dispatched slot. The stub
@@ -1527,3 +1589,143 @@ async def _call_fusion_engine(
             "error": True,
             "error_message": f"Unknown engine_kind: {engine_kind!r}",
         }
+
+
+# ── Per-model compression pass (Phase 2 Step 2-D) ───────────────────────
+#
+# When ``request.compress_panel_outputs`` is True, each successful
+# panelist's answer is summarized to 5-8 key claims BEFORE the Judge
+# reads the panel outputs. This reduces the Judge's context window
+# pressure on long panel outputs (4+ models × 2000 chars each can blow
+# the Judge's context today).
+#
+# The compression pass:
+#   1. Runs AFTER the panel gather but BEFORE the Judge call.
+#   2. Uses the SAME picked engine as the Judge+Synth (no new model slot).
+#   3. Calls the engine ONCE per successful panelist with a compression
+#      prompt that asks for 5-8 key claims in JSON format.
+#   4. Replaces the raw ``pm.answer`` in the ``answers_block`` with the
+#      compressed claims (the Judge sees the claims, not the raw text).
+#   5. The Synth stage is unaffected — it still reads ONLY the Judge JSON.
+#
+# The compression calls run CONCURRENTLY via ``asyncio.gather`` so the
+# added latency is ~1 compression call (not N). Each call is wrapped in
+# ``asyncio.wait_for`` with ``_JUDGE_CALL_TIMEOUT_S`` (compression is
+# similar in complexity to the Judge call).
+#
+# On any per-model compression failure, the raw answer is kept (graceful
+# degrade — the Judge sees the raw text for that model).
+
+_COMPRESS_SYSTEM_PROMPT = (
+    "You are a compression engine in AIP's multi-model synthesis pipeline. "
+    "You are given a single model's answer to a user question. Your job "
+    "is to extract the 5-8 most important claims from that answer.\n\n"
+    "RULES:\n"
+    "- Extract ONLY the key claims — no filler, no hedging, no meta-commentary.\n"
+    "- Each claim must be a single sentence that can stand alone.\n"
+    "- Preserve the model's original stance (do NOT paraphrase in a way "
+    "that changes the meaning).\n"
+    "- If the answer has fewer than 5 substantive claims, extract all of them.\n"
+    "- If the answer has more than 8, pick the 8 most consequential.\n\n"
+    "Respond with a JSON object with EXACTLY this shape:\n"
+    '{"claims": ["claim 1", "claim 2", ...]}\n'
+    "Do NOT include any text outside the JSON object."
+)
+
+
+async def _compress_panel_outputs(
+    per_model_results: list[PerModelResult],
+    engine_kind: str | None,
+    engine_id: str | None,
+    container: Any,
+) -> dict[str, list[str]]:
+    """Compress each successful panelist's answer to 5-8 key claims.
+
+    Args:
+        per_model_results: the panel results from the gather stage.
+        engine_kind: "slot" or "library" (from ``_pick_fusion_engine``).
+        engine_id: the slot name or library model ID.
+        container: the AipContainer (for model_provider access).
+
+    Returns:
+        dict mapping ``model_label`` → ``list[str]`` of compressed claims.
+        Models that failed compression (or were not successful in the
+        panel) are NOT in the dict — the caller falls back to the raw
+        answer for those.
+
+    Never raises — on any per-model compression failure, that model is
+    simply omitted from the returned dict (the caller uses the raw answer).
+    """
+    if engine_kind is None or engine_id is None:
+        # No engine available — skip compression entirely (caller uses raw)
+        return {}
+
+    compression_tasks: dict[str, Any] = {}
+    for pm in per_model_results:
+        if pm.status != "completed" or not pm.answer:
+            continue
+        if pm.source == "slot":
+            label = pm.model_slot or "slot"
+        else:
+            label = pm.model_id
+        compression_messages = [
+            {"role": "system", "content": _COMPRESS_SYSTEM_PROMPT},
+            {"role": "user", "content": f"Model: {label}\nAnswer to compress:\n{pm.answer[:2000]}"},
+        ]
+        compression_tasks[label] = asyncio.wait_for(
+            _call_fusion_engine(
+                engine_kind,
+                engine_id,
+                compression_messages,
+                container,
+                _JUDGE_CALL_TIMEOUT_S,
+            ),
+            timeout=_JUDGE_CALL_TIMEOUT_S,
+        )
+
+    if not compression_tasks:
+        return {}
+
+    task_labels = list(compression_tasks.keys())
+    task_coros = [compression_tasks[l] for l in task_labels]
+    task_results = await asyncio.gather(*task_coros, return_exceptions=True)
+
+    compressed: dict[str, list[str]] = {}
+    for label, result in zip(task_labels, task_results):
+        if isinstance(result, Exception):
+            logger.warning(
+                "[COMPRESS] FAILED ← %s %s", label, str(result) or result.__class__.__name__
+            )
+            continue  # caller falls back to raw answer
+        if not isinstance(result, dict) or result.get("error"):
+            logger.warning(
+                "[COMPRESS] FAILED ← %s %s",
+                label,
+                result.get("error_message", "unknown") if isinstance(result, dict) else "not a dict",
+            )
+            continue
+        content = (result.get("content") or "").strip()
+        # Strip markdown fences if present
+        json_str = content
+        if "```json" in json_str:
+            json_str = json_str.split("```json", 1)[-1].split("```", 1)[0]
+        elif "```" in json_str:
+            json_str = json_str.split("```", 1)[-1].split("```", 1)[0]
+        try:
+            data = json.loads(json_str.strip())
+            claims = data.get("claims", []) if isinstance(data, dict) else []
+            if isinstance(claims, list) and claims:
+                compressed[label] = [str(c) for c in claims if c]
+                logger.info(
+                    "[COMPRESS] Response ← %s (%d claims)",
+                    label,
+                    len(compressed[label]),
+                )
+            else:
+                logger.warning("[COMPRESS] FAILED ← %s no claims in JSON", label)
+        except (json.JSONDecodeError, TypeError) as exc:
+            logger.warning(
+                "[COMPRESS] FAILED ← %s JSON parse error: %s", label, str(exc)
+            )
+
+    return compressed
