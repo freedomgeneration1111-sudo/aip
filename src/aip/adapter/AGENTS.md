@@ -68,6 +68,20 @@ Request body fields (all optional except `prompt`):
   the existing fallback (`_DEFAULT_COMPARISON_SLOTS` =
   `["synthesis", "evaluation", "beast"]`) for external API clients
   and existing tests.
+- `assemble_augmented_context` (bool, default `False`) — when `True`
+  AND `turn_id` is non-empty, the endpoint calls the shared
+  `routes/_augmented_context.py::assemble_augmented_context()` helper
+  to build the augmented system messages (corpus turns + wiki + graph
+  + definer profile) and PREPENDS them to each panel call's user
+  prompt. This is the Phase 1 retrieval bridge — fixes the
+  AIP-acronym bug where Multi-Cast panel models answered blind
+  without seeing the corpus. The augmented context is computed ONCE
+  per request (not N times) and is identical across panelists —
+  diversity comes from the models themselves, not from differential
+  context. The Judge and Synth calls do NOT receive the augmented
+  prefix (the Judge reads panel outputs; the Synth reads only the
+  Judge JSON). Default `False` preserves the existing bare-prompt
+  behavior for external API clients and existing tests.
 
 Response: `ModelCouncilResponse` with `selected_models: list[PerModelResult]`.
 Each `PerModelResult` has a `source` field (`"slot"` or `"library"`) so
@@ -178,6 +192,51 @@ panelists failed so the human sees the full picture.
 - Logs `model_call_rate_limited` event
 - **Consumers must check for rate limit response**, not just generic failure
 
+### Shared Augmented-Context Helper Contract (Phase 1 retrieval bridge)
+- `routes/_augmented_context.py::assemble_augmented_context()` is the
+  SINGLE source of truth for augmented retrieval (corpus turns + wiki
+  + graph + definer profile). Both `routes/chat.py` (WebSocket chat)
+  and `routes/model_council.py` (Multi-Cast) call this helper — they
+  do NOT duplicate retrieval logic.
+- **Producer contract** (`AugmentedContext` dataclass):
+  - `messages: list[dict]` — system-message dicts to PREPEND to the
+    user message before model dispatch. Empty when no augmented
+    context was assembled.
+  - `sources: list[dict]` — source dicts for the response payload
+    (`source_id`, `source_type`, `title`, `score`, `content_snippet`,
+    `domain`). Empty when no sources found.
+  - `source_turn_ids: list[str]` — turn_ids from corpus_turn sources,
+    used by the auto-save ingestion path to propagate provenance to
+    Vigil. Empty for the orchestrator path and the no-sources path.
+  - `trace: RetrievalTrace | None` — populated when the
+    RetrievalOrchestrator fallback ran; None otherwise.
+  - `domain: str | None` — the resolved domain string.
+  - `assembled: bool` — `True` if retrieval ran at all; `False` if
+    the caller was in normal mode, no stores were available, or
+    retrieval raised an exception (graceful degrade).
+- **Helper NEVER raises** — all exceptions are caught, logged at
+  WARNING level, and degraded to `AugmentedContext(assembled=False)`
+  with empty `messages`. Callers can rely on this for graceful
+  degradation.
+- **Consumer contract**:
+  - `chat.py` augmented branch: `messages.extend(aug.messages)`,
+    `response_sources = aug.sources`, `ret_trace = aug.trace`,
+    `_augmented_source_turn_ids = aug.source_turn_ids`. The auto-save
+    path reads `_augmented_source_turn_ids` (NOT the old `source_dicts`
+    local var, which now lives inside the helper).
+  - `model_council.py::compare_models`: when
+    `request.assemble_augmented_context=True` AND `request.turn_id` is
+    non-empty, calls the helper and prepends `aug.messages` to each
+    panel call's user prompt via `_call_model_slot(messages_prefix=...)`
+    and `_call_library_model_id(messages=...)`. The Judge and Synth
+    calls do NOT receive the prefix.
+- **Backward compat**: `chat.py` re-exports the 4 retrieval helpers
+  (`_get_graph_neighbors`, `_get_wiki_overview`, `_search_corpus_turns`,
+  `_assemble_corpus_context`) from `_augmented_context` so any external
+  caller that does `from aip.adapter.api.routes.chat import _search_corpus_turns`
+  keeps working. New callers should import from `_augmented_context`
+  directly or use the high-level `assemble_augmented_context()` function.
+
 ### Storage Contracts
 - **aiosqlite ONLY**: No `sqlite3.connect()` in any async method, anywhere in this layer.
   This is the single most common source of async bugs. Check every new SQLite call.
@@ -252,7 +311,33 @@ config/aip.config.toml ([models] section)
   message without `turn_id`.
 
 ## Last Cycle
-- **Multi-Model dropdown auto-routing (this cycle)**: added the
+- **Phase 1 retrieval bridge (this cycle):** extracted the inline
+  ~220-line augmented retrieval block from `routes/chat.py` L225-441
+  into a shared helper at `routes/_augmented_context.py`. The helper
+  (`assemble_augmented_context()`) encapsulates definer profile
+  injection, domain resolution, corpus turn search (FTS5),
+  RetrievalOrchestrator fallback (RRF), wiki overview injection,
+  graph neighbors injection, sources assembly, and the synthesis
+  instruction. It NEVER raises — on any failure it returns
+  `AugmentedContext(assembled=False)` with empty messages, and the
+  caller proceeds with the bare prompt (graceful degradation).
+  The 4 retrieval helpers (`_get_graph_neighbors`, `_get_wiki_overview`,
+  `_search_corpus_turns`, `_assemble_corpus_context`) were moved to
+  `_augmented_context.py` and re-exported from `chat.py` for backward
+  compat. `chat.py`'s augmented branch is now a 4-line helper call.
+  `ModelCouncilRequest` gained `assemble_augmented_context: bool = False`
+  field; when True + turn_id non-empty, `compare_models` calls the
+  helper and PREPENDS the augmented system messages to each panel
+  call's user prompt. `_call_model_slot` gained a `messages_prefix`
+  param. The Judge and Synth calls do NOT receive the prefix (Judge
+  reads panel outputs; Synth reads only Judge JSON). This fixes the
+  AIP-acronym bug from the Fusion report's Part I — Multi-Cast in
+  augmented mode no longer answers blind. 21 new tests in
+  `tests/test_augmented_context_helper.py`. Default `False` preserves
+  backward compat: existing tests, external API clients, and the
+  current GUI (which doesn't send the flag yet — that's Step 2-B)
+  see no behavior change.
+- **Multi-Model dropdown auto-routing (prior cycle)**: added the
   `skip_default_slots: bool = False` field to `ModelCouncilRequest`
   and a corresponding `skip_default_slots` kwarg to
   `_resolve_comparison_slots`. When the GUI sends

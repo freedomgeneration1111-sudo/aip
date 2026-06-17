@@ -26,6 +26,10 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from aip.adapter.api.dependencies import get_container
+from aip.adapter.api.routes._augmented_context import (
+    AugmentedContext,
+    assemble_augmented_context,
+)
 from aip.adapter.api.routes.sessions import get_session_meta, increment_turn_count
 from aip.foundation.schemas.corpus_turn import make_turn_id
 from aip.logging import get_logger
@@ -35,129 +39,24 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
-async def _get_graph_neighbors(domain: str, container: Any = None) -> list[str]:
-    """Return domain neighbors from the knowledge graph.
+# ── Backward-compat re-exports ──────────────────────────────────────────
+#
+# The four retrieval helpers below were previously defined inline in this
+# module. They have been moved to ``_augmented_context.py`` so both this
+# route and ``model_council.py`` can share them. They are re-exported here
+# to keep the public surface stable (no external consumer imports them
+# today, but the re-export prevents breakage if any test or future caller
+# does ``from aip.adapter.api.routes.chat import _search_corpus_turns``).
+#
+# New callers should import directly from ``_augmented_context`` or use
+# the high-level ``assemble_augmented_context()`` function.
 
-    Uses the container's graph_store when available. Falls back to
-    creating one from container config db_path (matching the pattern
-    in routes/graph.py). This ensures consistent path resolution
-    across all graph-accessing routes.
-
-    BUG-002: Previously used a separate db_path resolution that could
-    diverge from the one used in routes/graph.py. Now reuses the same
-    container.config.get("db_path") / config.get("database") pattern
-    with get_default_db_path() fallback.
-    """
-    try:
-        store = getattr(container, "graph_store", None) if container is not None else None
-        if store is None:
-            from aip.adapter.graph_store import GraphStore
-
-            db_path = ""
-            if container is not None:
-                db_path = container.config.get("db_path", "") or container.config.get("database", {}).get("db_path", "")
-            if not db_path:
-                try:
-                    from aip.cli._db_path import get_default_db_path
-
-                    db_path = get_default_db_path()
-                except Exception:
-                    db_path = "db/state.db"
-            store = GraphStore(db_path, config=getattr(container, "config", None))
-            await store.initialize()
-        neighbors = await store.get_neighbors(domain, min_confidence=0.4)
-        return [n.canonical_name for n in neighbors if n.id != domain]
-    except Exception:
-        return []
-
-
-async def _get_wiki_overview(domain: str, artifact_store: Any, ecs_store: Any) -> str | None:
-    """Return wiki overview_text for domain from APPROVED (fallback GENERATED) artifact.
-
-    Returns None if no wiki exists. Never raises.
-    """
-    try:
-        arts = await artifact_store.list_artifacts_by_metadata(key="artifact_type", value="beast_wiki", limit=200)
-        domain_arts = [a for a in arts if (a.get("metadata", {}) or {}).get("domain") == domain]
-        if not domain_arts:
-            return None
-        domain_arts.sort(key=lambda a: a.get("created_at", ""), reverse=True)
-
-        # Prefer APPROVED, fall back to GENERATED
-        approved_overview = None
-        generated_overview = None
-        for art in domain_arts:
-            aid = art.get("id", "")
-            if not aid:
-                continue
-            try:
-                state = await ecs_store.current_state(aid)
-            except Exception:
-                state = None
-            overview = (art.get("metadata", {}) or {}).get("overview_text", "")
-            if state == "APPROVED" and overview and approved_overview is None:
-                approved_overview = overview
-            elif state == "GENERATED" and overview and generated_overview is None:
-                generated_overview = f"[Draft] {overview}"
-        return approved_overview or generated_overview
-    except Exception:
-        return None
-
-
-async def _search_corpus_turns(
-    query: str,
-    corpus_turn_store: Any,
-    domain: str | None = None,
-    limit: int = 8,
-    min_importance: float = 0.3,
-    container: Any = None,
-) -> list[dict]:
-    """Search corpus turns via FTS5 and return formatted source dicts."""
-    try:
-        _sanitize_fn = container._sanitize_fts_query_fn if container else None
-        if _sanitize_fn:
-            fts_query = _sanitize_fn(query)
-        else:
-            fts_query = query
-    except Exception:
-        fts_query = query
-    turns = await corpus_turn_store.search(
-        query=fts_query,
-        primary_domain=domain,
-        min_importance=min_importance,
-        limit=limit,
-    )
-    return [
-        {
-            "source_id": f"corpus:{t.turn_id[:12]}",
-            "turn_id": t.turn_id,
-            "user_text": t.user_text,
-            "assistant_text": t.assistant_text,
-            "content_preview": t.searchable_text[:500],
-            "score": t.importance,
-            "domain": t.primary_domain,
-            "importance": t.importance,
-            "conversation_name": t.conversation_name or "",
-        }
-        for t in turns
-    ]
-
-
-def _assemble_corpus_context(source_dicts: list[dict]) -> str:
-    """Format corpus turns as Q/A pairs for model context."""
-    if not source_dicts:
-        return "No relevant corpus turns found."
-    parts: list[str] = []
-    for i, s in enumerate(source_dicts, 1):
-        domain = s.get("domain") or "unknown"
-        importance = float(s.get("importance") or 0.0)
-        conv_name = (s.get("conversation_name") or "")[:40]
-        user_text = (s.get("user_text") or "")[:200]
-        assistant_text = (s.get("assistant_text") or "")[:400]
-        parts.append(
-            f"[Source {i}: {domain} | importance:{importance:.2f} | {conv_name}]\nQ: {user_text}\nA: {assistant_text}"
-        )
-    return "\n\n".join(parts)
+from aip.adapter.api.routes._augmented_context import (  # noqa: E402, F401
+    _assemble_corpus_context,
+    _get_graph_neighbors,
+    _get_wiki_overview,
+    _search_corpus_turns,
+)
 
 
 @router.websocket("/chat/{session_id}")
@@ -223,224 +122,35 @@ async def chat_websocket(websocket: WebSocket, session_id: str):
                         ret_trace = None  # Retrieval trace metadata (populated in augmented mode)
 
                         if session_mode == "augmented" and (
-                            _container.corpus_turn_store is not None or _container.lexical_store is not None
+                            _container.corpus_turn_store is not None
+                            or _container.lexical_store is not None
                         ):
-                            # Definer profile injection
-                            try:
-                                # Use the full app config — same pattern as ask pipeline.
-                                # _container.config is set in AipContainer.__init__ from the
-                                # full TOML dict, but fall back to app.state.raw_config if empty
-                                # (e.g. test mode without lifespan).
-                                definer_cfg = getattr(_container, "config", {}) or {}
-                                if not definer_cfg:
-                                    definer_cfg = getattr(websocket.app.state, "raw_config", {}) or {}
-                                logger.debug(
-                                    "chat_route_config",
-                                    keys=list(definer_cfg.keys())[:10]
-                                    if isinstance(definer_cfg, dict)
-                                    else "not-a-dict",
-                                )
-                                dcfg = definer_cfg.get("definer", {}) if isinstance(definer_cfg, dict) else {}
-                                if dcfg.get("inject_in_augmented_chat", True):
-                                    dp = getattr(_container, "definer_profile", None)
-                                    if dp is not None:
-                                        block = dp.get_injection_block(
-                                            max_tokens_estimate=dcfg.get("max_profile_tokens", 800)
-                                        )
-                                        if block:
-                                            messages.append({"role": "system", "content": block})
-                            except Exception as exc:
-                                logger.warning("definer_profile_injection_failed", error=str(exc))
-
-                            # Augmented mode: retrieve sources and inject context
-                            try:
-                                # Access orchestration through container (layer discipline)
-                                AskStores = _container._ask_stores_class
-                                _search_sources_fn = _container._search_sources_fn
-                                if AskStores is None or _search_sources_fn is None:
-                                    raise RuntimeError("Retrieval pipeline not available via container")
-
-                                # Resolve domain from session or project
-                                domain = (session_meta or {}).get("domain")
-                                project_id = (session_meta or {}).get("project_id")
-                                if project_id and _container.project_store is not None:
-                                    try:
-                                        projects = await _container.project_store.list_projects()
-                                        for p in projects:
-                                            if p.get("project_id") == project_id or p.get("name") == project_id:
-                                                domain = p.get("domain") or domain
-                                                break
-                                    except Exception:
-                                        logger.warning("project_lookup_failed", exc_info=True)
-
-                                # Corpus turn retrieval
-                                corpus_turns_used = False
-                                source_dicts: list[dict] = []
-                                if _container.corpus_turn_store is not None:
-                                    source_dicts = await _search_corpus_turns(
-                                        query=content,
-                                        corpus_turn_store=_container.corpus_turn_store,
-                                        domain=domain,
-                                        limit=8,
-                                        min_importance=0.3,
-                                        container=_container,
-                                    )
-                                    if source_dicts:
-                                        corpus_turns_used = True
-                                    else:
-                                        logger.info(
-                                            "corpus_turn_search_empty_fallback",
-                                            query_len=len(content),
-                                            domain=domain,
-                                        )
-
-                                # Fallback: orchestrator pipeline
-                                source_refs: list = []
-                                packed_ctx = None
-                                if not corpus_turns_used and _container.lexical_store is not None:
-                                    _ask_stores = AskStores(
-                                        artifact_store=_container.artifact_store,
-                                        lexical_store=_container.lexical_store,
-                                        vector_store=_container.vector_store,
-                                        event_store=_container.event_store,
-                                        project_store=_container.project_store,
-                                        ecs_store=_container.ecs_store,
-                                        embedding_provider=_container.embedding_provider,
-                                        corpus_turn_store=_container.corpus_turn_store,
-                                        graph_store=getattr(_container, "graph_store", None),
-                                    )
-                                    source_refs, ret_trace, packed_ctx = await _search_sources_fn(
-                                        query=content,
-                                        stores=_ask_stores,
-                                        source_filter="all",
-                                        max_sources=10,
-                                    )
-
-                                # Determine active domain for wiki/graph
-                                if corpus_turns_used and source_dicts:
-                                    query_domain: str | None = source_dicts[0].get("domain") or domain
-                                elif source_refs:
-                                    query_domain = source_refs[0].domain
-                                else:
-                                    query_domain = domain
-
-                                has_sources = bool(source_dicts or source_refs)
-
-                                if has_sources:
-                                    # Wiki overview injection
-                                    try:
-                                        if (
-                                            query_domain
-                                            and _container.artifact_store is not None
-                                            and _container.ecs_store is not None
-                                        ):
-                                            wiki_overview = await _get_wiki_overview(
-                                                query_domain,
-                                                _container.artifact_store,
-                                                _container.ecs_store,
-                                            )
-                                            if wiki_overview:
-                                                messages.append(
-                                                    {
-                                                        "role": "system",
-                                                        "content": (
-                                                            f"=== DOMAIN CONTEXT: {query_domain} ===\n"
-                                                            f"{wiki_overview}\n"
-                                                            f"=== END DOMAIN CONTEXT ==="
-                                                        ),
-                                                    }
-                                                )
-                                    except Exception as _wiki_exc:
-                                        logger.debug("wiki_overview_injection_failed", error=str(_wiki_exc))
-
-                                    # Graph connections injection
-                                    try:
-                                        if query_domain:
-                                            graph_neighbors = await _get_graph_neighbors(
-                                                query_domain, container=_container
-                                            )
-                                            if graph_neighbors:
-                                                neighbors_str = ", ".join(graph_neighbors[:5])
-                                                messages.append(
-                                                    {
-                                                        "role": "system",
-                                                        "content": (
-                                                            f"=== GRAPH CONNECTIONS ===\n"
-                                                            f"Domain '{query_domain}' connects to: {neighbors_str}\n"
-                                                            f"These domains may provide relevant context.\n"
-                                                            f"=== END GRAPH CONNECTIONS ==="
-                                                        ),
-                                                    }
-                                                )
-                                    except Exception as _graph_exc:
-                                        logger.debug("graph_neighbors_injection_failed", error=str(_graph_exc))
-
-                                    # Sources injection
-                                    if corpus_turns_used:
-                                        context = _assemble_corpus_context(source_dicts)
-                                        response_sources = [
-                                            {
-                                                "source_id": s["source_id"],
-                                                "source_type": "corpus_turn",
-                                                "title": (s["conversation_name"][:60] or s["domain"]),
-                                                "score": s["score"],
-                                                "content_snippet": (s.get("user_text") or s["content_preview"])[:200],
-                                                "domain": s["domain"],
-                                            }
-                                            for s in source_dicts
-                                        ]
-                                    else:
-                                        # Use SmartContextPacker output
-                                        context = (
-                                            packed_ctx.context_text if packed_ctx else "No relevant sources found."
-                                        )
-                                        response_sources = [
-                                            {
-                                                "source_id": s.source_id,
-                                                "source_type": s.source_type,
-                                                "title": s.title,
-                                                "score": s.score,
-                                                "content_snippet": s.content_snippet,
-                                                "domain": s.domain,
-                                            }
-                                            for s in source_refs
-                                        ]
-
-                                    messages.append(
-                                        {
-                                            "role": "system",
-                                            "content": f"Corpus turns retrieved from knowledge base:\n\n{context}",
-                                        }
-                                    )
-
-                                    # Synthesis instruction
-                                    messages.append(
-                                        {
-                                            "role": "system",
-                                            "content": (
-                                                "You are AIP, a source-grounded knowledge assistant "
-                                                "for B. Moses Jorgensen. "
-                                                "Answer based on the provided corpus turns. "
-                                                "Cite sources using [source: turn_id] notation. "
-                                                "Draw on the DEFINER profile and domain context above. "
-                                                "If sources don't contain enough information, say so explicitly."
-                                            ),
-                                        }
-                                    )
-                                else:
-                                    messages.append(
-                                        {
-                                            "role": "system",
-                                            "content": (
-                                                "You are AIP, a knowledge assistant for B. Moses Jorgensen. "
-                                                "No relevant sources were found in the knowledge base for this query. "
-                                                "Answer based on your general knowledge but note "
-                                                "that no source material was available."
-                                            ),
-                                        }
-                                    )
-                            except Exception as exc:
-                                logger.warning("augmented_retrieval_failed", error=str(exc))
+                            # Phase 1 retrieval bridge: call the shared
+                            # ``assemble_augmented_context()`` helper that
+                            # lives in ``routes/_augmented_context.py``.
+                            # The helper encapsulates definer profile
+                            # injection, domain resolution, corpus turn
+                            # search, orchestrator fallback (RRF), wiki
+                            # overview injection, graph neighbors injection,
+                            # sources assembly, and the synthesis instruction.
+                            # It NEVER raises — on any failure it returns
+                            # ``AugmentedContext(assembled=False)`` with
+                            # empty messages, and the caller proceeds with
+                            # the bare prompt (graceful degradation).
+                            aug = await assemble_augmented_context(
+                                content=content,
+                                session_id=session_id,
+                                container=_container,
+                                session_meta=session_meta,
+                            )
+                            messages.extend(aug.messages)
+                            response_sources = aug.sources
+                            ret_trace = aug.trace
+                            _augmented_source_turn_ids = aug.source_turn_ids
+                            if not aug.assembled:
+                                # Retrieval was skipped or failed — the
+                                # helper already logged the failure. Fall
+                                # back to the role hint if present.
                                 if session_meta and session_meta.get("role"):
                                     role_hint = session_meta.get("role", "")
                                     if role_hint:
@@ -454,6 +164,7 @@ async def chat_websocket(websocket: WebSocket, session_id: str):
                                         )
                         else:
                             # Normal mode: direct model dispatch
+                            _augmented_source_turn_ids = []
                             if session_meta and session_meta.get("role"):
                                 role_hint = session_meta.get("role", "")
                                 if role_hint:  # only inject for explicit actor roles
@@ -661,12 +372,13 @@ async def chat_websocket(websocket: WebSocket, session_id: str):
                                 from aip.adapter.api.routes.ingest import auto_save_chat_turn
 
                                 domain = (session_meta or {}).get("domain", "chat")
-                                # Collect source_turn_ids from augmented retrieval for Vigil
+                                # Collect source_turn_ids from augmented retrieval for Vigil.
+                                # The helper exposes these directly (aug.source_turn_ids)
+                                # so we don't need to re-extract them from the raw
+                                # source_dicts (which now live inside the helper).
                                 _source_turn_ids: list[str] = []
                                 if session_mode == "augmented" and response_sources:
-                                    _source_turn_ids = [
-                                        s.get("turn_id", "") for s in (source_dicts or []) if s.get("turn_id")
-                                    ]
+                                    _source_turn_ids = list(_augmented_source_turn_ids)
                                 asyncio.create_task(
                                     auto_save_chat_turn(
                                         session_id=session_id,

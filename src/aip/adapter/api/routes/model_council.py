@@ -134,6 +134,21 @@ class ModelCouncilRequest(BaseModel):
     ONLY for the Judge+Synth synthesis stages. Default ``False``
     preserves the existing fallback (``_DEFAULT_COMPARISON_SLOTS``)
     for external API clients and existing tests.
+
+    ``assemble_augmented_context`` (default ``False``): when ``True``
+    AND ``turn_id`` is non-empty, the endpoint calls the shared
+    ``routes/_augmented_context.py::assemble_augmented_context()``
+    helper to build the augmented system messages (corpus turns + wiki
+    + graph + definer profile) and PREPENDS them to each panel call's
+    user prompt. This is the Phase 1 retrieval bridge — fixes the
+    AIP-acronym bug where Multi-Cast panel models answered blind
+    without seeing the corpus. The augmented context is computed ONCE
+    per request (not N times) and is identical across panelists —
+    diversity comes from the models themselves, not from differential
+    context. The Judge and Synth calls do NOT receive the augmented
+    prefix (the Judge reads panel outputs; the Synth reads only the
+    Judge JSON). Default ``False`` preserves the existing bare-prompt
+    behavior for external API clients and existing tests.
     """
 
     prompt: str
@@ -145,6 +160,7 @@ class ModelCouncilRequest(BaseModel):
     selected_model_ids: list[str] = Field(default_factory=list)
     save_as_artifact: bool = False
     skip_default_slots: bool = False
+    assemble_augmented_context: bool = False
 
 
 class ModelCouncilResponse(BaseModel):
@@ -579,6 +595,52 @@ async def compare_models(
 
     user_prompt = f"""{request.prompt[:4000]}{sources_text}{existing_answer_block}"""
 
+    # --- Phase 1 retrieval bridge: assemble augmented context ONCE ---
+    # When ``request.assemble_augmented_context`` is True AND
+    # ``request.turn_id`` is non-empty, call the shared
+    # ``routes/_augmented_context.py::assemble_augmented_context()``
+    # helper to build the augmented system messages (corpus turns +
+    # wiki + graph + definer profile). The resulting messages are
+    # PREPENDED to each panel call's user prompt — every panelist
+    # sees the SAME augmented context (diversity comes from the
+    # models, not from differential context).
+    #
+    # The Judge and Synth calls do NOT receive this prefix (the Judge
+    # reads panel outputs; the Synth reads only the Judge JSON).
+    #
+    # When the flag is False (default) or turn_id is empty,
+    # ``augmented_prefix`` is an empty list and the panel calls
+    # proceed with the bare prompt (existing behavior — backward
+    # compatible).
+    augmented_prefix: list[dict] = []
+    augmented_sources: list[dict] = []
+    if request.assemble_augmented_context and request.turn_id:
+        from aip.adapter.api.routes._augmented_context import assemble_augmented_context
+
+        try:
+            aug = await assemble_augmented_context(
+                content=request.prompt,
+                session_id=request.session_id,
+                container=container,
+            )
+            augmented_prefix = aug.messages
+            augmented_sources = aug.sources
+            logger.info(
+                "council_augmented_context_assembled "
+                "assembled=%s messages=%d sources=%d domain=%s",
+                aug.assembled,
+                len(aug.messages),
+                len(aug.sources),
+                aug.domain,
+            )
+        except Exception as exc:
+            # The helper itself never raises, but guard defensively.
+            logger.warning(
+                "council_augmented_context_failed error=%s", str(exc)
+            )
+            augmented_prefix = []
+            augmented_sources = []
+
     # --- Call each model concurrently (slots + library IDs in parallel) ---
     # Build a unified task map keyed by a stable identifier we can
     # reverse-map back to {source, slot_name|model_id} afterwards.
@@ -586,17 +648,39 @@ async def compare_models(
     # Each call is wrapped in ``asyncio.wait_for`` with
     # ``_PANEL_CALL_TIMEOUT_S`` so a single hung model cannot hold the
     # entire gather hostage — it gets cut loose and recorded as failed.
+    #
+    # Phase 1 retrieval bridge: each panel call receives the
+    # ``augmented_prefix`` as system messages BEFORE the user prompt.
+    # When augmented_prefix is empty (default), this is identical to
+    # the prior behavior.
     per_model_tasks: dict[str, Any] = {}
     for slot_name in comparison_slots:
         per_model_tasks[f"slot:{slot_name}"] = asyncio.wait_for(
-            _call_model_slot(container.model_provider, slot_name, user_prompt),
+            _call_model_slot(
+                container.model_provider,
+                slot_name,
+                user_prompt,
+                messages_prefix=augmented_prefix,
+            ),
             timeout=_PANEL_CALL_TIMEOUT_S,
         )
     for model_id in comparison_model_ids:
-        per_model_tasks[f"library:{model_id}"] = asyncio.wait_for(
-            _call_library_model_id(model_id, user_prompt),
-            timeout=_PANEL_CALL_TIMEOUT_S,
-        )
+        # For library models, build the full messages list when an
+        # augmented prefix is present; otherwise pass user_prompt
+        # directly (existing behavior — backward compatible).
+        if augmented_prefix:
+            panel_messages = list(augmented_prefix) + [
+                {"role": "user", "content": user_prompt}
+            ]
+            per_model_tasks[f"library:{model_id}"] = asyncio.wait_for(
+                _call_library_model_id(model_id, messages=panel_messages),
+                timeout=_PANEL_CALL_TIMEOUT_S,
+            )
+        else:
+            per_model_tasks[f"library:{model_id}"] = asyncio.wait_for(
+                _call_library_model_id(model_id, user_prompt),
+                timeout=_PANEL_CALL_TIMEOUT_S,
+            )
 
     # Run all model calls concurrently
     results_map: dict[str, dict] = {}
@@ -1194,12 +1278,20 @@ async def _call_model_slot(
     model_provider: Any,
     slot_name: str,
     user_prompt: str,
+    messages_prefix: list[dict] | None = None,
 ) -> dict:
     """Call a single model slot with the given prompt.
 
     Returns the raw result dict from model_provider.call().
+
+    ``messages_prefix`` (optional): list of system-message dicts to
+    PREPEND to the user message. Used by the Phase 1 retrieval bridge
+    to inject augmented context (corpus turns + wiki + graph + definer
+    profile) into each panel call. When None or empty, the call is
+    just ``[{"role": "user", "content": user_prompt}]`` (the existing
+    behavior — backward compatible).
     """
-    messages = [
+    messages = list(messages_prefix or []) + [
         {"role": "user", "content": user_prompt},
     ]
     return await model_provider.call(slot_name, messages)

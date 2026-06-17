@@ -91,6 +91,19 @@ orchestration/review_export_pipeline.py (review decision)
   checks. Vigil does NOT do tagging. Mixing these breaks the ADR-011 contract.
 
 ## Last Cycle
+- **Phase 1 retrieval bridge (this cycle, no orchestration code change)**:
+  The shared `routes/_augmented_context.py::assemble_augmented_context()`
+  helper now consumes the `RetrievalOrchestrator` (via
+  `container._search_sources_fn` + `container._ask_stores_class`) on
+  behalf of BOTH `routes/chat.py` (WebSocket chat) AND
+  `routes/model_council.py` (Multi-Cast). Previously the orchestrator
+  was called only from `chat.py`'s inline augmented block — Multi-Cast
+  bypassed retrieval entirely (the AIP-acronym bug). No orchestration
+  code was modified; the `RetrievalOrchestrator` and `AskStores`
+  Protocol interfaces are unchanged. This is a documentation-only
+  update to note the new consumer. See `src/aip/adapter/AGENTS.md`
+  → "Shared Augmented-Context Helper Contract" for the full producer/
+  consumer contract.
 - **Commit 14d3a73**: Sexton actor received concurrency guard (`asyncio.Lock`),
   rate limit detection (429 handling), and fixed state machine priority
   (rate_limited before mock/fake detection). See `actors/AGENTS.md` for full detail.
