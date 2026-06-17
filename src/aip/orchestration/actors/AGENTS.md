@@ -118,8 +118,39 @@ sexton.py (get_status_summary)
 - **Domain registry path is CWD-relative**: `load_registry("docs/beast_domain_registry_v1.md")`
   uses a relative path. If the app CWD is not the project root, the registry
   won't be found and wiki generation returns `{"skipped": "registry_not_found"}`.
+- **`beast` slot vs Beast actor — NOT the same thing (current cycle)**:
+  The `beast` slot is a TOML-configured model routing key consumed by
+  `ModelSlotResolver` — it routes to whatever model is configured in
+  `[models.beast]` regardless of caller. The Beast actor is a background
+  scheduled process that runs `run_cycle()` for corpus health checks.
+  They share a name but are different concepts:
+  - The Beast actor's `run_cycle()` is UNCHANGED by the Multi-Model
+    dropdown work — it still runs on its scheduler and does its
+    corpus-health job.
+  - The `beast` slot is BORROWED by the Multi-Cast Fusion pipeline
+    (`adapter/api/routes/model_council.py::_pick_fusion_engine`) for
+    the Judge+Synth synthesis stages when the user picks ≥2 models
+    in the GUI's unified dropdown. The slot is used ONLY for synthesis,
+    NOT as one of the panel models (the panel is built from the user's
+    explicit OpenRouter ID selections via `selected_model_ids`).
+  - If a future cycle wants a dedicated Judge model that's different
+    from the Beast actor's maintenance model, add a new `[models.judge]`
+    TOML slot — `ModelSlotResolver` handles it without code changes.
+  Do NOT conflate the actor with the slot. The slot is a routing key;
+  the actor is a process.
 
 ## Last Cycle
+- **Multi-Model dropdown auto-routing (this cycle, no actor code change)**:
+  The GUI's Multi-Model dropdown now sends only OpenRouter IDs
+  (`selected_model_ids`) — NOT TOML slot names — for the panel. The
+  `beast` slot is used ONLY for the Judge+Synth synthesis stages
+  (via `_pick_fusion_engine`), not as a panel model. **The Beast
+  actor itself is UNCHANGED** — `run_cycle()` still runs on its
+  scheduler and does its corpus-health job. Only the slot-vs-actor
+  distinction was reinforced in this file's Known Gotchas section.
+  See `gui/AGENTS.md` (GUI side) and `src/aip/adapter/AGENTS.md`
+  (backend contract: new `skip_default_slots` field on
+  `ModelCouncilRequest`) for the full contract.
 - **Commit 14d3a73**: Added `asyncio.Lock` concurrency guard to Sexton `run_cycle()`.
   Added rate limit detection (429 handling with backoff). Fixed `_compute_embedding_backfill_state()`
   to check rate_limited before mock/fake detection. Added `_rate_limited`, `_rate_limited_until`,

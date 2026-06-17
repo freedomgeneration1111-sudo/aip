@@ -145,21 +145,41 @@ sexton.py (_embedding_backfill_state, _rate_limited)
   `gui/pages/ask.py` MUST read `resp.get("turn_id", "")` into `turn_data` —
   without it, every per-turn action (Beast Counsel, Link Wiki, Model Council
   turn linkage) bails with "No turn ID available".
-- **Multi-Cast send path**: When `state.multicast_enabled` is True, the send
-  handler dispatches via `_send_multicast` → `api_client.run_model_council`
-  → `POST /beast/compare-models`. This bypasses the normal WebSocket chat
-  path entirely. Per-model results render as separate answer cards; Beast
-  synthesis renders as a final advisory card. The synthesis is ADVISORY ONLY.
-- **Multi-Cast now accepts TWO parallel sources** (library bridge):
-  - `state.multicast_selected_slots` — TOML slot names (synthesis,
-    evaluation, beast, …) routed via `ModelSlotResolver`
-  - `state.multicast_selected_model_ids` — OpenRouter model IDs from the
-    `enabled_models` SQLite library (managed by the Models page), routed
-    via direct OpenRouter calls using `AIP_OPENAI_API_KEY`
-  Both lists are sent in the `run_model_council` call. The backend's
-  `≥2 usable models` gate counts the combined total. Library results
-  in the response carry `source="library"` and empty `model_slot` —
-  the GUI's per-model card renders them with the model_id as the label.
+- **Multi-Cast send path**: When 2+ models are selected in the unified
+  multi-select dropdown, the send handler dispatches via
+  `_send_multicast` → `api_client.run_model_council` →
+  `POST /beast/compare-models`. The request payload uses
+  `selected_model_slots=[]` and `selected_model_ids=<list of OpenRouter
+  IDs from the dropdown>` with `skip_default_slots=True` so the backend
+  does NOT auto-add the default TOML slots (synthesis/evaluation/beast).
+  This bypasses the normal WebSocket chat path entirely. Per-model
+  results render as separate answer cards; Beast Fusion synthesis
+  renders as a final advisory card. The synthesis is ADVISORY ONLY.
+- **Multi-Model dropdown auto-routing (current cycle)**: the Ask page
+  chat header now uses a SINGLE multi-select checkbox dropdown
+  (`ui.select(..., multiple=True)`) for picking N models from the
+  unified "available models" pool. The send handler auto-routes based
+  on count — no separate "Multi-Cast" button is required:
+  - **0 selected** → notify "pick a model" and bail
+  - **1 selected** → normal single-model chat (WS route, uses the
+    synthesis slot's configured model — set via
+    `set_role_model("synthesis", X)` when the dropdown changes)
+  - **≥2 selected** → Multi-Cast Fusion (POST /beast/compare-models).
+    The selected models are sent as `selected_model_ids` (OpenRouter
+    IDs); `selected_model_slots` is always `[]` with
+    `skip_default_slots=True` so the backend does NOT auto-add the
+    default TOML slots (synthesis/evaluation/beast). The `beast` slot
+    is used ONLY for the Judge+Synth synthesis stages, not as a panel
+    model. **Models are NOT tied to actor slots/roles** — the user
+    picks N models from the unified dropdown, and the backend calls
+    those N models directly via OpenRouter.
+  This restores the original "checkbox dropdown → auto-trigger
+  synthesis" UX. The separate "Multi-Cast: ON/OFF" button and the
+  second row of slot/library checkboxes were REMOVED. State fields
+  `multicast_enabled` (now derived: `len(model_ids) >= 2`) and
+  `multicast_selected_slots` (now always `[]`) are kept for back-compat
+  but no longer drive the routing — `_dispatch_send` branches on the
+  count of `state.multicast_selected_model_ids` directly.
 - **Phase 1 Fusion rendering (this cycle)**: The backend's Beast
   synthesis now runs as a two-stage Fusion pipeline (Judge-Beast →
   Synth-Beast). The response gains two new fields:
@@ -191,7 +211,36 @@ sexton.py (_embedding_backfill_state, _rate_limited)
   unavailable/failed" instead of just "Beast synthesis".
 
 ## Last Cycle
-- **Phase 1 Fix D — backend engine fallback (this cycle, no GUI
+- **Multi-Model dropdown auto-routing (this cycle)**: replaced the
+  separate "Multi-Cast: ON/OFF" toggle button + the second row of
+  slot/library checkboxes with a SINGLE multi-select checkbox dropdown
+  in the Ask page chat header. The send handler now auto-routes based
+  on the count of selected models — no separate "Multi-Cast" button
+  click is required:
+  - 0 selected → notify "pick a model" and bail
+  - 1 selected → normal single-model chat (WS route, synthesis slot's
+    configured model)
+  - ≥2 selected → Multi-Cast Fusion (POST /beast/compare-models with
+    `skip_default_slots=True`)
+  Per the user's "models NOT tied to actor slots/roles" requirement:
+  the GUI sends `selected_model_slots=[]` (always empty) and
+  `selected_model_ids=<user's dropdown picks>` (OpenRouter IDs only).
+  The `beast` slot is used ONLY for the Judge+Synth synthesis stages
+  on the backend, NOT as a panel model. The `skip_default_slots=True`
+  flag (new field on `ModelCouncilRequest`, see
+  `src/aip/adapter/AGENTS.md`) prevents the backend from auto-adding
+  the default TOML slots (synthesis/evaluation/beast) when the GUI's
+  `selected_model_slots` is empty. State field `multicast_enabled` is
+  now a derived property (`len(model_ids) >= 2`) — kept for back-compat
+  but no longer drives routing. State field `multicast_selected_slots`
+  is kept (always `[]`) for back-compat with the request payload shape.
+  Helpers `_toggle_multicast`, `_toggle_multicast_slot`,
+  `_toggle_multicast_model_id` were removed. New handler
+  `_on_chat_models_changed` drives the multi-select dropdown. The
+  back-compat single-model `_on_chat_model_changed` is preserved as a
+  shim (still awaited by the cycle-14 test). 37 new tests in
+  `tests/test_ask_multiselect_dropdown.py` assert the new pattern.
+- **Phase 1 Fix D — backend engine fallback (prior cycle, no GUI
   change):** the backend's Fusion pipeline now picks the Judge+Synth
   engine from the SUCCESSFUL panel models (preference: beast slot if
   it succeeded → any other successful slot → any successful library

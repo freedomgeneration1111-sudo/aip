@@ -205,21 +205,42 @@ class GuiState:
         # ── UI Cycle 3: Consolidated status summary from /api/v1/status/summary ──
         self.status_summary: dict[str, Any] = {}
 
-        # ── Multi-Cast toggle (Ask page) ──
-        # When True, the send handler dispatches the prompt to all selected
-        # text-generation slots concurrently via POST /beast/compare-models,
-        # then renders per-model answer cards + a Beast synthesis card.
-        # When False (default), the normal single-model send path is used.
-        self.multicast_enabled: bool = False
-        # Slot names selected for multi-cast (e.g. ["synthesis", "evaluation", "beast"]).
-        # Populated from the backend's text-generation-slots endpoint.
-        self.multicast_selected_slots: list[str] = []
-        # OpenRouter model IDs selected for multi-cast, drawn from the
-        # enabled_models SQLite library (managed by the Models page).
-        # Populated from get_backend_enabled_models() on the Ask page.
-        # Sent to the backend as ``selected_model_ids`` in the
-        # ``run_model_council`` call — parallel to ``multicast_selected_slots``.
+        # ── Multi-Model selection (Ask page) ──
+        # The Ask page chat header now uses a single multi-select
+        # dropdown (checkboxes) for picking N models from the unified
+        # "available models" pool (OpenRouter library IDs + slot model
+        # IDs). The send handler auto-routes based on the count:
+        #   - 0 or 1 selected → normal single-model chat (WS chat route,
+        #     uses the synthesis slot's configured model — set via
+        #     ``set_role_model("synthesis", X)`` when the dropdown
+        #     changes)
+        #   - ≥2 selected → Multi-Cast (POST /beast/compare-models).
+        #     The selected models are sent as ``selected_model_ids``
+        #     (OpenRouter IDs); ``selected_model_slots`` is sent as
+        #     ``[]`` with ``skip_default_slots=True`` so the backend
+        #     does NOT auto-add the default TOML slots (synthesis/
+        #     evaluation/beast). The ``beast`` slot is used ONLY for
+        #     the Judge+Synth synthesis stages, not as a panel model.
+        # This restores the original "checkbox dropdown → auto-trigger
+        # synthesis" UX. The separate "Multi-Cast: ON/OFF" button and
+        # the second row of slot/library checkboxes were removed.
+        # ``multicast_selected_model_ids`` is the canonical selected-
+        # models list (OpenRouter IDs, NOT slot names). Backward-compat
+        # name is preserved so existing references in ask.py keep
+        # working.
         self.multicast_selected_model_ids: list[str] = []
+        # Deprecated: ``multicast_enabled`` is now a derived property
+        # (``len(self.multicast_selected_model_ids) >= 2``). The field
+        # is kept for back-compat with any code that reads it, but the
+        # Ask page no longer sets it directly. It defaults to False and
+        # is recomputed by the page on each model-selection change.
+        self.multicast_enabled: bool = False
+        # Deprecated: ``multicast_selected_slots`` (TOML slot names) is
+        # no longer populated by the GUI. The "models not tied to actor
+        # slots/roles" rule means the GUI sends only OpenRouter IDs.
+        # The field is kept (always empty) so the request payload shape
+        # is unchanged for the backend contract.
+        self.multicast_selected_slots: list[str] = []
 
     async def ensure_session(self) -> str:
         """Create a session if one doesn't exist, or return the existing one."""

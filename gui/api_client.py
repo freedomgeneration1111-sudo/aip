@@ -1355,6 +1355,7 @@ class AipApiClient:
         selected_model_slots: list[str] | None = None,
         selected_model_ids: list[str] | None = None,
         save_as_artifact: bool = False,
+        skip_default_slots: bool = False,
     ) -> dict[str, Any]:
         """Run a Model Council multi-model comparison report.
 
@@ -1372,6 +1373,14 @@ class AipApiClient:
             OpenRouter calls.
         Both lists are merged; the backend requires ≥2 usable models
         total (slots + library IDs combined).
+
+        ``skip_default_slots`` (default ``False``): when ``True``, the
+        backend will NOT fall back to ``_DEFAULT_COMPARISON_SLOTS``
+        (synthesis/evaluation/beast) when ``selected_model_slots`` is
+        empty — the panel is built ONLY from ``selected_model_ids``.
+        This is the GUI's "models not tied to actor slots/roles" mode:
+        the ``beast`` slot is used ONLY for the Judge+Synth synthesis
+        stages, not as a panel model.
         """
         client = self._get_http_client()
         payload: dict[str, Any] = {
@@ -1383,6 +1392,7 @@ class AipApiClient:
             "selected_model_slots": selected_model_slots or [],
             "selected_model_ids": selected_model_ids or [],
             "save_as_artifact": save_as_artifact,
+            "skip_default_slots": skip_default_slots,
         }
         try:
             resp = await client.post(

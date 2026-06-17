@@ -57,6 +57,17 @@ Request body fields (all optional except `prompt`):
   `enabled_models` SQLite library, routed via direct OpenRouter calls
   using `AIP_OPENAI_API_KEY` (or per-row `custom_api_key` if `is_custom=1`)
 - `save_as_artifact` (bool)
+- `skip_default_slots` (bool, default `False`) — when `True`, the
+  resolver returns `[]` for `comparison_slots` even if
+  `selected_model_slots` is empty — i.e. the panel is built ONLY
+  from `selected_model_ids` (OpenRouter library IDs). This is the
+  GUI's "models not tied to actor slots/roles" mode: the user picks
+  N models from the unified dropdown, the backend calls those N
+  models directly via OpenRouter, and the `beast` slot is used ONLY
+  for the Judge+Synth synthesis stages. Default `False` preserves
+  the existing fallback (`_DEFAULT_COMPARISON_SLOTS` =
+  `["synthesis", "evaluation", "beast"]`) for external API clients
+  and existing tests.
 
 Response: `ModelCouncilResponse` with `selected_models: list[PerModelResult]`.
 Each `PerModelResult` has a `source` field (`"slot"` or `"library"`) so
@@ -68,6 +79,16 @@ If `model_provider` is None but ≥2 library IDs are supplied, the
 comparison still runs (library path doesn't need the slot resolver) —
 Beast synthesis is skipped with `synthesis_status="unavailable"` in
 that case (no "beast" slot to synthesize with).
+
+**GUI contract (current cycle):** the GUI's Multi-Model dropdown now
+sends `selected_model_slots=[]` (always empty) + `selected_model_ids=<N
+OpenRouter IDs from the unified dropdown>` + `skip_default_slots=True`.
+The panel is built ONLY from the user's selection — the default TOML
+slots (synthesis/evaluation/beast) are NOT auto-added. The `beast` slot
+is used ONLY for the Judge+Synth synthesis stages (via
+`_pick_fusion_engine`), not as a panel model. External API clients and
+existing tests that omit `skip_default_slots` (default `False`) continue
+to see the existing fallback behavior — backward compatible.
 
 **Phase 1 Fusion pipeline (default Beast analysis):** the Beast
 synthesis now runs as a two-stage OpenRouter Fusion pipeline —
@@ -231,7 +252,27 @@ config/aip.config.toml ([models] section)
   message without `turn_id`.
 
 ## Last Cycle
-- **Phase 1 Fix D — graceful degradation when panel models fail (this
+- **Multi-Model dropdown auto-routing (this cycle)**: added the
+  `skip_default_slots: bool = False` field to `ModelCouncilRequest`
+  and a corresponding `skip_default_slots` kwarg to
+  `_resolve_comparison_slots`. When the GUI sends
+  `selected_model_slots=[]` + `selected_model_ids=[X, Y, …]` +
+  `skip_default_slots=True`, the resolver returns `[]` for
+  `comparison_slots` (no fallback to `_DEFAULT_COMPARISON_SLOTS`) —
+  the panel is built ONLY from the user's multi-select dropdown
+  choices. The `beast` slot is used ONLY for the Judge+Synth
+  synthesis stages (via `_pick_fusion_engine`), not as a panel
+  model. This implements the user's "models NOT tied to actor
+  slots/roles" requirement: the GUI's unified dropdown picks N
+  OpenRouter IDs, and the backend calls those N models directly via
+  `_call_library_model_id` (direct OpenRouter HTTP). External API
+  clients and existing tests that omit `skip_default_slots` (default
+  `False`) continue to see the existing fallback behavior — backward
+  compatible. The `compare_models` endpoint passes the flag through
+  to `_resolve_comparison_slots`. See `gui/AGENTS.md` for the GUI
+  side of the contract (multi-select dropdown, auto-routing based
+  on count, no separate "Multi-Cast" button).
+- **Phase 1 Fix D — graceful degradation when panel models fail (prior
   cycle):** the Fusion engine (Judge+Synth) is now picked from the
   SUCCESSFUL panel models instead of always being the `beast` slot.
   Previously, if `beast` was one of the OpenRouter free models that

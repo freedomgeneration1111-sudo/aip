@@ -6,13 +6,26 @@ UI Cycle 4 upgrades the migrated Ask page into the Full Dogfood Ask Workbench.
 Every assistant answer is now inspectable, source-grounded, and linkable, with
 visible retrieval health and degraded/direct-model warnings.
 
-Multi-Cast mode (added this cycle): a Multi-Cast toggle in the chat header
-switches the send handler from the normal single-model WebSocket path to a
-multi-model path that dispatches the prompt to every selected text-gen slot
-via POST /beast/compare-models. Each per-model answer renders as its own
-answer card; the Beast/synthesis model then produces a final advisory
-synthesis card covering convergence, disagreements, risks, and recommended
-decision. The synthesis is ADVISORY ONLY — never auto-approved.
+Multi-Model selection (current cycle): the chat header now uses a SINGLE
+multi-select checkbox dropdown for picking N models from the unified
+"available models" pool (OpenRouter library IDs + slot model IDs).
+The send handler auto-routes based on count — no separate "Multi-Cast"
+button is required:
+  - 0 selected  → notify "pick a model" and bail
+  - 1 selected  → normal single-model chat (WS route, uses the
+    synthesis slot's configured model)
+  - ≥2 selected → Multi-Cast Fusion (POST /beast/compare-models with
+    ``skip_default_slots=True``). The selected models are sent as
+    ``selected_model_ids`` (OpenRouter IDs); ``selected_model_slots``
+    is always ``[]`` so the backend does NOT auto-add the default
+    TOML slots. The ``beast`` slot is used ONLY for the Judge+Synth
+    synthesis stages, not as a panel model. Models are NOT tied to
+    actor slots/roles — the user picks N models from the unified
+    dropdown, and the backend calls those N models directly via
+    OpenRouter.
+This restores the original "checkbox dropdown → auto-trigger synthesis"
+UX. The separate "Multi-Cast: ON/OFF" button and the second row of
+slot/library checkboxes were removed.
 
 Flow:
   1. API key check on load
@@ -20,7 +33,8 @@ Flow:
   3. Model slot loading from /api/v1/models/slots
   4. Session creation via POST /api/v1/sessions
   5. WebSocket chat via ws://backend/api/v1/chat/session_id
-     (or Multi-Cast via POST /beast/compare-models when toggle is on)
+     (or Multi-Cast via POST /beast/compare-models when ≥2 models
+     are selected in the multi-select dropdown)
   6. Message types: message, response, gate, error, pong
   7. Gate handling: approve/reject buttons for DEFINER gates
   8. Auto-save toggle with session update
@@ -45,6 +59,8 @@ CRITICAL RULES:
   - Do not create fake traces.
   - Do not silently save artifacts, mutate wiki, approve gates, or export.
   - Beast Counsel and Model Council are ADVISORY ONLY.
+  - Models are NOT tied to actor slots/roles. Only the multimodel
+    synthesis (Judge+Synth stages) is tied to the ``beast`` slot.
 """
 
 from __future__ import annotations
@@ -67,7 +83,6 @@ from gui.components.trace_panel import TracePanel
 from gui.state import (
     GuiState,
     build_model_options,
-    get_backend_enabled_models,
     get_role_model,
     get_selected_models,
     get_session_state,
@@ -271,24 +286,67 @@ async def _ask_page_impl():
         )
     ):
         # ── Chat header bar ───────────────────────────────────────
+        # The chat header now uses a SINGLE multi-select checkbox
+        # dropdown for picking N models from the unified "available
+        # models" pool. The send handler auto-routes based on count:
+        #   - 0 or 1 selected → normal single-model chat (WS route)
+        #   - ≥2 selected → Multi-Cast Fusion (POST /beast/compare-models)
+        #     — the ``beast`` slot is used ONLY for the Judge+Synth
+        #     synthesis stages, not as a panel model. Models are NOT
+        #     tied to actor slots/roles.
+        # This restores the original "checkbox dropdown → auto-trigger
+        # synthesis" UX. The separate "Multi-Cast: ON/OFF" button and
+        # the second row of slot/library checkboxes were removed.
         with (
             ui.row()
             .classes("w-full items-center")
             .style(f"padding:8px 16px; background:{C_SURFACE}; border-bottom:0.5px solid {C_INK40};")
         ):
-            # Model slot selector
-            ui.label("Chat Model").style(
+            # Multi-select model dropdown (checkboxes via multiple=True)
+            ui.label("Models").style(
                 f"font-size:10px; font-weight:600; color:{C_AMBER}; letter-spacing:0.5px; margin-right:8px;"
             )
+            # Pre-populate the selection: if the user had a single chat
+            # model picked previously, carry it over as the sole
+            # selection. Otherwise default to the first available model
+            # (so single-model chat still works out of the box).
+            if not state.multicast_selected_model_ids:
+                if current_chat_model and current_chat_model in all_model_options:
+                    state.multicast_selected_model_ids = [current_chat_model]
+                elif all_model_options and not all_model_options[0].startswith("("):
+                    state.multicast_selected_model_ids = [all_model_options[0]]
+                # else: leave empty — the user will pick from the dropdown
+            # Derive multicast_enabled from the count for any legacy
+            # consumers that still read the flag.
+            state.multicast_enabled = len(state.multicast_selected_model_ids) >= 2
+
             (
                 ui.select(
                     all_model_options,
-                    value=current_chat_model,
-                    on_change=lambda e: _on_chat_model_changed(e.value, state),
+                    value=list(state.multicast_selected_model_ids),
+                    multiple=True,
+                    on_change=lambda e: asyncio.create_task(
+                        _on_chat_models_changed(e.value, state, multicast_count_label)
+                    ),
                 )
-                .props("dense dark")
-                .classes("min-w-[180px]")
+                .props("dense dark use-chips")
+                .classes("min-w-[260px]")
                 .style("font-size:11px;")
+            )
+
+            # Inline count label — tells the user whether the next send
+            # will be single-model or Multi-Cast Fusion. This replaces
+            # the old "Multi-Cast: ON/OFF" button.
+            _n = len(state.multicast_selected_model_ids)
+            _count_text = (
+                f"{_n} selected · Multi-Cast Fusion" if _n >= 2
+                else f"{_n} selected · Single-model" if _n == 1
+                else "0 selected · pick a model"
+            )
+            _count_color = C_AMBER if _n >= 2 else C_INK60
+            multicast_count_label = ui.label(_count_text).style(
+                f"font-size:10px; font-weight:600; color:{_count_color}; "
+                f"letter-spacing:0.5px; margin-left:8px; font-family:{F_MONO};"
             )
 
             ui.separator().props("vertical").style(f"margin:0 12px; color:{C_INK40};")
@@ -312,103 +370,6 @@ async def _ask_page_impl():
                 value=state.auto_save,
                 on_change=lambda e: asyncio.create_task(_on_auto_save_toggled(e.value, state)),
             ).style(f"color:{C_MUTED}; font-size:10px;")
-
-            ui.separator().props("vertical").style(f"margin:0 12px; color:{C_INK40};")
-
-            # Multi-Cast toggle — when on, the send handler dispatches the
-            # prompt to every selected text-gen slot concurrently via
-            # POST /beast/compare-models, then renders per-model answer
-            # cards plus a Beast synthesis card. This restores the original
-            # "send-to-many-then-synthesize" UX from earlier cycles.
-            multicast_btn = ui.button(
-                "Multi-Cast: OFF",
-                on_click=lambda: _toggle_multicast(state, multicast_btn, multicast_row),
-            ).props("dense flat").style(
-                f"color:{C_INK60 if not state.multicast_enabled else C_AMBER}; "
-                f"font-size:10px; font-weight:600; letter-spacing:0.5px;"
-            )
-
-        # ── Multi-Cast slot selection row (hidden when toggle is off) ──
-        # Populated from the already-loaded slots list, filtered to exclude
-        # the embedding slot (which is not a text-generation slot).
-        text_gen_slots = [s for s in slots if s.get("slot_name", "") != "embedding"]
-        # Pre-populate selected slots with the defaults that are actually present
-        if not state.multicast_selected_slots:
-            _DEFAULT_MC_SLOTS = ["synthesis", "evaluation", "beast"]
-            available_names = [s.get("slot_name", "") for s in text_gen_slots]
-            state.multicast_selected_slots = [n for n in _DEFAULT_MC_SLOTS if n in available_names]
-            # If no defaults matched, select all available
-            if not state.multicast_selected_slots and available_names:
-                state.multicast_selected_slots = list(available_names)
-
-        # Fetch enabled OpenRouter library models for the second checkbox
-        # group. These are model IDs (e.g. "deepseek/deepseek-v4-flash:free")
-        # managed by the Models page and cached via refresh_enabled_models().
-        library_model_ids = list(get_backend_enabled_models())
-
-        multicast_row = (
-            ui.row()
-            .classes("w-full items-center")
-            .style(
-                f"padding:8px 16px; background:{C_GROUND}; border-bottom:0.5px solid {C_INK40};"
-            )
-        )
-        # Set visibility via the proper NiceGUI API (not display:none in style,
-        # because .style() is additive and we couldn't cleanly toggle it back).
-        multicast_row.visible = state.multicast_enabled
-        with multicast_row:
-            ui.label("Multi-Cast Slots").style(
-                f"font-size:10px; font-weight:600; color:{C_AMBER}; letter-spacing:0.5px; margin-right:8px;"
-            )
-            if not text_gen_slots and not library_model_ids:
-                ui.label(
-                    "No Multi-Cast sources configured — needs ≥2. "
-                    "Enable models on the Models page or add [models.*] slots in config."
-                ).style(f"font-size:10px; color:{C_WARN_FG}; font-family:{F_MONO};")
-            else:
-                # Slot checkboxes (TOML-configured)
-                for s in text_gen_slots:
-                    sn = s.get("slot_name", "")
-                    model_id = s.get("model", f"<{sn}>")
-                    is_real = not (model_id.startswith("<") and model_id.endswith(">"))
-                    is_checked = sn in state.multicast_selected_slots
-                    (
-                        ui.checkbox(
-                            f"{sn}{' (' + model_id + ')' if is_real else ' (unconfigured)'}",
-                            value=is_checked,
-                            on_change=lambda e, name=sn: _toggle_multicast_slot(state, name, e.value),
-                        )
-                        .props("dense size=xs")
-                        .style(
-                            f"color:{C_AMBER if is_real else C_INK60}; "
-                            f"font-size:10px; font-family:{F_MONO};"
-                        )
-                    )
-
-                # Library model checkboxes (OpenRouter catalog, enabled via Models page)
-                if library_model_ids:
-                    ui.label("|").style(f"font-size:10px; color:{C_INK60}; margin:0 4px;")
-                    ui.label("Library:").style(
-                        f"font-size:10px; font-weight:600; color:{C_AMBER}; letter-spacing:0.5px; margin-right:4px;"
-                    )
-                    for mid in library_model_ids:
-                        is_checked = mid in state.multicast_selected_model_ids
-                        (
-                            ui.checkbox(
-                                mid,
-                                value=is_checked,
-                                on_change=lambda e, m=mid: _toggle_multicast_model_id(state, m, e.value),
-                            )
-                            .props("dense size=xs")
-                            .style(
-                                f"color:{C_CREAM}; font-size:10px; font-family:{F_MONO};"
-                            )
-                        )
-
-                total_selected = len(state.multicast_selected_slots) + len(state.multicast_selected_model_ids)
-                ui.label(f"{total_selected} selected").style(
-                    f"font-size:9px; color:{C_MUTED}; font-family:{F_MONO}; margin-left:8px;"
-                )
 
         # ── Direct model fallback banner ──────────────────────────
         if not state.backend_reachable:
@@ -450,11 +411,15 @@ async def _ask_page_impl():
                 )
 
         # ── Chat input ────────────────────────────────────────────
-        # The send handler dispatches based on the Multi-Cast toggle:
-        #   - multicast_enabled=False → normal single-model _send_prompt
-        #   - multicast_enabled=True  → multi-cast _send_multicast that
-        #     fans the prompt out to every selected slot via run_model_council
-        #     and renders per-model answer cards + a Beast synthesis card.
+        # The send handler auto-routes based on the count of selected
+        # models in the multi-select dropdown:
+        #   - 0 selected  → notify "pick a model" and bail
+        #   - 1 selected  → normal single-model _send_prompt (WS route,
+        #     uses the synthesis slot's configured model)
+        #   - ≥2 selected → Multi-Cast Fusion _send_multicast (POST
+        #     /beast/compare-models with skip_default_slots=True so
+        #     the ``beast`` slot is used ONLY for Judge+Synth, not as
+        #     a panel model).
         input_field = build_chat_input(
             state,
             chat_container,
@@ -501,7 +466,15 @@ async def _load_model_slots(state: GuiState) -> list[dict[str, Any]]:
 
 
 async def _on_chat_model_changed(model_id: str, state: GuiState) -> None:
-    """Handle chat model selection change — awaits backend confirmation."""
+    """Handle a single-model chat selection change — awaits backend confirmation.
+
+    Back-compat shim: the chat header now uses a multi-select dropdown
+    (see ``_on_chat_models_changed``). This function is preserved so the
+    back-compat test ``test_on_chat_model_changed_awaits_backend`` and
+    any external callers that still pass a single ``model_id`` string
+    continue to work. It sets the synthesis slot's model on the backend
+    so the WS chat route uses it for single-model chat.
+    """
     state.current_role = None
     set_role_model("synthesis", model_id)
     # Track in selected models
@@ -518,6 +491,79 @@ async def _on_chat_model_changed(model_id: str, state: GuiState) -> None:
     except Exception as exc:
         log.warning("model_slot_update_failed: %s", exc)
         ui.notify("Model slot change failed — backend may not have updated", color="warning")
+
+
+async def _on_chat_models_changed(
+    models: list[str] | str | None,
+    state: GuiState,
+    count_label: ui.label | None = None,
+) -> None:
+    """Handle the multi-select model dropdown change.
+
+    The dropdown is the single source of truth for which model(s) the
+    next send will use. The send handler auto-routes based on count:
+      - 0 selected  → notify user, fall back to first available
+      - 1 selected  → set the synthesis slot's model on the backend
+        (so WS chat route uses it) and notify "Single-model mode"
+      - ≥2 selected → Multi-Cast Fusion. No backend slot update is
+        needed — the multi-cast path sends ``selected_model_ids``
+        directly to ``POST /beast/compare-models`` with
+        ``skip_default_slots=True`` so the ``beast`` slot is used ONLY
+        for the Judge+Synth synthesis stages, not as a panel model.
+
+    ``models`` may be a list (the normal multi-select case) or a single
+    string (back-compat with callers that pass a scalar). ``None`` is
+    treated as "no selection".
+    """
+    # Normalize input — defensive against NiceGUI returning a scalar
+    # when ``multiple=True`` but the user clears the selection.
+    if models is None:
+        models_list: list[str] = []
+    elif isinstance(models, str):
+        models_list = [models]
+    else:
+        models_list = [m for m in models if isinstance(m, str) and m]
+
+    state.multicast_selected_model_ids = models_list
+    # Derive the legacy ``multicast_enabled`` flag for any consumer
+    # that still reads it.
+    state.multicast_enabled = len(models_list) >= 2
+    state.reset_session()
+
+    n = len(models_list)
+    # Update the inline count label so the user sees whether the next
+    # send will be single-model or Multi-Cast Fusion.
+    if count_label is not None:
+        if n >= 2:
+            count_label.text = f"{n} selected · Multi-Cast Fusion"
+            count_label.style(f"color:{C_AMBER}; font-size:10px; font-weight:600; letter-spacing:0.5px; font-family:{F_MONO};")
+        elif n == 1:
+            count_label.text = f"{n} selected · Single-model"
+            count_label.style(f"color:{C_INK60}; font-size:10px; font-weight:600; letter-spacing:0.5px; font-family:{F_MONO};")
+        else:
+            count_label.text = "0 selected · pick a model"
+            count_label.style(f"color:{C_INK60}; font-size:10px; font-weight:600; letter-spacing:0.5px; font-family:{F_MONO};")
+
+    # Single-model branch: keep the synthesis slot's configured model
+    # in sync with the dropdown so the WS chat route uses it. We reuse
+    # ``_on_chat_model_changed`` to get the backend update + notify +
+    # selected_models persistence for free.
+    if n == 1:
+        await _on_chat_model_changed(models_list[0], state)
+        return
+
+    if n >= 2:
+        ui.notify(
+            f"{n} models selected — next send will run Multi-Cast Fusion",
+            color="positive",
+        )
+        return
+
+    # n == 0: no model selected.
+    ui.notify(
+        "No model selected — pick at least one model from the dropdown",
+        color="warning",
+    )
 
 
 def _set_mode(mode: str, state: GuiState, label: ui.label) -> None:
@@ -542,70 +588,7 @@ async def _on_auto_save_toggled(enabled: bool, state: GuiState) -> None:
         ui.notify(f"Auto-save will be {status} for next session", color="info")
 
 
-# ── Multi-Cast helpers ─────────────────────────────────────────────────
-
-
-def _toggle_multicast(state: GuiState, btn: ui.button, row: ui.row) -> None:
-    """Toggle Multi-Cast mode on/off and update the UI accordingly.
-
-    When turning on, shows the slot selection row. When turning off, hides
-    it and falls back to the normal single-model send path.
-    """
-    state.multicast_enabled = not state.multicast_enabled
-    state.reset_session()
-    if state.multicast_enabled:
-        btn.text = "Multi-Cast: ON"
-        btn.style(f"color:{C_AMBER}; font-size:10px; font-weight:600; letter-spacing:0.5px;")
-        row.visible = True  # show the slot selection row
-        count = len(state.multicast_selected_slots)
-        if count < 2:
-            ui.notify(
-                f"Multi-Cast ON — select ≥2 slots ({count} selected)",
-                color="warning",
-            )
-        else:
-            ui.notify(
-                f"Multi-Cast ON — {count} slots selected",
-                color="positive",
-            )
-    else:
-        btn.text = "Multi-Cast: OFF"
-        btn.style(f"color:{C_INK60}; font-size:10px; font-weight:600; letter-spacing:0.5px;")
-        row.visible = False  # hide the slot selection row
-        ui.notify("Multi-Cast OFF — using normal single-model send", color="info")
-
-
-def _toggle_multicast_slot(state: GuiState, slot_name: str, checked: bool) -> None:
-    """Add or remove a slot from the multicast selection list."""
-    if checked and slot_name not in state.multicast_selected_slots:
-        state.multicast_selected_slots.append(slot_name)
-    elif not checked and slot_name in state.multicast_selected_slots:
-        state.multicast_selected_slots.remove(slot_name)
-    log.debug(
-        "multicast_slot_toggled slot=%s checked=%s selected=%s",
-        slot_name,
-        checked,
-        state.multicast_selected_slots,
-    )
-
-
-def _toggle_multicast_model_id(state: GuiState, model_id: str, checked: bool) -> None:
-    """Add or remove an OpenRouter library model ID from the multicast selection.
-
-    Parallel to ``_toggle_multicast_slot`` but operates on
-    ``state.multicast_selected_model_ids`` (model IDs from the
-    enabled_models SQLite library) instead of slot names.
-    """
-    if checked and model_id not in state.multicast_selected_model_ids:
-        state.multicast_selected_model_ids.append(model_id)
-    elif not checked and model_id in state.multicast_selected_model_ids:
-        state.multicast_selected_model_ids.remove(model_id)
-    log.debug(
-        "multicast_model_id_toggled model_id=%s checked=%s selected=%s",
-        model_id,
-        checked,
-        state.multicast_selected_model_ids,
-    )
+# ── Multi-Model send routing ───────────────────────────────────────────
 
 
 async def _dispatch_send(
@@ -617,19 +600,34 @@ async def _dispatch_send(
     beast_panel: BeastPanel,
     model_council_panel: ModelCouncilPanel,
 ) -> None:
-    """Dispatch the send action based on the Multi-Cast toggle.
+    """Dispatch the send action based on the number of selected models.
 
-    - multicast_enabled=False → normal single-model _send_prompt
-    - multicast_enabled=True  → multi-cast _send_multicast (≥2 slots required)
+    The multi-select dropdown is the single source of truth. The send
+    handler auto-routes — no separate "Multi-Cast" button click is
+    required:
+      - 0 selected  → notify user, bail
+      - 1 selected  → normal single-model _send_prompt (WS chat route,
+        uses the synthesis slot's configured model)
+      - ≥2 selected → Multi-Cast Fusion _send_multicast. Sends
+        ``selected_model_ids`` to ``POST /beast/compare-models`` with
+        ``selected_model_slots=[]`` and ``skip_default_slots=True`` so
+        the ``beast`` slot is used ONLY for the Judge+Synth synthesis
+        stages, not as a panel model. Models are NOT tied to actor
+        slots/roles — the user picks N models from the unified
+        "available models" pool, and the backend calls those N models
+        directly via OpenRouter.
     """
-    if state.multicast_enabled:
-        total_selected = len(state.multicast_selected_slots) + len(state.multicast_selected_model_ids)
-        if total_selected < 2:
-            ui.notify(
-                f"Multi-Cast requires ≥2 selected models — pick more in the header ({total_selected} selected)",
-                color="warning",
-            )
-            return
+    selected_models = list(state.multicast_selected_model_ids)
+    n_selected = len(selected_models)
+
+    if n_selected == 0:
+        ui.notify(
+            "No model selected — pick at least one model from the dropdown",
+            color="warning",
+        )
+        return
+
+    if n_selected >= 2:
         if not state.backend_reachable:
             ui.notify(
                 "Multi-Cast requires a live backend (POST /beast/compare-models)",
@@ -645,16 +643,18 @@ async def _dispatch_send(
             beast_panel,
             model_council_panel,
         )
-    else:
-        await _send_prompt(
-            state,
-            chat_container,
-            input_field,
-            source_panel,
-            trace_panel,
-            beast_panel,
-            model_council_panel,
-        )
+        return
+
+    # n_selected == 1: normal single-model chat path.
+    await _send_prompt(
+        state,
+        chat_container,
+        input_field,
+        source_panel,
+        trace_panel,
+        beast_panel,
+        model_council_panel,
+    )
 
 
 def _format_judge_analysis_markdown(judge_analysis: dict[str, Any]) -> str:
@@ -770,12 +770,24 @@ async def _send_multicast(
     beast_panel: BeastPanel,
     model_council_panel: ModelCouncilPanel,
 ) -> None:
-    """Send the prompt to every selected text-gen slot via POST /beast/compare-models.
+    """Send the prompt to every selected model via POST /beast/compare-models.
 
-    The backend calls each slot concurrently with the same prompt, then runs
-    Beast synthesis on the per-model responses. We render each per-model
-    answer as its own answer card, then render a final Beast Synthesis card
-    summarizing convergence / disagreements / risks / recommended decision.
+    The backend calls each selected model concurrently (all via direct
+    OpenRouter calls — they're sent as ``selected_model_ids`` from the
+    unified multi-select dropdown, NOT as TOML slot names), then runs
+    the two-stage Beast Fusion pipeline (Judge-Beast → Synth-Beast)
+    on the per-model responses. We render each per-model answer as its
+    own answer card, then render a final Beast Fusion synthesis card.
+
+    Per the "models not tied to actor slots/roles" rule:
+      - ``selected_model_slots=[]`` (always empty — no TOML slot names)
+      - ``skip_default_slots=True`` (so the backend does NOT auto-add
+        the default ``_DEFAULT_COMPARISON_SLOTS`` = synthesis/evaluation/
+        beast — the panel is built ONLY from the user's selection)
+      - ``selected_model_ids`` carries the N OpenRouter IDs picked in
+        the multi-select dropdown (could be 2, 5, any count)
+      - The ``beast`` slot is used ONLY for the Judge+Synth synthesis
+        stages (via ``_pick_fusion_engine``), NOT as a panel model.
 
     The synthesis is ADVISORY ONLY — never auto-approved.
     """
@@ -783,12 +795,16 @@ async def _send_multicast(
     if not prompt:
         return
 
-    selected_slots = list(state.multicast_selected_slots)
+    # Models come from the unified multi-select dropdown — they are
+    # OpenRouter IDs, not TOML slot names. We send them as
+    # ``selected_model_ids`` only; ``selected_model_slots`` is always []
+    # and ``skip_default_slots=True`` prevents the backend from
+    # auto-adding the default TOML slots (synthesis/evaluation/beast).
     selected_model_ids = list(state.multicast_selected_model_ids)
-    total_selected = len(selected_slots) + len(selected_model_ids)
+    total_selected = len(selected_model_ids)
     log.info(
-        "send_multicast: slots=%s model_ids=%s backend_reachable=%s prompt_len=%d",
-        selected_slots,
+        "send_multicast: model_ids=%s backend_reachable=%s prompt_len=%d "
+        "skip_default_slots=True",
         selected_model_ids,
         state.backend_reachable,
         len(prompt),
@@ -817,8 +833,9 @@ async def _send_multicast(
             session_id=session_id,
             existing_answer="",  # Pre-send mode: no existing answer to compare
             sources=[],
-            selected_model_slots=selected_slots,
+            selected_model_slots=[],  # Models NOT tied to actor slots/roles
             selected_model_ids=selected_model_ids,
+            skip_default_slots=True,  # Don't auto-add default TOML slots
         )
     except Exception as exc:
         log.exception("send_multicast: run_model_council failed: %s", exc)
@@ -837,25 +854,39 @@ async def _send_multicast(
         return
 
     if status == "insufficient_models":
-        err = result.get("error", "Insufficient text-generation slots")
+        err = result.get("error", "Insufficient models selected")
         add_system_message(chat_container, f"Multi-Cast unavailable: {err}")
         ui.notify(
-            "Multi-Cast needs ≥2 configured text-gen slots — see Models page",
+            "Multi-Cast needs ≥2 selected models — pick more in the dropdown",
             color="warning",
             timeout=8000,
         )
         return
 
     per_model = result.get("selected_models", [])
-    # Render one answer card per model that completed
+    # Render one answer card per model that completed.
+    # NOTE: in the new "models not tied to actor slots/roles" mode,
+    # every panelist comes via ``selected_model_ids`` (OpenRouter IDs),
+    # so ``model_slot`` is "" and ``source="library"`` for all of them.
+    # We render the per-model card with just the model_id as the label.
     completed_count = 0
     for pm in per_model:
         pm_status = pm.get("status", "unknown")
-        slot_name = pm.get("model_slot", "unknown")
+        slot_name = pm.get("model_slot", "")
         model_id = pm.get("model_id", "")
         answer = pm.get("answer", "")
         error = pm.get("error", "")
         latency = pm.get("latency_ms")
+
+        # Build a clean display label: prefer just the model_id; fall
+        # back to the slot name only when present (legacy callers that
+        # still send slot names — external API clients, not the GUI).
+        if model_id and slot_name:
+            display_label = f"{slot_name} ({model_id})"
+        elif model_id:
+            display_label = model_id
+        else:
+            display_label = slot_name or "unknown"
 
         if pm_status == "completed" and answer:
             completed_count += 1
@@ -863,7 +894,7 @@ async def _send_multicast(
                 "session_id": session_id,
                 "turn_id": "",  # No originating chat turn
                 "content": answer,
-                "model": f"{slot_name} ({model_id})",
+                "model": display_label,
                 "mode": "multicast",
                 "sources": [],
                 "trace_available": False,
@@ -874,7 +905,7 @@ async def _send_multicast(
             add_answer_card(
                 chat_container,
                 content=answer,
-                model=f"{slot_name} ({model_id})",
+                model=display_label,
                 latency_ms=latency,
                 sources=[],
                 trace_available=False,
@@ -893,7 +924,7 @@ async def _send_multicast(
         elif pm_status == "failed" and error:
             add_system_message(
                 chat_container,
-                f"Multi-Cast slot '{slot_name}' FAILED: {error[:200]}",
+                f"Multi-Cast model '{display_label}' FAILED: {error[:200]}",
             )
 
     # Render the Beast Fusion synthesis as a final answer card if available.
@@ -985,7 +1016,7 @@ async def _send_multicast(
 
     add_system_message(
         chat_container,
-        f"Multi-Cast complete — {completed_count}/{len(per_model)} slots returned, "
+        f"Multi-Cast complete — {completed_count}/{len(per_model)} models returned, "
         f"synthesis: {synthesis_status}",
     )
 

@@ -123,6 +123,17 @@ class ModelCouncilRequest(BaseModel):
 
     Both lists are merged for the comparison; the ``≥2 usable models``
     gate counts the combined total.
+
+    ``skip_default_slots`` (default ``False``): when ``True``, the
+    resolver returns ``[]`` for ``comparison_slots`` even if
+    ``selected_model_slots`` is empty — i.e. the panel is built ONLY
+    from ``selected_model_ids`` (OpenRouter library IDs). This is the
+    GUI's "models not tied to actor slots/roles" mode: the user picks
+    N models from the unified dropdown, the backend calls those N
+    models directly via OpenRouter, and the ``beast`` slot is used
+    ONLY for the Judge+Synth synthesis stages. Default ``False``
+    preserves the existing fallback (``_DEFAULT_COMPARISON_SLOTS``)
+    for external API clients and existing tests.
     """
 
     prompt: str
@@ -133,6 +144,7 @@ class ModelCouncilRequest(BaseModel):
     selected_model_slots: list[str] = Field(default_factory=list)
     selected_model_ids: list[str] = Field(default_factory=list)
     save_as_artifact: bool = False
+    skip_default_slots: bool = False
 
 
 class ModelCouncilResponse(BaseModel):
@@ -225,13 +237,28 @@ def _prepend_soul(system_prompt: str, soul_text: str) -> str:
 def _resolve_comparison_slots(
     model_provider: Any,
     requested_slots: list[str] | None = None,
+    *,
+    skip_default_slots: bool = False,
 ) -> list[str]:
     """Determine which slots to use for comparison.
 
     Filters out embedding and non-dict slots. If caller specifies slots,
     uses those (after filtering). Otherwise uses default text-generation
     slots that are actually configured.
+
+    When ``skip_default_slots=True`` AND ``requested_slots`` is empty/None,
+    returns ``[]`` immediately without falling back to
+    ``_DEFAULT_COMPARISON_SLOTS``. This is the GUI's "models not tied to
+    actor slots/roles" mode: the panel is built ONLY from
+    ``selected_model_ids`` (OpenRouter library IDs) and the ``beast``
+    slot is used ONLY for the Judge+Synth synthesis stages.
     """
+    # Short-circuit: GUI explicitly opts out of default slot fallback.
+    # The panel will be built entirely from ``selected_model_ids`` by
+    # the caller (compare_models).
+    if skip_default_slots and not requested_slots:
+        return []
+
     try:
         available = model_provider.list_slots()
     except Exception:
@@ -477,8 +504,16 @@ async def compare_models(
     # ``comparison_slots`` is [] when model_provider is None or when no
     # slots are configured. Library model IDs are processed independently
     # and don't require a model_provider.
+    # When ``request.skip_default_slots`` is True (GUI multi-select mode),
+    # the resolver returns [] instead of falling back to
+    # ``_DEFAULT_COMPARISON_SLOTS`` — the panel is built ONLY from
+    # ``request.selected_model_ids`` (OpenRouter library IDs).
     if container.model_provider is not None:
-        comparison_slots = _resolve_comparison_slots(container.model_provider, request.selected_model_slots)
+        comparison_slots = _resolve_comparison_slots(
+            container.model_provider,
+            request.selected_model_slots,
+            skip_default_slots=request.skip_default_slots,
+        )
     else:
         comparison_slots = []
 
