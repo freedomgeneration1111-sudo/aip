@@ -737,3 +737,23 @@ Test results:
 - 19 new tests in test_panel_dispatch_remediation.py — all pass
 - 199 existing model_council + augmented_context + ask tests — all pass
 - 312 total focused suite — 312 passed, 1 pre-existing failure (/graph nav route — unrelated)
+
+---
+Task ID: fusion-stocktake-2026-06-17-pre-phase2
+Agent: Super Z (main)
+Task: Take stock of fusion plan progress before proceeding with Phase 2. Report current state in-thread.
+
+Work Log:
+- Pulled latest from fix/operator-console-status-seed-graph — already up to date at b4d9cf8
+- Verified Phase 1 retrieval bridge is in place end-to-end: _augmented_context.py exists (NEW), chat.py refactored to call helper (4 references), model_council.py wires helper when assemble_augmented_context=True (8 references), api_client.py forwards flag (4 references), ask.py sends turn_id + flag when augmented (4 references)
+- Verified Bug 1 + Bug 2 remediation is in place: _PANEL_SYSTEM_PROMPT + panel_system_prompt kwarg + [PANEL] Dispatching/Response/FAILED log lines + DISPATCH_ERROR stubs (20 references in model_council.py)
+- Verified Phase 2 structural deliverables already done: Judge+Synth split, blind_spots, partial_coverage, unique_insights (31 refs in model_council.py, 21 in panel, 18 in ask.py)
+- Verified Phase 2 remaining items NOT done: compression pass (0 references to compress_panel_outputs), dedicated [models.judge] slot (not in config.toml), PDF Part IX Phase 2 test suite (test_model_council_fusion_phase2.py does not exist)
+- Ran smoke test on the 5 most recent test files: 121 passed, 0 failed
+
+Stage Summary:
+- Phase 1: COMPLETE end-to-end (retrieval bridge + fusion pipeline + GUI rendering + panel dispatch remediation)
+- Phase 2: 4 of 5 structural improvements done (Judge/Synth split + blind_spots + partial_coverage + unique_insights). Remaining: augmented bridge ACTIVATION testing (done structurally, awaiting dogfood), compression pass, PDF Part IX test suite
+- Phase 3: NOT STARTED (per-model attribution badges polish, dedicated [models.judge] slot, optional config)
+- Test inventory: 8 test files, 6,075 total lines, all green
+- Ready to proceed with Phase 2 remaining work: (a) manual dogfood verification of the AIP-acronym fix, (b) Step 2-C PDF Part IX test suite, (c) Step 2-D compression pass (optional, can defer to Phase 3)
