@@ -101,12 +101,19 @@ the roadmap, update both documents.
 **Remaining gap:** ~1.8% embedding coverage (50/2766 turns). Full pass requires DEBT-006 fix.
 
 ### 1.5 Multi-Corpus Architecture
-- 🔲 Corpus registry in config (named corpora with db_path)
-- 🔲 --corpus flag on aip corpus ingest
-- 🔲 Query-time corpus selection in augmented chat
-- 🔲 Branham research corpus (1200 sermons + books + critic sites)
-- 🔲 NBCM citations corpus (academic papers across relevant domains)
-- SEE: ADR-004-multi-corpus-architecture.md
+- ⏳ **IN PROGRESS — ADR-008 Rev 3.1** (supersedes ADR-004). 9-chunk sequence:
+  - ✅ Chunk 1: Foundation types + ECS ARCHIVED state (complete, 43 tests)
+  - 🔲 Chunk 2: CorpusRegistry + Factory (includes 2a shared connection manager — APPROVED, 2b migration runner, 2c 5-scheduler gate)
+  - 🔲 Chunk 8: ECS/ArtifactStore per corpus (delete_turn, artifact_turn_links, durable outbox, revision_parent_id, aip audit log)
+  - 🔲 Chunk 3: Call-site migration (264 sites / 21 files)
+  - 🔲 Chunk 4: Retrieval scoping (fusion-layer ECS filter, Branham allowlist threading)
+  - 🔲 Chunk 5: Session/project binding + custom-channel scoping
+  - 🔲 Chunk 6: Graph bridge edges + actor GraphStore refactor
+  - 🔲 Chunk 7: Code corpus ingest (AST parser — delivers Phase 1.6)
+  - 🔲 Chunk 9: Acceptance suite + aip corpus migrate --force + aip backup (strategy A default)
+- 🔲 Branham research corpus (1200 sermons + books + critic sites) — post-Chunk 9
+- 🔲 NBCM citations corpus (academic papers across relevant domains) — post-Chunk 9
+- SEE: `docs/decisions/ADR-008-multi-corpus-architecture-rev3.md` + Amendment (supersedes ADR-004)
 
 ---
 
@@ -297,3 +304,4 @@ Remaining items:
 | 2026-06-10 | Sprint 6.4 completion; maintenance mode     | Claude + Moses |
 | 2026-06-10 | Alpha test release; documentation refresh   | Claude + Moses |
 | 2026-06-17 | Phase 6: Fusion pipeline complete; Phase 1.6 proposed; DEBT-006 reference fixed | Super Z |
+| 2026-06-18 | ADR-008 Multi-Corpus Chunk 1 complete: ARCHIVED terminal state added to ECS graph, 4 foundation files created, 43 tests. Phase 1.5 marked IN PROGRESS. | GLM (Coding Agent) |

@@ -15,7 +15,10 @@ These apply everywhere in the codebase. Violation = blocker.
 - **§1.7 — No bypass**: No UI, workflow, Beast cadence, MCP call, or queued task
   may promote an artifact without explicit DEFINER approval. This is absolute.
 - **ECS lifecycle is unidirectional**: SPECIFIED → GENERATED → REVIEWED → APPROVED → SUPERSEDED.
-  No reverse transitions. No skip transitions.
+  No reverse transitions. No skip transitions. **ARCHIVED** is a second terminal state
+  (ADR-008 Rev 3.1): reachable from GENERATED/REVIEWED/APPROVED, means content withdrawn
+  from retrieval while remaining on disk for revision history. Both ARCHIVED and
+  SUPERSEDED are terminal — no exits from either.
 - **No silent model calls**: A model call that cannot dispatch must return
   NEEDS_CONFIGURATION, not a placeholder string or empty result.
 - **Async-safe storage**: All SQLite access uses `aiosqlite`. No `sqlite3.connect()`

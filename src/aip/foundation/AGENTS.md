@@ -20,7 +20,7 @@ truth for domain contracts. If something should be true everywhere, it is define
 ## Contracts (What This Module Promises to Consumers)
 
 ### Protocol Interface Contract (Consumed by orchestration AND adapter)
-The 9 Protocol interfaces in `protocols/` are the ONLY legal seam between
+The 10 Protocol interfaces in `protocols/` are the ONLY legal seam between
 orchestration and adapter. Any cross-layer communication MUST go through one of these:
 
 | Protocol | File | Consumers |
@@ -33,6 +33,7 @@ orchestration and adapter. Any cross-layer communication MUST go through one of 
 | `BudgetProvider` | `protocols/budget.py` | Budget tracking |
 | `KnowledgeProvider` | `protocols/knowledge.py` | Knowledge store |
 | `PluginProvider` | `protocols/plugin.py` | Plugin system |
+| `CorpusRegistryProtocol` | `protocols/corpus_registry.py` | Multi-corpus store access (ADR-008) |
 | (reserved) | `protocols/__init__.py` | Protocol registry |
 
 **Adding a new Protocol**: Define here first, then implement in adapter,
@@ -41,6 +42,15 @@ then consume in orchestration. Never add a concrete implementation in foundation
 ### ECS State Machine Contract (Consumed by ALL pipelines)
 - `ecs_graph.py` is the GOLD STANDARD for all lifecycle transitions
 - ECS transitions: SPECIFIED → GENERATED → REVIEWED → APPROVED → SUPERSEDED
+- **ARCHIVED** is a second terminal state (ADR-008 Rev 3.1 §5.1):
+  - Reachable from GENERATED, REVIEWED, APPROVED (NOT from SPECIFIED)
+  - Semantic: content withdrawn from retrieval while remaining on disk for
+    revision-history traversal (e.g., old manuscript chapter draft)
+  - SUPERSEDED = canonical artifact made obsolete by a conceptual replacement
+  - Both ARCHIVED and SUPERSEDED are terminal — no exits from either
+- `TERMINAL_STATES` frozenset: `{"ARCHIVED", "SUPERSEDED"}`
+- `RETRIEVAL_EXCLUDED_STATES` (in `corpus_types.py`): `{"ARCHIVED", "SUPERSEDED"}` —
+  turns whose latest ECS state is here are hidden from default retrieval
 - **No reverse transitions. No skip transitions.** These are governance invariants.
 - Pipelines MUST NOT implement their own transition logic — call `ecs_graph.py` only
 - Changing transitions requires updating `tests/test_ecs_graph.py` first
@@ -91,8 +101,27 @@ foundation/schemas/ (14 domain schemas)
   with `ecs_graph.py`, the pipeline is wrong. Always defer to the graph.
 - **Schema field additions require test updates**: Every test that constructs a
   schema will need the new field. Add it with a default value if possible.
+- **ARCHIVED vs SUPERSEDED** (ADR-008 Rev 3.1): both are terminal, but they have
+  different semantics. ARCHIVED = content withdrawn from retrieval (revision
+  history preserved, turn row stays on disk). SUPERSEDED = canonical artifact
+  made obsolete by a conceptual replacement. Book revisions use ARCHIVED, not
+  SUPERSEDED. Don't conflate them.
+- **ECS states are strings, not Enum**: the codebase uses plain strings throughout
+  (`validate_transition(from_state: str, to_state: str)`). Do NOT introduce an
+  EcsState enum — it would force a rewrite of `ecs_store_persistent.py:188` and
+  `artifact_lifecycle.py:180`. The `CorpusType` and `CorpusDeletionState` enums
+  in `corpus_types.py` ARE enums (they're new, no backward-compat constraint).
 
 ## Last Cycle
+- **ADR-008 Multi-Corpus Chunk 1** (this cycle): Added ARCHIVED terminal state to
+  `ecs_graph.py` (second terminal alongside SUPERSEDED). Added 4 new foundation
+  files for the multi-corpus architecture: `corpus_types.py` (CorpusType,
+  CorpusDeletionState enums, RETRIEVAL_EXCLUDED_STATES, MIGRATIONS_FOR_CORPUS_TYPE),
+  `corpus_exceptions.py` (7 corpus-layer exceptions), `corpus_constants.py`
+  (connection budget + Sexton batch constants), `protocols/corpus_registry.py`
+  (CorpusRegistryProtocol + ReviewItem dataclass). All backward-compatible —
+  existing 15 consumers of `ecs_graph.py` unaffected. 43 new tests in
+  `tests/test_corpus_foundation.py`. See ADR-008 Rev 3.1 Amendment §A0–A16.
 - **Commit 14d3a73**: No changes to foundation layer. This layer was stable
   during the operator console debugging cycle.
 
@@ -103,8 +132,12 @@ Changes here have system-wide blast radius. Review all Protocol consumers before
 ## Key Files
 | File | Role |
 |------|------|
-| `ecs_graph.py` | Declarative ECS state machine — gold standard for all lifecycle transitions |
-| `protocols/` | 9 Protocol interfaces for dependency injection — the adapter/orchestration seam |
+| `ecs_graph.py` | Declarative ECS state machine — gold standard for all lifecycle transitions. Now includes ARCHIVED terminal state (ADR-008 Rev 3.1) |
+| `corpus_types.py` | ADR-008: CorpusType, CorpusDeletionState enums, RETRIEVAL_EXCLUDED_STATES, MIGRATIONS_FOR_CORPUS_TYPE |
+| `corpus_exceptions.py` | ADR-008: 7 corpus-layer exceptions (CorpusError base + 6 subclasses) |
+| `corpus_constants.py` | ADR-008: connection budget constants (MAX_CONNECTIONS, MAX_CORPORA, pool sizes) + Sexton batch constants |
+| `protocols/` | 10 Protocol interfaces for dependency injection — the adapter/orchestration seam (now includes CorpusRegistryProtocol) |
+| `protocols/corpus_registry.py` | ADR-008: CorpusRegistryProtocol + ReviewItem dataclass — multi-corpus store access interface |
 | `schemas/` | Dataclass definitions: ingestion, ask, review, export, artifact, etc. (14 schemas) |
 | `validation.py` | Structural validation rules — used by orchestration before any pipeline step |
 | `source_types.py` | Source type definitions for ingestion pipeline |
@@ -123,6 +156,7 @@ Changes here have system-wide blast radius. Review all Protocol consumers before
 ```bash
 uv run pytest tests/test_foundation.py
 uv run pytest tests/test_ecs_graph.py
+uv run pytest tests/test_corpus_foundation.py  # ADR-008 multi-corpus types
 uv run pytest tests/test_validation.py
 uv run ruff check src/aip/foundation/
 ```

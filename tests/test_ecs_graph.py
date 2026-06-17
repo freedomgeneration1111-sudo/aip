@@ -30,6 +30,11 @@ def test_invalid_transitions_raise():
         ("APPROVED", "GENERATED"),  # cannot go back
         ("SUPERSEDED", "APPROVED"),  # terminal state
         ("SUPERSEDED", "SPECIFIED"),  # terminal state
+        # ARCHIVED transitions — ADR-008 Rev 3.1 §5.1
+        ("SPECIFIED", "ARCHIVED"),  # cannot archive before generation
+        ("ARCHIVED", "GENERATED"),  # terminal state
+        ("ARCHIVED", "APPROVED"),  # terminal state
+        ("ARCHIVED", "SPECIFIED"),  # terminal state
     ]
     for from_state, to_state in invalid:
         with pytest.raises(InvalidTransitionError):
@@ -45,8 +50,21 @@ def test_superseded_is_terminal():
     assert is_terminal("SUPERSEDED")
 
 
+def test_archived_is_terminal():
+    """ARCHIVED is a terminal state — ADR-008 Rev 3.1 §5.1."""
+    assert is_terminal("ARCHIVED")
+
+
+def test_archived_valid_transitions():
+    """GENERATED, REVIEWED, APPROVED can all transition to ARCHIVED — ADR-008 Rev 3.1 §5.1."""
+    # These should NOT raise
+    validate_transition("GENERATED", "ARCHIVED")
+    validate_transition("REVIEWED", "ARCHIVED")
+    validate_transition("APPROVED", "ARCHIVED")
+
+
 def test_all_states_accounted_for():
-    expected = {"SPECIFIED", "GENERATED", "REVIEWED", "APPROVED", "SUPERSEDED", "FAILED", "REJECTED"}
+    expected = {"SPECIFIED", "GENERATED", "REVIEWED", "APPROVED", "SUPERSEDED", "FAILED", "REJECTED", "ARCHIVED"}
     assert ALL_STATES == expected
 
 

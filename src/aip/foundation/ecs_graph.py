@@ -2,6 +2,17 @@
 
 Single source of truth for artifact lifecycle state machine.
 No storage, no I/O — pure validation logic in foundation layer.
+
+ADR-008 Rev 3.1 §5.1: ARCHIVED added as a second terminal state alongside
+SUPERSEDED. Semantic distinction:
+  - SUPERSEDED = canonical artifact made obsolete by a conceptual replacement
+  - ARCHIVED   = content intentionally withdrawn from retrieval (e.g., an
+                 old manuscript chapter draft replaced by a new revision),
+                 while remaining on disk for revision-history traversal.
+
+Both are terminal — no exits from either state. ARCHIVED is reachable from
+GENERATED, REVIEWED, and APPROVED (but NOT from SPECIFIED — you cannot
+archive something that has not been generated yet).
 """
 
 from __future__ import annotations
@@ -9,16 +20,20 @@ from __future__ import annotations
 # Declarative ECS state graph
 VALID_TRANSITIONS: dict[str, set[str]] = {
     "SPECIFIED": {"GENERATED"},
-    "GENERATED": {"REVIEWED", "REJECTED", "FAILED"},
-    "REVIEWED": {"APPROVED", "REJECTED"},
+    "GENERATED": {"REVIEWED", "REJECTED", "FAILED", "ARCHIVED"},
+    "REVIEWED": {"APPROVED", "REJECTED", "ARCHIVED"},
     "REJECTED": {"GENERATED"},  # re-synthesis loop
-    "APPROVED": {"SUPERSEDED"},
+    "APPROVED": {"SUPERSEDED", "ARCHIVED"},
     "FAILED": {"SPECIFIED"},  # re-specify after failure
     "SUPERSEDED": set(),  # terminal state
+    "ARCHIVED": set(),  # terminal — content withdrawn from retrieval (ADR-008 Rev 3.1)
 }
 
 # All known states
 ALL_STATES: set[str] = set(VALID_TRANSITIONS.keys())
+
+# Terminal states (no outgoing transitions) — ADR-008 Rev 3.1 §5.1
+TERMINAL_STATES: frozenset[str] = frozenset({state for state, targets in VALID_TRANSITIONS.items() if not targets})
 
 
 class InvalidTransitionError(Exception):

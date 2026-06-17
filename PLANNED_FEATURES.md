@@ -83,6 +83,32 @@ These are genuine gaps worth pursuing. They are NOT yet implemented.
 
 ---
 
+## Status: In Progress (ADR-008 Multi-Corpus Architecture)
+
+ADR-008 Rev 3.1 (with Amendment) is the active implementation. The 9-chunk sequence
+is strictly ordered: 1 → 2 → 8 → 3 → 4 → 5 → 6 → 7 → 9. Sub-chunk 2a (shared
+per-corpus connection manager) is APPROVED. Backup strategy A (pause-and-snapshot)
+is the implementation default.
+
+| Chunk | Name | Status |
+|-------|------|--------|
+| 1 | Foundation types + ECS graph extension (ARCHIVED state) | ✅ Complete — 43 tests, 10 ECS graph tests, backward-compatible |
+| 2 | CorpusRegistry + CorpusStoreFactory (adapter) | 🔲 Next |
+| 2a | Per-corpus shared connection manager (APPROVED) | 🔲 Part of Chunk 2 |
+| 2b | Migration runner outside `_create_tables` | 🔲 Part of Chunk 2 |
+| 2c | 5-scheduler migration gate in `app.py` | 🔲 Part of Chunk 2 |
+| 8 | ECS/ArtifactStore per corpus | 🔲 Pending |
+| 3 | Call-site migration (264 sites / 21 files) | 🔲 Pending |
+| 4 | Retrieval scoping (fusion-layer ECS filter) | 🔲 Pending |
+| 5 | Session/project binding + custom-channel scoping | 🔲 Pending |
+| 6 | Graph bridge edges + actor GraphStore refactor | 🔲 Pending |
+| 7 | Code corpus ingest (AST parser) | 🔲 Pending — delivers Phase 1.6 below |
+| 9 | Acceptance suite + `aip corpus migrate --force` + `aip backup` rewrite | 🔲 Pending |
+
+See `docs/decisions/ADR-008-multi-corpus-architecture-rev3.md` + Amendment for full spec.
+
+---
+
 ## Status: Long-Term (roadmap — not immediate)
 
 These are architecturally significant features that are designed but not
@@ -99,7 +125,7 @@ contains everything Moses has *thought and said* about the codebase
 - **Cross-graph edges**: A conversation turn that *references* a specific function gets a `references` edge. An ADR that *decided* a code pattern gets a `decided` edge. The graph answers: "what conversations informed this function?" and "what code exists for this architectural decision?"
 - **Implementation**: Python AST → CorpusTurn format parser. The underlying store, tagging, embedding, and graph infrastructure handle it without changes. Each "turn" = a function/class/module with `searchable_text` = module path + docstring + signature + inline comments + associated test names.
 - **Critical detail**: code changes continuously (conversation corpus is append-only and stable). The code corpus needs a re-ingest trigger — CI hook on commit OR Sexton file-watcher that detects `.py` changes and queues a re-parse pass. Without this, the code corpus ages out of sync immediately.
-- **Fits**: ADR-004's multi-corpus model (`corpora/codebase/state.db`).
+- **Fits**: ADR-008's multi-corpus architecture (supersedes ADR-004). The code corpus is one of 4 corpus types (`code`/`codeforge`) alongside `conversation`/definer, `document`/branham, and `book`/sparkle_thirst. ADR-008 Chunk 7 implements the AST parser.
 - **Retrieval implication**: cross-corpus RRF fusion across conversation AND code simultaneously. A query about DEBT-006 would return both the roadmap mention AND the actual `sexton.py` file AND the `app.py` call site.
 
 ### Adaptive Per-Query Retrieval Weighting
@@ -134,6 +160,7 @@ be an enhancement over the current PersonalizedPageRank approach.
 | 2026-06-17 | Created file. Seeded with all items from the dogfood run + Claude analysis. | Super Z (main) |
 | 2026-06-17 | Moved 3 Phase 4.1 features (provenance widget, context visualizer, consistency checker) from Near-Term to Already Built. | Super Z (main) |
 | 2026-06-17 | Global docs hardening pass — cross-referenced ROADMAP.md Phase 6 + Phase 1.6. Added DEBT-010 (TracePanel right_drawer) to TECH_DEBT.md. | Super Z (main) |
+| 2026-06-18 | ADR-008 Multi-Corpus Chunk 1 complete: added ARCHIVED terminal state to ECS graph, created 4 foundation files (corpus_types, corpus_exceptions, corpus_constants, protocols/corpus_registry), 43 new tests. Added "In Progress" section tracking the 9-chunk sequence. Updated Codebase-as-Corpus to reference ADR-008 (supersedes ADR-004). | GLM (Coding Agent) |
 
 ---
 
