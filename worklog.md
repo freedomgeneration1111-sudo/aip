@@ -790,3 +790,44 @@ Test results:
 - 9 new tests in test_compress_panel_outputs.py — all pass
 - 312 existing tests — all pass
 - 330 total focused suite — 330 passed, 1 pre-existing failure (/graph nav route — unrelated)
+
+---
+Task ID: phase3-polish-2026-06-17
+Agent: Super Z (main)
+Task: Ship Phase 3 polish — per-model attribution badges, stance color-coding, dedicated [models.judge] slot, GUI compress toggle. Follow the coding protocol strictly: Orient → Contract Check → Code → Verify → Document.
+
+Work Log:
+- Orient: re-read gui/AGENTS.md (Multi-Model dropdown contract + Layer discipline); mapped model_council_panel.py structure (_render_judge_analysis at L665, contradictions at L756, unique_insights at L817); mapped ask.py _format_judge_analysis_markdown (L690); mapped model_council.py _pick_fusion_engine (L1495) + _EXCLUDED_SLOTS (L63); checked theme.py for available colors (C_AMBER, C_OK_FG, etc.); checked config/aip.config.toml [models.*] sections; checked config/AGENTS.md section ownership table
+- Contract Check: Phase 3a/b producer = judge_analysis.analysis.unique_insights[].model + contradictions[].stances[].model → consumers = ModelCouncilPanel._render_judge_analysis + ask.py._format_judge_analysis_markdown. New _model_color() helper (panel) + _model_color_markdown() helper (ask.py) must use IDENTICAL palettes (contract: change one, change both). Phase 3c producer = config [models.judge] → consumer = _pick_fusion_engine (new preference 0). New model_provider kwarg on _pick_fusion_engine (default None — backward compat). Phase 3d producer = state.compress_panel_outputs → consumer = api_client.run_model_council payload → ModelCouncilRequest.compress_panel_outputs (already exists from Step 2-D).
+- Code Phase 3a + 3b: added _MODEL_COLOR_PALETTE (8 colors) + _model_color() deterministic helper to model_council_panel.py. Updated _render_judge_analysis: unique_insights renders model label as colored badge (background + monospace + rounded corners); contradictions stances render model label with colored text + left border. Added _model_color_markdown() helper to ask.py (mirrors the panel palette — same label → same color). Updated _format_judge_analysis_markdown: unique_insights renders HTML <span> badge with background color; contradictions stance table renders HTML <span> with colored text + border-left.
+- Code Phase 3c: added 'judge' to _EXCLUDED_SLOTS (never a panelist). Updated _pick_fusion_engine with new preference 0: when model_provider has a configured 'judge' slot (real model, not placeholder), return ('slot', 'judge'). Added model_provider kwarg (default None — backward compat). Updated compare_models call site to pass container.model_provider. Added commented [models.judge] example to config/aip.config.toml with AIP_JUDGE_API_KEY env var override.
+- Code Phase 3d: added compress_panel_outputs: bool = False field to GuiState. Added compress_panel_outputs param to api_client.run_model_council + payload key. Added "Compress" checkbox to Ask page chat header (between Auto-save and the right edge) with tooltip. Wired _send_multicast to pass compress_panel_outputs=state.compress_panel_outputs.
+- Verify: 24 new tests in tests/test_phase3_polish.py — all pass. Full focused suite: 354 passed, 1 pre-existing failure (test_no_dead_nav_items /graph route — unrelated).
+- Document: updated src/aip/adapter/AGENTS.md — added "Dedicated Judge Slot Contract (Phase 3c)" section + Last Cycle entry. Updated gui/AGENTS.md — Last Cycle entry covering 3a/3b/3d. Updated config/AGENTS.md — added 'judge' to [models] section ownership table + AIP_JUDGE_API_KEY to env var override list. Updated worklog.md (this entry).
+
+Stage Summary:
+- Phase 3 COMPLETE. All 4 deliverables shipped:
+  3a. Per-model attribution badges on unique_insights[] (panel + markdown)
+  3b. Per-model stance color-coding on contradictions[] (panel + markdown)
+  3c. Dedicated [models.judge] TOML slot (preference 0 in _pick_fusion_engine)
+  3d. GUI toggle for compress_panel_outputs (state + api_client + ask.py header)
+- The Fusion pipeline is now feature-complete across all 3 phases (Phase 1 retrieval bridge + fusion pipeline + panel dispatch remediation; Phase 2 Judge/Synth split + blind_spots + partial_coverage + unique_insights + compression pass + PDF Part IX test suite; Phase 3 polish).
+- Backward compat preserved: all new fields default to False/None; existing tests, external API clients, and the current GUI (with Compress OFF + no [models.judge] configured) see no behavior change.
+
+Files changed:
+- MODIFY: gui/components/model_council_panel.py (_MODEL_COLOR_PALETTE + _model_color() helper + unique_insights badges + contradictions stance color-coding)
+- MODIFY: gui/pages/ask.py (_model_color_markdown() helper + unique_insights HTML span badges + contradictions stance HTML span color-coding + Compress checkbox in header + _send_multicast passes compress_panel_outputs)
+- MODIFY: gui/state.py (compress_panel_outputs field)
+- MODIFY: gui/api_client.py (compress_panel_outputs param + payload key)
+- MODIFY: src/aip/adapter/api/routes/model_council.py (_EXCLUDED_SLOTS includes 'judge' + _pick_fusion_engine preference 0 for judge slot + model_provider kwarg + compare_models passes container.model_provider)
+- MODIFY: config/aip.config.toml (commented [models.judge] example)
+- MODIFY: src/aip/adapter/AGENTS.md (Dedicated Judge Slot Contract section + Last Cycle)
+- MODIFY: gui/AGENTS.md (Last Cycle)
+- MODIFY: config/AGENTS.md (judge in [models] table + AIP_JUDGE_API_KEY in env var list)
+- NEW: tests/test_phase3_polish.py (24 tests)
+- MODIFY: worklog.md (this entry)
+
+Test results:
+- 24 new tests in test_phase3_polish.py — all pass
+- 330 existing tests — all pass
+- 354 total focused suite — 354 passed, 1 pre-existing failure (/graph nav route — unrelated)

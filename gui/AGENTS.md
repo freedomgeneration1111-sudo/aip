@@ -232,7 +232,32 @@ sexton.py (_embedding_backfill_state, _rate_limited)
   unavailable/failed" instead of just "Beast synthesis".
 
 ## Last Cycle
-- **Phase 1 retrieval bridge — Step 2-B GUI wiring (this cycle)**:
+- **Phase 3 polish (this cycle)**: shipped all 4 Phase 3 deliverables.
+  Phase 3a + 3b: per-model attribution badges on `unique_insights[]` +
+  per-model stance color-coding on `contradictions[]`. Added
+  `_model_color()` helper + `_MODEL_COLOR_PALETTE` (8-color
+  deterministic palette) to `model_council_panel.py`. The panel renders
+  the model label as a colored badge (background + monospace + rounded
+  corners) for unique_insights, and as colored text + left border for
+  contradictions stances. `ask.py::_model_color_markdown()` mirrors the
+  palette (contract: change one, change both) and renders the same
+  badges as HTML `<span>` elements in the markdown answer card. The
+  same model label always gets the same color across both renderers +
+  across all Judge analysis sections — the human can visually track a
+  model's contributions without reading the label every time. Phase 3d:
+  GUI toggle for `compress_panel_outputs` — `GuiState.compress_panel_outputs`
+  field (default False); Ask page chat header has a "Compress" checkbox
+  with tooltip between Auto-save and the right edge. When ON, the
+  Multi-Cast send handler passes `compress_panel_outputs=True` to
+  `run_model_council` — the backend summarizes each panelist's answer
+  to 5-8 key claims before the Judge reads them. Only applies when
+  ≥2 models are selected. `api_client.run_model_council` forwards the
+  flag; `_send_multicast` reads `state.compress_panel_outputs`. 24 new
+  tests in `tests/test_phase3_polish.py` verify the color helpers are
+  deterministic + mirrored, the panel + markdown use `_model_color` /
+  `_model_color_markdown` in the right sections, and the GUI toggle
+  wiring is correct end-to-end.
+- **Phase 1 retrieval bridge — Step 2-B GUI wiring (prior cycle)**:
   `_send_multicast` in `gui/pages/ask.py` now sends
   `assemble_augmented_context=(state.current_mode == 'augmented')`
   AND `turn_id=session_id` (when augmented) / `turn_id=""` (when

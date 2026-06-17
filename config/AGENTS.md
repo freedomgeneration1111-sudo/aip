@@ -33,7 +33,7 @@ against the owner module:
 | `[beast]` | `orchestration/actors/beast.py` | health_check_interval, corpus_reindex_interval, entity_maintenance_interval |
 | `[review]` | `orchestration/review_export_pipeline.py` | faithfulness_threshold, coherence_threshold, definer_approval |
 | `[sexton]` | `orchestration/actors/sexton.py` | classification_batch_size, classification_interval_seconds, embed_delay_seconds |
-| `[models]` | `adapter/model_slot_resolver.py` | Per-slot provider/model config: synthesis, evaluation, sexton, embedding, beast |
+| `[models]` | `adapter/model_slot_resolver.py` | Per-slot provider/model config: synthesis, evaluation, sexton, embedding, beast, judge (optional, Phase 3c) |
 | `[chat]` | `orchestration/ask_pipeline.py` | system_prompt_path, max_context_turns, auto_summarize_at |
 | `[mcp]` | `adapter/mcp/` | enabled, transport, max_concurrent_tools |
 | `[performance]` | Various | profiling_enabled, max_memory_mb, retrieval_timeout, batch_embed_size |
@@ -51,7 +51,7 @@ AIP_SYNTHESIS_MODEL        → synthesis model name string
 AIP_SYNTHESIS_API_KEY      → synthesis model API key (never in TOML)
 AIP_OLLAMA_BASE_URL        → Ollama endpoint (default: http://localhost:11434)
 AIP_<SLOT>_BASE_URL        → per-slot provider URL override
-AIP_<SLOT>_API_KEY        → per-slot API key override (SLOT = SYNTHESIS, EVALUATION, SEXTON, EMBEDDING, BEAST)
+AIP_<SLOT>_API_KEY        → per-slot API key override (SLOT = SYNTHESIS, EVALUATION, SEXTON, EMBEDDING, BEAST, JUDGE)
 AIP_OPENAI_API_KEY        → global API key fallback for all slots
 CI=true                    → CI mode: deterministic fixtures, no network calls
 ```

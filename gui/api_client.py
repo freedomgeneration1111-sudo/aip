@@ -1357,6 +1357,7 @@ class AipApiClient:
         save_as_artifact: bool = False,
         skip_default_slots: bool = False,
         assemble_augmented_context: bool = False,
+        compress_panel_outputs: bool = False,
     ) -> dict[str, Any]:
         """Run a Model Council multi-model comparison report.
 
@@ -1407,6 +1408,7 @@ class AipApiClient:
             "save_as_artifact": save_as_artifact,
             "skip_default_slots": skip_default_slots,
             "assemble_augmented_context": assemble_augmented_context,
+            "compress_panel_outputs": compress_panel_outputs,
         }
         try:
             resp = await client.post(

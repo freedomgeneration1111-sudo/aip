@@ -59,8 +59,12 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 # Slots that should NOT be used for text generation comparison
 # ---------------------------------------------------------------------------
+# Phase 3c: ``judge`` is excluded from the panel because it's a dedicated
+# synthesis-only slot (used by ``_pick_fusion_engine`` preference 0).
+# It never appears as a panelist — it's only the Judge+Synth engine.
+# ``embedding`` is excluded because it's not a text-generation slot.
 
-_EXCLUDED_SLOTS = {"embedding"}
+_EXCLUDED_SLOTS = {"embedding", "judge"}
 
 # Default text-generation slots to use for comparison if caller doesn't specify
 _DEFAULT_COMPARISON_SLOTS = ["synthesis", "evaluation", "beast"]
@@ -945,7 +949,10 @@ async def compare_models(
     fusion_engine_kind: str | None = None
     fusion_engine_id: str | None = None
     if successful_count >= 2:
-        fusion_engine_kind, fusion_engine_id = _pick_fusion_engine(per_model_results)
+        fusion_engine_kind, fusion_engine_id = _pick_fusion_engine(
+            per_model_results,
+            model_provider=container.model_provider,
+        )
 
     if successful_count >= 2 and fusion_engine_kind is None:
         # Defensive guard — should be unreachable (successful_count >= 2
@@ -1494,10 +1501,16 @@ def _safe_provider(model_provider: Any, slot_name: str) -> str:
 
 def _pick_fusion_engine(
     per_model_results: list[PerModelResult],
+    model_provider: Any = None,
 ) -> tuple[str | None, str | None]:
     """Pick the model to use as the Judge+Synth engine for the Fusion pipeline.
 
     Preference order (returns the first match):
+      0. The ``judge`` slot IF it is configured on the model_provider
+         (dedicated Judge slot — Phase 3c). This lets the user configure
+         a different model for judging vs the Beast actor's maintenance
+         calls. The ``judge`` slot does NOT need to be in the panel —
+         it's a dedicated synthesis-only slot.
       1. The ``beast`` slot IF it was in the panel AND completed successfully.
       2. ANY other successful slot (in panel order).
       3. ANY successful library model (in panel order).
@@ -1505,8 +1518,9 @@ def _pick_fusion_engine(
     Returns ``(engine_kind, engine_id)`` where ``engine_kind`` is
     ``"slot"`` or ``"library"`` and ``engine_id`` is the slot name or
     library model ID. Returns ``(None, None)`` if no successful panel
-    model exists (which should not happen when ``successful_count >= 2``
-    — this is a defensive guard).
+    model exists AND no dedicated ``judge`` slot is configured (which
+    should not happen when ``successful_count >= 2`` — this is a
+    defensive guard).
 
     Rationale: the prior implementation always called
     ``container.model_provider.call("beast", ...)`` for the Judge+Synth
@@ -1516,7 +1530,38 @@ def _pick_fusion_engine(
     entire Fusion output was lost — the user saw only per-model cards.
     Picking from successful panel models guarantees the engine is
     responsive (it just answered).
+
+    Phase 3c: the dedicated ``judge`` slot (preference 0) is checked
+    FIRST so a user who configures ``[models.judge]`` in the TOML gets
+    that model for the Judge+Synth stages regardless of what's in the
+    panel. This separates the Judge model from the Beast actor's
+    maintenance model (they share the ``beast`` slot by default). The
+    ``judge`` slot is NOT added to ``_DEFAULT_COMPARISON_SLOTS`` — it's
+    synthesis-only, never a panelist.
     """
+    # Preference 0 (Phase 3c): dedicated ``judge`` slot, if configured.
+    # The ``judge`` slot does NOT need to be in the panel — it's a
+    # dedicated synthesis-only slot. We check ``model_provider`` to see
+    # if the slot is configured (has a real model, not a placeholder).
+    if model_provider is not None:
+        try:
+            available = model_provider.list_slots()
+            if "judge" in available:
+                cfg = model_provider._resolve_slot_config("judge")
+                if isinstance(cfg, dict) and cfg.get("model") and not cfg["model"].startswith("<"):
+                    # The ``judge`` slot is configured with a real model.
+                    # Use it for the Judge+Synth stages.
+                    logger.info(
+                        "council_fusion_engine_dedicated_judge_slot "
+                        "model=%s",
+                        cfg.get("model"),
+                    )
+                    return ("slot", "judge")
+        except Exception:
+            # Defensive — if the provider doesn't support list_slots or
+            # _resolve_slot_config, fall through to the panel-based picks.
+            pass
+
     # Preference 1: beast slot, if it succeeded.
     for pm in per_model_results:
         if (

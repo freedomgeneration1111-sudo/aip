@@ -367,3 +367,17 @@ provider = "openai_compatible"
 model = "nvidia/nemotron-3-super-120b-a12b"
 base_url = "https://openrouter.ai/api"
 # api_key = ""   # Set your key here, or use AIP_BEAST_API_KEY / AIP_OPENAI_API_KEY env var
+
+# ── Phase 3c: dedicated Judge slot (optional) ──────────────────────────
+# Uncomment to use a dedicated model for the Fusion pipeline's Judge+Synth
+# stages. When configured, this slot is used INSTEAD of the ``beast`` slot
+# for the Judge-Beast and Synth-Beast calls. The ``beast`` slot continues
+# to be used for the Beast actor's background maintenance (run_cycle).
+# The ``judge`` slot is NEVER a panelist — it's synthesis-only.
+# Env var override: AIP_JUDGE_API_KEY (falls back to AIP_OPENAI_API_KEY).
+#
+# [models.judge]
+# provider = "openai_compatible"
+# model = "anthropic/claude-3.5-sonnet"
+# base_url = "https://openrouter.ai/api"
+# # api_key = ""   # Set your key here, or use AIP_JUDGE_API_KEY / AIP_OPENAI_API_KEY env var

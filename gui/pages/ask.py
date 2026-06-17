@@ -371,6 +371,26 @@ async def _ask_page_impl():
                 on_change=lambda e: asyncio.create_task(_on_auto_save_toggled(e.value, state)),
             ).style(f"color:{C_MUTED}; font-size:10px;")
 
+            ui.separator().props("vertical").style(f"margin:0 8px; color:{C_INK40};")
+
+            # Phase 3d: per-model compression pass toggle. When ON, the
+            # Multi-Cast send handler passes ``compress_panel_outputs=True``
+            # to run_model_council. The backend summarizes each panelist's
+            # answer to 5-8 key claims BEFORE the Judge reads them —
+            # reduces the Judge's context window pressure on long panel
+            # outputs. Only applies when ≥2 models are selected. Default
+            # OFF (opt-in). See state.py + api_client.run_model_council.
+            ui.checkbox(
+                "Compress",
+                value=state.compress_panel_outputs,
+                on_change=lambda e: setattr(state, "compress_panel_outputs", e.value),
+            ).style(f"color:{C_MUTED}; font-size:10px;").tooltip(
+                "When ON, each panelist's answer is summarized to 5-8 key "
+                "claims before the Judge reads them. Reduces Judge context "
+                "pressure on long panel outputs. Only applies to Multi-Cast "
+                "(≥2 models selected)."
+            )
+
         # ── Direct model fallback banner ──────────────────────────
         if not state.backend_reachable:
             with (
@@ -657,6 +677,36 @@ async def _dispatch_send(
     )
 
 
+def _model_color_markdown(model_label: str) -> str:
+    """Return a deterministic hex color for a model label (Phase 3).
+
+    Mirrors ``gui.components.model_council_panel._model_color`` so the
+    same model gets the same color in both the panel renderer (NiceGUI
+    widgets) and the markdown answer card (HTML spans). The palette and
+    hash function are identical to the panel's — keeping them in sync is
+    a contract: if you change one, change both.
+
+    Phase 3a + 3b: per-model attribution badges (unique_insights) and
+    per-model stance color-coding (contradictions) use this helper so
+    the human can visually track a model's contributions across Judge
+    analysis sections without reading the label every time.
+    """
+    if not model_label:
+        return "#B8935A"  # C_AMBER equivalent
+    palette = [
+        "#B8935A",  # C_AMBER
+        "#4A9B8E",  # slate-teal
+        "#9B6B4A",  # warm copper
+        "#6B8E9B",  # steel blue
+        "#9B4A6B",  # muted rose
+        "#4A6B9B",  # dusty blue
+        "#8E9B4A",  # olive
+        "#6B4A9B",  # violet
+    ]
+    h = sum(ord(c) for c in str(model_label))
+    return palette[h % len(palette)]
+
+
 def _format_judge_analysis_markdown(judge_analysis: dict[str, Any]) -> str:
     """Format the structured Judge JSON as markdown for the Multi-Cast card.
 
@@ -711,7 +761,16 @@ def _format_judge_analysis_markdown(judge_analysis: dict[str, Any]) -> str:
                     continue
                 model = str(s.get("model", "?")).replace("|", "\\|")
                 stance = str(s.get("stance", "?")).replace("|", "\\|").replace("\n", " ")
-                lines.append(f"| {topic} | {model} | {stance} |")
+                # Phase 3b: per-model stance color-coding via HTML span.
+                # The model label gets a deterministic color (same as the
+                # panel renderer) so the human can visually track the same
+                # model's stance across contradiction topics.
+                model_clr = _model_color_markdown(model)
+                model_badge = (
+                    f'<span style="color:{model_clr};font-weight:600;'
+                    f'border-left:2px solid {model_clr};padding-left:4px;">{model}</span>'
+                )
+                lines.append(f"| {topic} | {model_badge} | {stance} |")
         lines.append("")
 
     # Partial coverage
@@ -735,7 +794,18 @@ def _format_judge_analysis_markdown(judge_analysis: dict[str, Any]) -> str:
                 continue
             model = u.get("model", "?")
             insight = u.get("insight", "?")
-            lines.append(f"- **[{model}]** {insight}")
+            # Phase 3a: per-model attribution badge via HTML span.
+            # The model label renders as a colored badge (deterministic
+            # color matching the panel renderer) so the human can visually
+            # track which model contributed each unique insight.
+            model_clr = _model_color_markdown(str(model))
+            model_badge = (
+                f'<span style="background:{model_clr};color:#0E0E0F;'
+                f'font-family:\'Courier New\',monospace;font-size:9px;'
+                f'font-weight:700;padding:1px 6px;border-radius:3px;'
+                f'letter-spacing:0.3px;">{model}</span>'
+            )
+            lines.append(f"- {model_badge} {insight}")
 
     # Blind spots
     blind = analysis.get("blind_spots", [])
@@ -859,6 +929,7 @@ async def _send_multicast(
             selected_model_ids=selected_model_ids,
             skip_default_slots=True,  # Don't auto-add default TOML slots
             assemble_augmented_context=is_augmented,  # Phase 1 retrieval bridge
+            compress_panel_outputs=state.compress_panel_outputs,  # Phase 3d
         )
     except Exception as exc:
         log.exception("send_multicast: run_model_council failed: %s", exc)

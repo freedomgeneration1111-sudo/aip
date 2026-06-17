@@ -97,6 +97,36 @@ Request body fields (all optional except `prompt`):
   GUI toggles. On per-model compression failure, the raw answer is
   kept (graceful degrade — the Judge sees the raw text for that model).
 
+### Dedicated Judge Slot Contract (Phase 3c)
+- The `[models.judge]` TOML slot is an OPTIONAL dedicated slot for the
+  Fusion pipeline's Judge+Synth stages. When configured, it is used
+  INSTEAD of the `beast` slot for the Judge-Beast and Synth-Beast calls.
+  The `beast` slot continues to be used for the Beast actor's background
+  maintenance (`run_cycle()`).
+- **`_pick_fusion_engine` preference order** (Phase 3c adds preference 0):
+  0. The `judge` slot IF it is configured on the model_provider (has a
+     real model, not a placeholder). The `judge` slot does NOT need to
+     be in the panel — it's synthesis-only.
+  1. The `beast` slot IF it was in the panel AND completed successfully.
+  2. ANY other successful slot (in panel order).
+  3. ANY successful library model (in panel order).
+- The `judge` slot is in `_EXCLUDED_SLOTS` (alongside `embedding`) — it
+  NEVER appears as a panelist. It's only the Judge+Synth engine.
+- **Config example** (in `config/aip.config.toml`):
+  ```toml
+  [models.judge]
+  provider = "openai_compatible"
+  model = "anthropic/claude-3.5-sonnet"
+  base_url = "https://openrouter.ai/api"
+  # api_key = ""   # AIP_JUDGE_API_KEY env var override (falls back to AIP_OPENAI_API_KEY)
+  ```
+- **Env var override**: `AIP_JUDGE_API_KEY` (falls back to
+  `AIP_OPENAI_API_KEY`). Follows the same `AIP_<SLOT>_API_KEY` pattern
+  as the other slots.
+- **Backward compat**: when `[models.judge]` is NOT configured (the
+  default), `_pick_fusion_engine` falls through to preference 1 (beast
+  slot) — existing behavior is preserved.
+
 Response: `ModelCouncilResponse` with `selected_models: list[PerModelResult]`.
 Each `PerModelResult` has a `source` field (`"slot"` or `"library"`) so
 consumers can distinguish provenance. Library-sourced results carry
@@ -364,7 +394,33 @@ config/aip.config.toml ([models] section)
   message without `turn_id`.
 
 ## Last Cycle
-- **Phase 2 Step 2-C + 2-D (this cycle)**: shipped the Phase 2 test
+- **Phase 3 polish (this cycle)**: shipped all 4 Phase 3 deliverables.
+  Phase 3a: per-model attribution badges on `unique_insights[]` —
+  added `_model_color()` helper + `_MODEL_COLOR_PALETTE` (8-color
+  deterministic palette) to `model_council_panel.py`; the panel renders
+  the model label as a colored badge (background + monospace + rounded).
+  `ask.py::_model_color_markdown()` mirrors the palette (contract:
+  change one, change both) and renders the badge as an HTML `<span>`.
+  Phase 3b: per-model stance color-coding on `contradictions[]` — the
+  same `_model_color()` is applied to the model label in the stance
+  table (colored text + left border). Phase 3c: dedicated `[models.judge]`
+  TOML slot — `_pick_fusion_engine` gained a new preference 0 (highest):
+  when the `judge` slot is configured on the model_provider, use it for
+  the Judge+Synth stages (synthesis-only, never a panelist). Added
+  `judge` to `_EXCLUDED_SLOTS`. Added commented `[models.judge]` example
+  to `config/aip.config.toml` with `AIP_JUDGE_API_KEY` env var override.
+  `_pick_fusion_engine` gained a `model_provider` kwarg (default None —
+  backward compat with callers that don't pass it). Phase 3d: GUI
+  toggle for `compress_panel_outputs` — `GuiState.compress_panel_outputs`
+  field (default False); Ask page header has a "Compress" checkbox with
+  tooltip; `api_client.run_model_council` forwards the flag;
+  `_send_multicast` passes `compress_panel_outputs=state.compress_panel_outputs`.
+  24 new tests in `tests/test_phase3_polish.py` cover all 4 deliverables
+  + the end-to-end payload contract (GUI payload keys match
+  `ModelCouncilRequest` fields). Backward compat preserved: all new
+  fields default to False/None; existing tests, external API clients,
+  and the current GUI (with Compress OFF) see no behavior change.
+- **Phase 2 Step 2-C + 2-D (prior cycle)**: shipped the Phase 2 test
   suite (PDF Part IX) + the per-model compression pass (Improvement #5).
   Step 2-C: new file ``tests/test_model_council_fusion_phase2.py`` (9
   tests) covering the net-new PDF Part IX cases: Judge JSON parse

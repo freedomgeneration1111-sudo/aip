@@ -49,6 +49,56 @@ _DIALOG_STYLE = (
     f"border:0.5px solid {C_INK40}; border-radius:{R_SM}; padding:0;"
 )
 
+# ── Phase 3: per-model color mapping ───────────────────────────────────
+#
+# A deterministic per-model color palette so the same model always gets
+# the same color across the Judge analysis rendering (unique_insights
+# badges + contradictions stance table). This lets the human visually
+# track a single model's contributions across sections without reading
+# the label every time.
+#
+# The palette is a fixed 8-color set drawn from the AIP brand system
+# (amber + teal + 6 complementary accents). Colors are assigned by
+# hashing the model label (slot name or OpenRouter ID) — same label →
+# same color, no matter how many times it appears.
+
+_MODEL_COLOR_PALETTE = [
+    C_AMBER,        # primary amber (slot 0)
+    "#4A9B8E",      # slate-teal (brand accent 1)
+    "#9B6B4A",      # warm copper
+    "#6B8E9B",      # steel blue
+    "#9B4A6B",      # muted rose
+    "#4A6B9B",      # dusty blue
+    "#8E9B4A",      # olive
+    "#6B4A9B",      # violet
+]
+
+
+def _model_color(model_label: str) -> str:
+    """Return a deterministic color for a model label.
+
+    Phase 3: per-model attribution badges + stance color-coding. The
+    same model label always maps to the same color so the human can
+    visually track a model's contributions across the Judge analysis
+    sections (unique_insights, contradictions) without reading the
+    label every time.
+
+    Args:
+        model_label: the slot name (e.g. "synthesis") or OpenRouter
+            model ID (e.g. "anthropic/claude-3-opus").
+
+    Returns:
+        A hex color string from the ``_MODEL_COLOR_PALETTE``.
+    """
+    if not model_label:
+        return _MODEL_COLOR_PALETTE[0]
+    # Simple deterministic hash — sum of byte values modulo palette size.
+    # Not cryptographically secure, but stable across runs and good
+    # enough for color assignment (collisions just mean two models
+    # share a color, which is acceptable).
+    h = sum(ord(c) for c in str(model_label))
+    return _MODEL_COLOR_PALETTE[h % len(_MODEL_COLOR_PALETTE)]
+
 
 class ModelCouncilPanel:
     """Model Council panel — advisory multi-model comparison report.
@@ -731,11 +781,18 @@ class ModelCouncilPanel:
                                     continue
                                 model = s.get("model", "?")
                                 stance = s.get("stance", "?")
+                                # Phase 3b: per-model stance color-coding.
+                                # The model label gets a deterministic
+                                # color so the human can visually track
+                                # the same model's stance across
+                                # contradiction topics.
+                                model_clr = _model_color(str(model))
                                 with ui.row().classes("w-full").style("gap: 6px;"):
                                     ui.label(model).style(
-                                        f"font-size: 10px; font-weight: 600; color: {C_AMBER}; "
+                                        f"font-size: 10px; font-weight: 600; color: {model_clr}; "
                                         f"font-family: {F_MONO}; min-width: 120px; max-width: 200px; "
-                                        f"word-break: break-all;"
+                                        f"word-break: break-all; "
+                                        f"border-left: 2px solid {model_clr}; padding-left: 4px;"
                                     )
                                     ui.label(stance).style(
                                         f"font-size: 10px; color: {C_INK60}; "
@@ -767,9 +824,25 @@ class ModelCouncilPanel:
                         continue
                     model = u.get("model", "?")
                     insight = u.get("insight", "?")
-                    ui.label(f"• [{model}] {insight}").style(
-                        f"font-size: 11px; color: {C_CREAM}; font-family: {F_SANS}; line-height: 1.5;"
-                    )
+                    # Phase 3a: per-model attribution badge. The model
+                    # label renders as a colored badge (deterministic
+                    # color from _model_color) so the human can visually
+                    # track which model contributed each unique insight
+                    # without reading the label every time.
+                    model_clr = _model_color(str(model))
+                    with ui.row().classes("w-full items-start").style("gap: 6px;"):
+                        ui.label(model).style(
+                            f"font-size: 9px; font-weight: 700; color: {C_GROUND}; "
+                            f"font-family: {F_MONO}; background: {model_clr}; "
+                            f"padding: 1px 6px; border-radius: {R_SM}; "
+                            f"min-width: 60px; max-width: 180px; "
+                            f"text-align: center; word-break: break-all; "
+                            f"letter-spacing: 0.3px; flex-shrink: 0; margin-top: 1px;"
+                        )
+                        ui.label(insight).style(
+                            f"font-size: 11px; color: {C_CREAM}; font-family: {F_SANS}; "
+                            f"line-height: 1.5; flex: 1;"
+                        )
 
         # ── Blind spots (the most important field for the human) ──
         blind = analysis.get("blind_spots", [])

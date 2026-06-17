@@ -241,6 +241,16 @@ class GuiState:
         # The field is kept (always empty) so the request payload shape
         # is unchanged for the backend contract.
         self.multicast_selected_slots: list[str] = []
+        # ── Phase 3d: per-model compression pass toggle ──
+        # When True, the Multi-Cast send handler passes
+        # ``compress_panel_outputs=True`` to ``run_model_council``. The
+        # backend runs a per-panelist compression pass BEFORE the Judge
+        # reads the panel outputs — each answer is summarized to 5-8
+        # key claims. This reduces the Judge's context window pressure
+        # on long panel outputs. Default False (off) — opt-in via the
+        # Ask page header checkbox. Only applies when ≥2 models are
+        # selected (Multi-Cast mode); ignored for single-model chat.
+        self.compress_panel_outputs: bool = False
 
     async def ensure_session(self) -> str:
         """Create a session if one doesn't exist, or return the existing one."""
