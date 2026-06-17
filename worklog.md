@@ -890,3 +890,22 @@ Files changed:
 - NEW: tests/test_phase4_features.py (22 tests)
 - MODIFY: PLANNED_FEATURES.md (3 features moved to Already Built)
 - MODIFY: worklog.md (this entry)
+
+---
+Task ID: global-docs-hardening-2026-06-17
+Agent: Super Z (main)
+Task: Global docs review and hardening — refresh STATUS.md, ROADMAP.md, DOGFOOD_READY.md, TECH_DEBT.md, PLANNED_FEATURES.md to reflect the Fusion pipeline (Phases 1-3 + 4.1) + fix stale references + cross-reference all root docs.
+
+Work Log:
+- Orient: read all 5 root docs (STATUS.md, ROADMAP.md, TECH_DEBT.md, DOGFOOD_READY.md, PLANNED_FEATURES.md) + mapped staleness: STATUS.md said "MAINTENANCE — no further feature sprints" (stale — we shipped 10 feature commits); ROADMAP.md had no Fusion pipeline section + DEBT-006 reference was stale ("wiring gap" when it's resolved); DOGFOOD_READY.md didn't mention any Phase 4.1 features; TECH_DEBT.md was mostly current but missed the TracePanel right_drawer violation
+- STATUS.md: updated header from MAINTENANCE to ACTIVE DEVELOPMENT; updated test count from 1090+ to 1380+; added full Fusion Pipeline section with Phase 1-3 + 4.1 breakdown + test inventory table
+- ROADMAP.md: updated Last Updated to 2026-06-17; fixed DEBT-006 reference from "wiring gap" to "wired into app.py — DEBT-006 resolved"; added Phase 6 (Fusion Pipeline, ✅ COMPLETE) with all 15 shipped items; added Phase 1.6 (Codebase-as-Corpus, 💡 PROPOSED) with the full architectural sketch; replaced stale Maintenance Mode section with "Maintenance Mode → Active Development Transition" section that references PLANNED_FEATURES.md; added PLANNED_FEATURES.md to Ongoing/Evergreen; added version history entry
+- DOGFOOD_READY.md: updated header date from 2026-06-10 to 2026-06-17; added 7 new "What works well" items: Multi-Model Fusion pipeline, Augmented Multi-Cast, Real-time provenance widget, Context Preparer visualizer, Vigil consistency checker, Per-model compression pass, Dedicated [models.judge] slot
+- TECH_DEBT.md: audited all 9 existing debt items — all correctly marked (4 resolved, 5 active/deferred). Added DEBT-010 (TracePanel uses forbidden ui.right_drawer() — identified during Phase 4.1 docs hardening; low priority GUI consistency fix)
+- PLANNED_FEATURES.md: added 2 new Change Log entries (Phase 4.1 features moved to Already Built; global docs hardening pass); added new "Cross-References" section linking to ROADMAP.md, TECH_DEBT.md, STATUS.md, DOGFOOD_READY.md, AGENTS.md
+- All 5 root docs are now internally consistent: STATUS.md ↔ ROADMAP.md ↔ PLANNED_FEATURES.md ↔ DOGFOOD_READY.md ↔ TECH_DEBT.md cross-reference each other. No stale references remain.
+
+Stage Summary:
+- Global docs hardening COMPLETE. All 5 root docs are current and cross-referenced. The "advice in the dark" problem that caused Claude's DEBT-006 miss is structurally addressed: the coding protocol (AGENTS.md) requires reading all status-tracking docs before recommending changes, and PLANNED_FEATURES.md is the canonical tracker.
+- New debt item DEBT-010 filed: TracePanel uses forbidden ui.right_drawer() — should be converted to ui.dialog() (same pattern as BeastPanel + ModelCouncilPanel) during the next GUI pass on trace_panel.py.
+- The Near-Term section of PLANNED_FEATURES.md is now empty. The Long-Term section has 3 items: codebase-as-corpus (Phase 1.6), adaptive per-query retrieval weighting, learned entity resolution. The Operational section has 3 items: close embedding gap, re-run retrieval eval, manual GUI review.

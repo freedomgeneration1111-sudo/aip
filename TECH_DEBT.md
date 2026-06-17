@@ -293,3 +293,43 @@ comments in that file as a housekeeping step. Do not create a dedicated cleanup 
 - Chunk 7 — cleaned ask_pipeline, channels, and retrieval_trace_utils comments
 
 ---
+
+## DEBT-010 — TracePanel Uses Forbidden `ui.right_drawer()` (GUI Consistency)
+
+**Status:** Active — low priority
+**Phase:** Phase 4.1 (identified during docs hardening)
+**Filed:** 2026-06-17
+
+**Problem:**
+`gui/components/trace_panel.py` uses `ui.right_drawer()` (line 62) to display the
+retrieval trace. Per `gui/AGENTS.md` Known Gotchas:
+
+> `ui.right_drawer()` is FORBIDDEN in this codebase. Per the no-right-sidebar rule,
+> no page or component may use `ui.right_drawer()`. The Beast Counsel and Model Council
+> panels use `ui.dialog()` (centered modal) instead.
+
+The BeastPanel and ModelCouncilPanel were converted from `ui.right_drawer()` to
+`ui.dialog()` in a prior cycle. TracePanel was missed.
+
+**Impact:**
+The Trace panel renders as an overlay drawer on the right side, which clips content
+on narrow viewports and is inconsistent with the BeastPanel + ModelCouncilPanel
+which use centered modal dialogs. The `_render_context_composition` visualizer
+(Phase 4.1) was added to this drawer, making the inconsistency more visible.
+
+**Remediation:**
+Convert `TracePanel.show_trace()` from `ui.right_drawer()` to `ui.dialog()` using
+the same pattern as `ModelCouncilPanel._open_dialog()` — centered modal with
+`_DIALOG_STYLE` (max-width:1000px, scrollable inner column, dark background).
+
+**Why deferred:**
+The drawer works functionally — the context composition visualizer renders correctly.
+The conversion is a GUI consistency fix, not a functional bug. Low priority until the
+next GUI modification pass on trace_panel.py.
+
+**Related work:**
+- `gui/AGENTS.md` → "ui.right_drawer() is FORBIDDEN" gotcha
+- `gui/components/model_council_panel.py` → `_open_dialog()` pattern (reference implementation)
+- `gui/components/beast_panel.py` → same dialog conversion pattern
+
+---

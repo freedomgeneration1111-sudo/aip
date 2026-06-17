@@ -132,3 +132,15 @@ be an enhancement over the current PersonalizedPageRank approach.
 | Date | Change | Agent |
 |------|--------|-------|
 | 2026-06-17 | Created file. Seeded with all items from the dogfood run + Claude analysis. | Super Z (main) |
+| 2026-06-17 | Moved 3 Phase 4.1 features (provenance widget, context visualizer, consistency checker) from Near-Term to Already Built. | Super Z (main) |
+| 2026-06-17 | Global docs hardening pass — cross-referenced ROADMAP.md Phase 6 + Phase 1.6. Added DEBT-010 (TracePanel right_drawer) to TECH_DEBT.md. | Super Z (main) |
+
+---
+
+## Cross-References
+
+- **ROADMAP.md** → Phase 6 (Fusion Pipeline, ✅ COMPLETE) + Phase 1.6 (Codebase-as-Corpus, 💡 PROPOSED)
+- **TECH_DEBT.md** → DEBT-006 (RESOLVED), DEBT-010 (TracePanel right_drawer, Active)
+- **STATUS.md** → Fusion Pipeline section (2026-06-17) with full test inventory
+- **DOGFOOD_READY.md** → Phase 4.1 capabilities in "What works well" section
+- **AGENTS.md** → Root Status-Tracking Docs table + Docs Framework Rule 7 + Orient step requires reading this file

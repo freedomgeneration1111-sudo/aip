@@ -1,6 +1,6 @@
 # AIP Roadmap
 # DEFINER: B. Moses Jorgensen
-# Last Updated: 2026-06-10
+# Last Updated: 2026-06-17
 # Process: Update this document after each significant build session or architectural decision.
 # Release: 0.1.0-alpha (Alpha Test Release)
 
@@ -38,7 +38,7 @@ the roadmap, update both documents.
 - ✅ Docker profiles (laptop + production)
 - ✅ Beast actor (background scheduler, health checks, context advisory)
 - ✅ Vigil actor (quality evaluation, retrieval quality gate, LLM faithfulness)
-- ✅ Sexton actor (built with all 5 ops; wiring gap — DEBT-006)
+- ✅ Sexton actor (built with all 5 ops; wired into app.py — DEBT-006 resolved)
 - ✅ Autonomy gate with audit trail
 - ✅ Budget enforcement
 - ✅ MCP server (scaffold — tool listing real, dispatch scaffold)
@@ -222,22 +222,56 @@ the roadmap, update both documents.
 
 ---
 
-## Maintenance Mode
+## PHASE 6 — Fusion Pipeline (2026-06-17)
+*Multi-model synthesis upgrade — OpenRouter Fusion-style architecture.*
+*Status: ✅ COMPLETE*
 
-**Effective:** 2026-06-10 (post Sprint 6.4)
-**See:** `docs/Maintenance_Protocol.md` for operational procedures
+- ✅ Phase 1: Retrieval bridge — shared `_augmented_context.py` helper, both chat.py and model_council.py call the same retrieval pipeline (fixes the AIP-acronym bug)
+- ✅ Phase 1: Two-stage Fusion pipeline (Judge-Beast → Synth-Beast) with per-call timeouts + engine fallback
+- ✅ Phase 1: Multi-select dropdown (models NOT tied to actor slots/roles) + `skip_default_slots` flag
+- ✅ Phase 1: `assemble_augmented_context` flag (GUI sends when augmented mode is on) — dogfood-confirmed
+- ✅ Phase 1: Panel dispatch remediation (Bug 1: behavioral system prompt + Bug 2: [PANEL] log markers + DISPATCH_ERROR stubs)
+- ✅ Phase 2: `blind_spots[]`, `partial_coverage[{models[], point}]` (2 to N-1 boundary), `unique_insights[{model, insight}]` attribution
+- ✅ Phase 2: Per-model compression pass (`compress_panel_outputs` flag — opt-in)
+- ✅ Phase 2: PDF Part IX test suite (9 net-new tests)
+- ✅ Phase 3: Per-model attribution badges (deterministic 8-color palette in panel + markdown)
+- ✅ Phase 3: Per-model stance color-coding on contradictions
+- ✅ Phase 3: Dedicated `[models.judge]` TOML slot (preference 0 in `_pick_fusion_engine`)
+- ✅ Phase 3: GUI toggle for `compress_panel_outputs`
+- ✅ Phase 4.1: Real-time provenance feedback widget (inline source strip on answer cards)
+- ✅ Phase 4.1: Context Preparer visualizer (4-step fusion flow diagram in trace panel)
+- ✅ Phase 4.1: Automated consistency-checker (Vigil 5th evaluation pass — cross-turn contradiction detection)
 
-The active development phase is complete. The system is stable for local development,
-evaluation, and dogfood usage. Future work is limited to:
+---
 
-1. **Bug fixes** — Address remaining bugs (BUG-001 through BUG-004) as needed
-2. **DEBT-006** — Wire the new Sexton actor into app.py (highest priority debt item)
-3. **Embedding pass** — Once Sexton is wired, let it complete the full embedding pass (~2,716 turns)
-4. **Re-evaluate retrieval** — After full embedding, re-run `aip eval retrieval` and `scripts/retrieval_weight_tuning.py` to validate hybrid improvement
-5. **Parser additions** — Add source parsers (ChatGPT, DeepSeek, etc.) as needed
-6. **UI improvements** — Iterative UX enhancements based on dogfood feedback
+## PHASE 1.6 — Codebase-as-Corpus (FUTURE)
+*Parse the codebase itself into a queryable corpus — closes the "advice in the dark" gap.*
+*Status: 💡 PROPOSED*
 
-No new feature sprints are planned. All changes should be small, incremental, and tested.
+- 💡 Python AST → CorpusTurn format parser (functions, classes, modules as "turns")
+- 💡 Code dependency graph (Graph B): modules, functions, classes, tests — with `imports`, `calls`, `tests`, `implements` edges
+- 💡 Cross-graph edges: conversation turns that reference code get `references` edges; ADRs that decided code patterns get `decided` edges
+- 💡 Re-ingest trigger: CI hook on commit OR Sexton file-watcher that detects `.py` changes and queues a re-parse pass
+- 💡 Cross-corpus RRF fusion: a query about DEBT-006 would return both the roadmap mention AND the actual `sexton.py` file AND the `app.py` call site
+
+See `PLANNED_FEATURES.md` → "Codebase-as-Corpus" for the full architectural sketch.
+
+---
+
+## Maintenance Mode → Active Development Transition
+
+**Effective:** 2026-06-17 (post Fusion pipeline)
+
+The project transitioned from maintenance mode back to active development
+for the Fusion pipeline upgrade (Phases 1-3 + 4.1). The Fusion pipeline is
+now feature-complete. The system is stable for local development, evaluation,
+and dogfood usage. Future work is tracked in `PLANNED_FEATURES.md`.
+
+Remaining items:
+1. **Operational** — Run the server long enough for Sexton to close the 1.8% embedding gap
+2. **Long-term** — Codebase-as-corpus (Phase 1.6, proposed)
+3. **Long-term** — Adaptive per-query retrieval weighting (enhancement over existing fixed weights)
+4. **Long-term** — Learned entity resolution (enhancement over static alias registry)
 
 ---
 
@@ -250,6 +284,7 @@ No new feature sprints are planned. All changes should be small, incremental, an
 - 🔄 STATUS.md kept current after each build session
 - 🔄 ADRs written for each significant architectural decision
 - 🔄 Re-run retrieval evaluation after significant corpus changes
+- 🔄 PLANNED_FEATURES.md kept current (move items from Near-Term to Already Built when shipped)
 
 ---
 
@@ -261,3 +296,4 @@ No new feature sprints are planned. All changes should be small, incremental, an
 | 2026-06-04 | Phase 1 corpus work reflected               | Claude + Moses |
 | 2026-06-10 | Sprint 6.4 completion; maintenance mode     | Claude + Moses |
 | 2026-06-10 | Alpha test release; documentation refresh   | Claude + Moses |
+| 2026-06-17 | Phase 6: Fusion pipeline complete; Phase 1.6 proposed; DEBT-006 reference fixed | Super Z |

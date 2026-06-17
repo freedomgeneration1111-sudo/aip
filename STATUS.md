@@ -2,13 +2,16 @@
 
 **Version:** 0.1.0-alpha
 **Architecture Revision:** 6.4
-**Last Updated:** 2026-06-12
+**Last Updated:** 2026-06-17
 **Release:** Alpha Test Release
-**Project Mode:** MAINTENANCE — active development phase complete; see docs/Maintenance_Protocol.md
+**Project Mode:** ACTIVE DEVELOPMENT — Fusion pipeline + Phase 4.1 features shipped; see PLANNED_FEATURES.md
 
-> This document reflects the state after UI Cycle 12 (Maintenance Center v1) and Chunk 5 (retrieval honesty).
-> The project has entered maintenance mode. No further feature sprints are planned.
-> See ROADMAP.md for the maintenance mode section and docs/Maintenance_Protocol.md for operational procedures.
+> This document reflects the state after the Fusion pipeline upgrade (Phases 1-3 + 4.1)
+> and the global docs hardening pass. The Fusion pipeline is feature-complete:
+> retrieval bridge, Judge/Synth split, per-model compression, per-model attribution
+> badges, dedicated [models.judge] slot, panel dispatch remediation, provenance
+> widget, Context Preparer visualizer, and Vigil consistency checker.
+> See PLANNED_FEATURES.md for the canonical tracker of what's built / planned / deferred.
 
 ## Production Safety Status
 
@@ -40,7 +43,7 @@ Production configuration is **enforced programmatically**. Unsafe configs fail a
 
 ## Module Status
 
-- **Tests:** 1090+ passing (incl. 46 Chunk 5 tests, 42 Cycle 4.1 sovereignty tests, 48 Cycle 6 tests, 38 Cycle 6.1 tests), 23 skipped (sqlite_vss extension + pre-existing governance), 2 pre-existing failures
+- **Tests:** 1380+ passing (incl. 292 Fusion pipeline tests, 46 Chunk 5 tests, 42 Cycle 4.1 sovereignty tests, 48 Cycle 6 tests, 38 Cycle 6.1 tests), 23 skipped (sqlite_vss extension + pre-existing governance), 1 pre-existing failure (/graph nav route — unrelated)
 - **Architecture:** Three-layer (foundation → orchestration → adapter)
 - **Default DB path:** `db/state.db` (SQLite, laptop profile)
 - **Scaffolding:** ~5-8% overall (MCP dispatch, adaptive router, ScriptNode sandbox)
@@ -252,6 +255,56 @@ UI Cycle 6.1 adds explicit model slot selection to the Model Council panel, allo
 **Remaining Model Council debt**: Persisted GET endpoint for prior reports (deferred per spec).
 
 **Blockers or dependencies affecting Wiki/CODEX or Crosslinks**: None.
+
+## Fusion Pipeline (2026-06-17) — Feature-Complete
+
+The Fusion pipeline (Panel → Judge-Beast → Synth-Beast) is feature-complete across all 3 phases + Phase 4.1:
+
+### Phase 1 — Retrieval Bridge + Fusion Pipeline
+- ✅ Shared `_augmented_context.py` helper — both chat.py and model_council.py call the same retrieval pipeline (fixes the AIP-acronym bug)
+- ✅ Two-stage Fusion pipeline (Judge-Beast reads panel outputs → Synth-Beast reads Judge JSON only)
+- ✅ Per-call timeouts (panel 30s, Judge 60s, Synth 60s)
+- ✅ Engine fallback (`_pick_fusion_engine` picks from successful panel models)
+- ✅ Model Label Contract in Judge prompt
+- ✅ Multi-select dropdown (models NOT tied to actor slots/roles)
+- ✅ `skip_default_slots` flag (panel built ONLY from user's dropdown picks)
+- ✅ `assemble_augmented_context` flag (GUI sends when augmented mode is on)
+- ✅ Panel dispatch remediation (Bug 1: behavioral system prompt + Bug 2: [PANEL] log markers + DISPATCH_ERROR stubs)
+
+### Phase 2 — Judge/Synth Split + Compression
+- ✅ `blind_spots[]` mandatory Judge field
+- ✅ `partial_coverage[{models[], point}]` (2 to N-1 models — explicit boundary)
+- ✅ `unique_insights[{model, insight}]` with per-model attribution
+- ✅ Per-model compression pass (`compress_panel_outputs` flag + `_compress_panel_outputs` helper)
+- ✅ Phase 2 test suite (PDF Part IX — 9 net-new tests)
+
+### Phase 3 — Polish
+- ✅ Per-model attribution badges on `unique_insights[]` (deterministic 8-color palette)
+- ✅ Per-model stance color-coding on `contradictions[]`
+- ✅ Dedicated `[models.judge]` TOML slot (preference 0 in `_pick_fusion_engine`)
+- ✅ GUI toggle for `compress_panel_outputs` (Compress checkbox in Ask page header)
+
+### Phase 4.1 — UX Features
+- ✅ Real-time provenance feedback widget (inline collapsible source strip on answer cards)
+- ✅ Context Preparer visualizer (4-step fusion flow diagram in trace panel)
+- ✅ Automated consistency-checker (Vigil 5th evaluation pass — cross-turn contradiction detection)
+
+### Test Inventory (13 files, 292+ tests)
+| File | Tests | Coverage |
+|------|-------|----------|
+| `test_model_council_fusion.py` | 22+ | Phase 1 Fusion pipeline |
+| `test_model_council_fusion_phase2.py` | 9 | PDF Part IX Phase 2 |
+| `test_compress_panel_outputs.py` | 9 | Compression pass |
+| `test_phase3_polish.py` | 24 | Badges + judge slot + compress toggle |
+| `test_phase4_features.py` | 22 | Provenance + visualizer + consistency |
+| `test_panel_dispatch_remediation.py` | 19 | Bug 1 + Bug 2 + acceptance criteria |
+| `test_augmented_context_helper.py` | 21 | Retrieval bridge helper |
+| `test_send_multicast_retrieval_bridge.py` | 13 | GUI wiring Step 2-B |
+| `test_ask_multiselect_dropdown.py` | 37 | Multi-select dropdown |
+| `test_coverage_gradient_fix.py` | 10 | Judge prompt boundary + PLANNED_FEATURES |
+| `test_model_council_cycle6.py` | 48 | Cycle 6 baseline |
+| `test_model_council_cycle6_1.py` | 38 | Cycle 6.1 extensions |
+| `test_model_council_library_ids.py` | 11 | OpenRouter library bridge |
 
 ## Actor Status (post ADR-011 refactor, post Sprint 6.4)
 

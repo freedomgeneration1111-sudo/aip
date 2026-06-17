@@ -1,5 +1,5 @@
 ---
-## ⚠️ Read This First — Alpha Test Release (2026-06-10)
+## ⚠️ Read This First — Alpha Test Release (2026-06-17)
 
 AIP v0.1 is now in **alpha test release**. The dogfood guide below describes the foundational
 ingest→ask→review→export loop. This still works. However AIP has grown significantly since
@@ -15,6 +15,13 @@ that guide was written, and there are important caveats for alpha testers:
 - Crosslink System v1 — knowledge links between wiki articles, artifacts, turns, and other first-class objects with approve/reject workflow
 - Retrieval Lab v1 — standalone retrieval testing without answer synthesis
 - Maintenance Center v1 — actor status (Beast, Vigil, Sexton), maintenance job controls (backfill embeddings, rebuild graph/CODEX, retrieval eval, stale docs, contradictions), recent maintenance log, and problem panel
+- **Multi-Model Fusion pipeline** (Phase 1-3 + 4.1, 2026-06-17) — Multi-Cast with ≥2 models triggers Beast Fusion (Judge-Beast → Synth-Beast). Per-model answer cards + a fusion synthesis card with structured Judge JSON (consensus, contradictions, partial_coverage, unique_insights, blind_spots). Models are NOT tied to actor slots — pick any 2+ from the unified dropdown.
+- **Augmented Multi-Cast** (Phase 1 retrieval bridge) — when Augmented mode is ON + Multi-Cast ≥2 models, the panel sees the same corpus context as single-model augmented chat. Dogfood-confirmed: panel models correctly identify AIP as AI Poiesis.
+- **Real-time provenance widget** (Phase 4.1) — every answer card with sources shows an inline provenance strip (source count + domain badges + collapsible detail list) so the DEFINER can trace provenance instantly without clicking a button.
+- **Context Preparer visualizer** (Phase 4.1) — the Trace panel shows a 4-step fusion flow diagram (channel retrieval → RRF fusion → gating → final context) so the DEFINER can see which channel misfired when retrieval goes wrong.
+- **Vigil consistency checker** (Phase 4.1) — Vigil's 5th evaluation pass detects cross-turn contradictions. Writes `vigil_consistency_score` + `vigil_consistency_contradictions` to turn metadata.
+- **Per-model compression pass** (Phase 2) — opt-in via the "Compress" checkbox in the Ask page header. Summarizes each panelist's answer to 5-8 key claims before the Judge reads them (reduces context pressure on long panel outputs).
+- **Dedicated [models.judge] slot** (Phase 3) — optional TOML slot for a dedicated Judge model. Uncomment in `config/aip.config.toml` to use a different model for judging vs the Beast actor's maintenance calls.
 
 **Known limitations:**
 - **Embedding coverage is low (~1.8%)** — Sexton will automatically embed turns when an
