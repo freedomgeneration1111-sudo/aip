@@ -862,3 +862,31 @@ Test results:
 - 10 new tests in test_coverage_gradient_fix.py — all pass
 - 260 existing tests — all pass
 - 270 total focused suite — 270 passed, 0 failures
+
+---
+Task ID: phase4-features-2026-06-17
+Agent: Super Z (main)
+Task: Ship 3 Phase 4.1 features: real-time provenance feedback widget, Context Preparer visualizer, automated consistency-checker (Vigil 5th pass). Then step back and recommend next steps for global docs review.
+
+Work Log:
+- Orient: read PLANNED_FEATURES.md (Near-Term section lists all 3), TECH_DEBT.md (DEBT-006 resolved), gui/AGENTS.md, actors/AGENTS.md, answer_card.py, trace_panel.py, vigil.py (run_cycle + _run_llm_faithfulness_evaluation + VigilConfig in review.py)
+- Feature 3 (provenance widget): added _render_provenance_strip() to answer_card.py — inline collapsible source display on every answer card with sources. Shows source count + domain badges (always visible) + collapsible detail list (source titles, snippets, metadata). No backend change needed — sources already in WS response payload.
+- Feature 4 (Context Preparer visualizer): added _render_context_composition() to trace_panel.py — 4-step fusion flow diagram: (1) per-channel hit bars, (2) RRF fusion (before→after), (3) Gating (after→gate), (4) Final context summary. Plus channel weights display + collapsible packed context preview. No backend change needed — trace data already has channel_contributions + hits_before/after_fusion/after_gate.
+- Feature 5 (consistency-checker): added 5th evaluation pass to Vigil — _run_consistency_check() method + _CONSISTENCY_SYSTEM_PROMPT + _parse_consistency_response(). Added 4 config fields to VigilConfig: consistency_check_enabled (default True), consistency_check_model_slot (default "evaluation"), consistency_check_sample_size (default 5), consistency_check_lookback_turns (default 10). Wired into run_cycle as Step 6 (after faithfulness Step 5). Writes vigil_consistency_score + vigil_consistency_contradictions + vigil_consistency_explanation to turn metadata. Graceful fallback on model error (same pattern as faithfulness).
+- Verify: 22 new tests in tests/test_phase4_features.py — all pass. 270 existing tests — all pass. 292 total focused suite — all pass.
+- Document: updated PLANNED_FEATURES.md (moved 3 features from Near-Term to Already Built). Updated gui/AGENTS.md + src/aip/orchestration/actors/AGENTS.md + src/aip/adapter/AGENTS.md (Last Cycle entries). Updated worklog.md (this entry).
+
+Stage Summary:
+- All 3 Phase 4.1 features SHIPPED. PLANNED_FEATURES.md Near-Term section is now empty (all items moved to Already Built). The only remaining Near-Term item is "GAPS instruction on calibration runs" (verify-only, ~15 min).
+- Feature 3: provenance widget — the DEFINER can now trace provenance instantly without clicking the "Sources" button. Source count + domain badges always visible; collapsible detail list for full source titles + snippets.
+- Feature 4: Context Preparer visualizer — when retrieval goes wrong, the DEFINER can see which channel misfired, how RRF fused the hits, and what the gating step kept vs dropped — without reading backend logs. The most powerful retrieval debugging tool in the system.
+- Feature 5: consistency-checker — Vigil's 5th evaluation pass detects cross-turn contradictions. Uses the evaluation model slot to compare a new response against prior responses in the same session. Writes vigil_consistency_score + contradictions to turn metadata. Default-on (same as faithfulness).
+
+Files changed:
+- MODIFY: gui/components/answer_card.py (_render_provenance_strip + called from add_answer_card)
+- MODIFY: gui/components/trace_panel.py (_render_context_composition + called from show_trace)
+- MODIFY: src/aip/orchestration/actors/vigil.py (_CONSISTENCY_SYSTEM_PROMPT + _run_consistency_check + _parse_consistency_response + run_cycle Step 6)
+- MODIFY: src/aip/foundation/schemas/review.py (VigilConfig: 4 consistency_check_* fields)
+- NEW: tests/test_phase4_features.py (22 tests)
+- MODIFY: PLANNED_FEATURES.md (3 features moved to Already Built)
+- MODIFY: worklog.md (this entry)

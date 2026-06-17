@@ -182,6 +182,14 @@ class TracePanel:
                             f"font-size:10px; font-family:{F_MONO}; color:{ch_color};"
                         )
 
+            # ── Context Composition Visualizer (Phase 4.1) ─────
+            # Shows how FTS5, vector, and entity resolution compose
+            # the final context stack. This is the "Context Preparer
+            # visualizer" — when a retrieval goes wrong, the DEFINER
+            # can see which channel misfired, how RRF fused the hits,
+            # and what the gating step kept vs dropped.
+            self._render_context_composition(trace, hits_before, hits_after, hits_gate, channel_contributions)
+
             # ── Warnings ───────────────────────────────────────
             warnings = trace.get("degradation_warnings", [])
             if warnings:
@@ -195,6 +203,120 @@ class TracePanel:
             f"font-size:9px; font-weight:600; letter-spacing:1.5px; "
             f"color:{C_MUTED}; text-transform:uppercase; margin-bottom:4px; margin-top:8px;"
         )
+
+    def _render_context_composition(
+        self,
+        trace: dict[str, Any],
+        hits_before: int,
+        hits_after: int,
+        hits_gate: int,
+        channel_contributions: dict[str, int],
+    ) -> None:
+        """Render the Context Composition visualizer section.
+
+        Phase 4.1: Context Preparer visualizer. Shows how the retrieval
+        channels compose the final context stack — the fusion flow:
+          1. Per-channel contribution (raw hits per channel)
+          2. RRF fusion step (hits before → after fusion)
+          3. Gating step (hits after fusion → after gate)
+          4. Final context summary (what made it into the prompt)
+
+        This is the most powerful retrieval debugging tool in the system.
+        When a retrieval goes wrong, the DEFINER can see which channel
+        misfired, how RRF fused the hits, and what the gating step kept
+        vs dropped — without reading the backend logs.
+        """
+        self._render_section_label("CONTEXT COMPOSITION")
+
+        # ── Fusion flow diagram (text-based pipeline) ─────────
+        with (
+            ui.card()
+            .classes("w-full")
+            .style(
+                f"background:{C_RAISED}; border:0.5px solid {C_INK40}; "
+                f"border-radius:{R_MD}; padding:8px 12px; margin-bottom:8px;"
+            )
+        ):
+            # Step 1: Per-channel raw hits
+            if channel_contributions:
+                ui.label("Step 1 — Channel Retrieval").style(
+                    f"font-size:10px; font-weight:700; color:{C_AMBER}; "
+                    f"font-family:{F_MONO}; margin-bottom:4px;"
+                )
+                for ch, hits in channel_contributions.items():
+                    bar_len = min(int(hits) * 3, 30) if isinstance(hits, (int, float)) else 0
+                    bar = "█" * bar_len if bar_len > 0 else "·"
+                    ui.label(f"  {ch:20s} {bar} {hits} hits").style(
+                        f"font-size:10px; color:{C_CREAM}; font-family:{F_MONO}; line-height:1.4;"
+                    )
+
+            # Step 2: RRF Fusion
+            ui.label("Step 2 — RRF Fusion").style(
+                f"font-size:10px; font-weight:700; color:{C_AMBER}; "
+                f"font-family:{F_MONO}; margin-top:6px; margin-bottom:4px;"
+            )
+            fusion_delta = hits_before - hits_after if hits_before >= hits_after else 0
+            ui.label(f"  {hits_before} hits → {hits_after} fused ({fusion_delta} deduped)").style(
+                f"font-size:10px; color:{C_CREAM}; font-family:{F_MONO}; line-height:1.4;"
+            )
+
+            # Step 3: Gating
+            ui.label("Step 3 — Gating").style(
+                f"font-size:10px; font-weight:700; color:{C_AMBER}; "
+                f"font-family:{F_MONO}; margin-top:6px; margin-bottom:4px;"
+            )
+            gate_delta = hits_after - hits_gate if hits_after >= hits_gate else 0
+            gate_label = f"  {hits_after} fused → {hits_gate} gated ({gate_delta} filtered)"
+            gate_color = C_OK_FG if hits_gate > 0 else C_WARN_FG
+            ui.label(gate_label).style(
+                f"font-size:10px; color:{gate_color}; font-family:{F_MONO}; line-height:1.4;"
+            )
+
+            # Step 4: Final context
+            ui.label("Step 4 — Final Context").style(
+                f"font-size:10px; font-weight:700; color:{C_OK_FG}; "
+                f"font-family:{F_MONO}; margin-top:6px; margin-bottom:4px;"
+            )
+            if hits_gate > 0:
+                ui.label(f"  {hits_gate} source(s) injected into generative prompt").style(
+                    f"font-size:10px; color:{C_OK_FG}; font-family:{F_MONO}; line-height:1.4;"
+                )
+            else:
+                ui.label("  No sources passed gating — answer based on model knowledge only").style(
+                    f"font-size:10px; color:{C_WARN_FG}; font-family:{F_MONO}; line-height:1.4;"
+                )
+
+        # ── Channel weight configuration (if available) ───────
+        channel_weights = trace.get("channel_weights", {})
+        if channel_weights:
+            self._render_section_label("CHANNEL WEIGHTS")
+            with ui.row().classes("w-full").style("margin-bottom:8px; gap:8px; flex-wrap:wrap;"):
+                for ch, weight in channel_weights.items():
+                    weight_str = f"{weight:.2f}" if isinstance(weight, (int, float)) else str(weight)
+                    ui.label(f"{ch}={weight_str}").style(
+                        f"font-size:9px; font-weight:600; color:{C_CREAM}; "
+                        f"font-family:{F_MONO}; padding:2px 6px; "
+                        f"background:{C_RAISED}; border-radius:{R_SM};"
+                    )
+
+        # ── Packed context preview (if available) ─────────────
+        packed_context = trace.get("packed_context", "")
+        if packed_context:
+            self._render_section_label("PACKED CONTEXT PREVIEW")
+            with ui.expansion(
+                "Show packed context (what the model actually saw)",
+                icon="description",
+            ).classes("w-full").style(
+                f"margin-bottom:8px; padding:0 8px; font-family:{F_MONO}; "
+                f"background:{C_RAISED}; border-radius:{R_SM};"
+            ):
+                preview = packed_context[:2000]
+                if len(packed_context) > 2000:
+                    preview += f"\n\n... ({len(packed_context) - 2000} more chars truncated)"
+                ui.code(preview).style(
+                    f"font-size:9px; font-family:{F_MONO}; "
+                    f"background:{C_GROUND}; color:{C_INK60};"
+                )
 
     def close(self) -> None:
         """Close the trace panel drawer."""

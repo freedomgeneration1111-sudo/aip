@@ -147,6 +147,39 @@ Be strict: if a specific number, date, or factual claim appears in the response 
 sources, flag it. If the response adds reasonable inference or synthesis from the sources, that
 is acceptable — flag only unsupported assertions."""
 
+    # Phase 4.1: Cross-turn consistency check prompt
+    _CONSISTENCY_SYSTEM_PROMPT = """\
+You are an AIP Vigil evaluator performing cross-turn consistency checking. Your job is to
+detect contradictions between a new assistant response and earlier responses in the same session.
+
+You will receive:
+1. The user's current question
+2. The assistant's current response
+3. A list of prior assistant responses from the same session (most recent first)
+
+Check for:
+- Direct contradictions: Does the current response state something as fact that a prior response
+  stated the opposite of?
+- Numeric inconsistencies: Are there conflicting numbers, dates, or measurements?
+- Conceptual drift: Has the assistant's position on a topic shifted without acknowledgment?
+
+Output ONLY valid JSON with exactly these fields:
+{
+  "consistency_score": 0.85,
+  "contradictions": [
+    {"topic": "embedding coverage", "prior_claim": "98% embedded", "current_claim": "95% embedded"}
+  ],
+  "explanation": "Brief explanation of the score"
+}
+
+Scoring:
+- consistency_score: 0.0-1.0 (1.0 = fully consistent, 0.0 = direct contradiction)
+- contradictions: list of specific contradictions found (empty if none)
+- Only flag REAL contradictions — don't flag clarifications, refinements, or new information
+
+Be strict but fair: if the current response adds new information that doesn't contradict prior
+responses, that's not a contradiction. Flag only genuine conflicts."""
+
     def __init__(
         self,
         config: VigilConfig,
@@ -439,6 +472,27 @@ is acceptable — flag only unsupported assertions."""
             except Exception as exc:
                 logger.warning("vigil_llm_faithfulness_cycle_failed", error=str(exc))
                 self._recent_errors.append(f"llm_faithfulness: {exc}")
+                self._recent_errors = self._recent_errors[-10:]
+
+        # --- Step 6: Cross-turn consistency check (Phase 4.1) ---
+        # Vigil's 5th evaluation pass: detects contradictions between a
+        # new response and earlier responses in the same session. Uses
+        # the evaluation model slot (same as faithfulness). Runs on a
+        # bounded sample per cycle. Default-on (same as faithfulness).
+        consistency_eval_count = 0
+        consistency_contradictions_found = 0
+        consistency_scores: list[float] = []
+
+        if self.config.consistency_check_enabled and flagged_turns:
+            try:
+                (
+                    consistency_eval_count,
+                    consistency_contradictions_found,
+                    consistency_scores,
+                ) = await self._run_consistency_check(flagged_turns)
+            except Exception as exc:
+                logger.warning("vigil_consistency_check_cycle_failed", error=str(exc))
+                self._recent_errors.append(f"consistency_check: {exc}")
                 self._recent_errors = self._recent_errors[-10:]
 
         # Compute aggregate metrics
@@ -1012,6 +1066,169 @@ is acceptable — flag only unsupported assertions."""
             try:
                 parsed = json.loads(s[start : end + 1])
                 if isinstance(parsed, dict) and "faithfulness_score" in parsed:
+                    return parsed
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        return None
+
+    async def _run_consistency_check(self, flagged_turns: list[dict]) -> tuple[int, int, list[float]]:
+        """Run cross-turn consistency checking on flagged turns.
+
+        Phase 4.1: Vigil's 5th evaluation pass. For each flagged turn,
+        fetches prior turns in the same session and uses the evaluation
+        model to detect contradictions. Writes findings to turn metadata.
+
+        Returns:
+            (eval_count, contradictions_found, consistency_scores)
+        """
+        sample_size = self.config.consistency_check_sample_size
+        sample = flagged_turns[:sample_size]
+        lookback = self.config.consistency_check_lookback_turns
+        model_slot = self.config.consistency_check_model_slot
+
+        eval_count = 0
+        contradictions_found = 0
+        consistency_scores: list[float] = []
+
+        for entry in sample:
+            turn = entry["turn"]
+
+            prior_turns: list = []
+            if self._corpus_turns is not None:
+                try:
+                    prior_turns = await self._corpus_turns.search(
+                        query="",
+                        primary_domain=None,
+                        min_importance=0.0,
+                        limit=lookback,
+                    )
+                    prior_turns = [
+                        t for t in prior_turns
+                        if t.turn_id != turn.turn_id
+                        and t.conversation_name == turn.conversation_name
+                    ]
+                except Exception as exc:
+                    logger.warning(
+                        "vigil_consistency_prior_turns_fetch_failed",
+                        turn_id=turn.turn_id,
+                        error=str(exc),
+                    )
+                    prior_turns = []
+
+            if not prior_turns:
+                continue
+
+            user_question = (turn.user_text or "")[:500]
+            current_response = (turn.assistant_text or "")[:1000]
+
+            prior_texts: list[str] = []
+            for pt in prior_turns[:lookback]:
+                pt_text = (pt.assistant_text or "")[:500]
+                if pt_text:
+                    prior_texts.append(f"[Prior turn {pt.turn_id[:12]}]: {pt_text}")
+
+            prior_summary = "\n".join(prior_texts) if prior_texts else "(no prior responses)"
+
+            user_prompt = (
+                f"USER QUESTION:\n{user_question}\n\n"
+                f"CURRENT ASSISTANT RESPONSE:\n{current_response}\n\n"
+                f"PRIOR ASSISTANT RESPONSES IN SAME SESSION:\n{prior_summary}\n\n"
+                f"Check the current response for contradictions with prior responses."
+            )
+
+            messages = [
+                {"role": "system", "content": self._CONSISTENCY_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ]
+
+            try:
+                llm_result = await self.model_provider.call(model_slot, messages)
+
+                if llm_result.get("error"):
+                    logger.warning(
+                        "vigil_consistency_model_error",
+                        turn_id=turn.turn_id,
+                        error=llm_result.get("error_message", "unknown"),
+                    )
+                    continue
+
+                content = (llm_result or {}).get("content", "").strip()
+                parsed = self._parse_consistency_response(content)
+                if parsed is None:
+                    continue
+
+                consistency_score = parsed.get("consistency_score", 1.0)
+                contradictions = parsed.get("contradictions", [])
+                explanation = parsed.get("explanation", "")
+
+                consistency_scores.append(consistency_score)
+                eval_count += 1
+
+                if contradictions:
+                    contradictions_found += 1
+
+                try:
+                    meta = json.loads(turn.metadata_json) if turn.metadata_json else {}
+                    updated_meta = dict(meta)
+                    updated_meta["vigil_consistency_score"] = round(consistency_score, 3)
+                    updated_meta["vigil_consistency_contradictions"] = contradictions[:5]
+                    updated_meta["vigil_consistency_explanation"] = explanation[:300]
+                    updated_meta["vigil_consistency_evaluated_at"] = datetime.now(timezone.utc).isoformat()
+
+                    await self._corpus_turns.update_metadata_json(
+                        turn_id=turn.turn_id,
+                        metadata_json=json.dumps(updated_meta),
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "vigil_consistency_metadata_update_failed",
+                        turn_id=turn.turn_id,
+                        error=str(exc),
+                    )
+
+                logger.info(
+                    "vigil_consistency_evaluated",
+                    turn_id=turn.turn_id,
+                    score=round(consistency_score, 3),
+                    contradictions=len(contradictions),
+                )
+
+            except Exception as exc:
+                logger.warning(
+                    "vigil_consistency_eval_failed",
+                    turn_id=turn.turn_id,
+                    error=str(exc),
+                )
+
+        return (eval_count, contradictions_found, consistency_scores)
+
+    @staticmethod
+    def _parse_consistency_response(content: str) -> dict | None:
+        """Parse the LLM consistency check response as JSON."""
+        if not content:
+            return None
+
+        s = content.strip()
+
+        if "```json" in s:
+            s = s.split("```json", 1)[-1].split("```", 1)[0].strip()
+        elif "```" in s:
+            s = s.split("```", 1)[-1].split("```", 1)[0].strip()
+
+        try:
+            parsed = json.loads(s)
+            if isinstance(parsed, dict) and "consistency_score" in parsed:
+                return parsed
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+        start = s.find("{")
+        end = s.rfind("}")
+        if start != -1 and end > start:
+            try:
+                parsed = json.loads(s[start : end + 1])
+                if isinstance(parsed, dict) and "consistency_score" in parsed:
                     return parsed
             except (json.JSONDecodeError, ValueError):
                 pass

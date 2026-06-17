@@ -105,6 +105,15 @@ class VigilConfig:
     retrieval_quality_sample_size: int = 5  # Number of golden queries to sample
     retrieval_quality_threshold: float = 0.3  # precision@5 threshold below which alerts fire
     retrieval_quality_sample_interval_cycles: int = 6  # Only run every N cycles
+    # Phase 4.1: Cross-turn consistency checking — Vigil's 5th evaluation
+    # pass. Detects contradictions between a new response and earlier
+    # responses in the same session. Uses the evaluation model slot
+    # (same as faithfulness). Runs on a bounded sample per cycle to
+    # keep LLM cost bounded. Default-on (same as faithfulness).
+    consistency_check_enabled: bool = True
+    consistency_check_model_slot: str = "evaluation"
+    consistency_check_sample_size: int = 5  # Max turns per cycle for consistency check
+    consistency_check_lookback_turns: int = 10  # How many prior turns to compare against
 
 
 @dataclass

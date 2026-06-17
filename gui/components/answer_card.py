@@ -5,7 +5,10 @@ that includes:
   1. The answer text (markdown)
   2. A status strip showing retrieval health (healthy, degraded, lexical only,
      no sources, direct model only, trace unavailable)
-  3. An action bar with per-answer actions (Show Sources, Show Trace,
+  3. A provenance strip (Phase 4.1) — inline collapsible display of the
+     sources that were injected into the generative prompt, so the DEFINER
+     can trace provenance instantly without clicking a button
+  4. An action bar with per-answer actions (Show Sources, Show Trace,
      Save as Artifact, Link Wiki, Run Model Council)
 
 Import boundary: this module imports ONLY from gui.* (theme, state, components).
@@ -209,6 +212,18 @@ def add_answer_card(
             )
             ui.label(status["detail"]).style(f"font-size:9px; color:{C_INK60}; font-family:{F_MONO};")
 
+        # ── Provenance strip (Phase 4.1) ─────────────────────
+        # Inline collapsible display of the sources that were injected
+        # into the generative prompt. This is the "real-time provenance
+        # feedback widget" — the DEFINER can trace provenance instantly
+        # without clicking the "Sources" button. The strip shows:
+        #   - source count + domain badges (always visible)
+        #   - collapsible list of source titles + snippets (click to expand)
+        # When no sources, the strip is not rendered (the status strip
+        # already says "no sources").
+        if sources:
+            _render_provenance_strip(sources)
+
         # ── Action bar ─────────────────────────────────────────
         with ui.row().classes("w-full items-center").style("margin-top:2px; padding:2px 0; gap:4px;"):
             # Show Sources — available when sources exist
@@ -287,3 +302,105 @@ def _safe_callback(callback: Any, turn_data: dict[str, Any]) -> None:
     except Exception as exc:
         log.error("action_callback_failed: %s", exc)
         ui.notify(f"Action failed: {exc}", color="negative")
+
+
+def _render_provenance_strip(sources: list[dict[str, Any]]) -> None:
+    """Render an inline collapsible provenance strip on the answer card.
+
+    Phase 4.1: Real-time provenance feedback widget. Shows the sources
+    that were injected into the generative prompt so the DEFINER can
+    trace provenance instantly without clicking the "Sources" button.
+
+    The strip has two parts:
+      1. Always-visible summary row: source count + domain badges
+      2. Collapsible detail list: source titles + snippets (click to expand)
+
+    Args:
+        sources: list of source dicts from the retrieval pipeline. Each
+            dict has source_id, source_type, title, score, content_snippet,
+            domain.
+    """
+    if not sources:
+        return
+
+    # Collect unique domains for the badge row
+    domains: list[str] = []
+    seen_domains: set[str] = set()
+    for s in sources:
+        d = s.get("domain", "")
+        if d and d not in seen_domains:
+            domains.append(d)
+            seen_domains.add(d)
+
+    # ── Always-visible summary row ─────────────────────────
+    with (
+        ui.row()
+        .classes("w-full items-center")
+        .style(
+            f"margin-top:2px; padding:2px 8px; "
+            f"background:{C_SURFACE}; border-radius:{R_SM}; "
+            f"border:0.5px solid {C_INK40}; gap:6px;"
+        )
+    ):
+        ui.label(f"PROVENANCE: {len(sources)} source{'s' if len(sources) != 1 else ''}").style(
+            f"font-size:9px; font-weight:700; font-family:{F_MONO}; "
+            f"color:{C_OK_FG}; letter-spacing:0.3px;"
+        )
+        # Domain badges (max 4, then "+N more")
+        for d in domains[:4]:
+            ui.label(d).style(
+                f"font-size:8px; font-family:{F_MONO}; color:{C_AMBER}; "
+                f"background:{C_RAISED}; padding:1px 5px; border-radius:{R_SM};"
+            )
+        if len(domains) > 4:
+            ui.label(f"+{len(domains) - 4}").style(
+                f"font-size:8px; font-family:{F_MONO}; color:{C_INK60};"
+            )
+
+    # ── Collapsible detail list ────────────────────────────
+    with ui.expansion(
+        f"Show {len(sources)} retrieved source{'s' if len(sources) != 1 else ''}",
+        icon="library_books",
+    ).classes("w-full").style(
+        f"margin-top:1px; padding:0 8px; font-family:{F_MONO}; "
+        f"background:{C_SURFACE}; border-radius:{R_SM};"
+    ):
+        for i, s in enumerate(sources[:10], 1):
+            title = s.get("title", s.get("source_id", f"source_{i}"))
+            snippet = (s.get("content_snippet", ""))[:150]
+            score = s.get("score", 0)
+            domain = s.get("domain", "")
+            source_type = s.get("source_type", "")
+
+            with ui.row().classes("w-full items-start").style("gap:6px; margin:2px 0;"):
+                ui.label(f"{i}.").style(
+                    f"font-size:9px; color:{C_INK60}; font-family:{F_MONO}; "
+                    f"min-width:16px; flex-shrink:0; margin-top:1px;"
+                )
+                with ui.column().classes("flex-1").style("gap:1px;"):
+                    ui.label(title).style(
+                        f"font-size:10px; font-weight:600; color:{C_CREAM}; "
+                        f"font-family:{F_MONO}; line-height:1.3;"
+                    )
+                    if snippet:
+                        ui.label(snippet).style(
+                            f"font-size:9px; color:{C_MUTED}; font-family:{F_MONO}; "
+                            f"line-height:1.3; max-width:100%;"
+                        )
+                    # Metadata row: score + domain + type
+                    meta_parts: list[str] = []
+                    if score:
+                        meta_parts.append(f"score:{score:.2f}" if isinstance(score, (int, float)) else f"score:{score}")
+                    if domain:
+                        meta_parts.append(f"domain:{domain}")
+                    if source_type:
+                        meta_parts.append(f"type:{source_type}")
+                    if meta_parts:
+                        ui.label(" · ".join(meta_parts)).style(
+                            f"font-size:8px; color:{C_INK60}; font-family:{F_MONO};"
+                        )
+
+        if len(sources) > 10:
+            ui.label(f"... and {len(sources) - 10} more (use 'Sources' button for full list)").style(
+                f"font-size:9px; color:{C_INK60}; font-family:{F_MONO}; margin-top:4px;"
+            )
