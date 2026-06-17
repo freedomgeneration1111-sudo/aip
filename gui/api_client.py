@@ -1356,6 +1356,7 @@ class AipApiClient:
         selected_model_ids: list[str] | None = None,
         save_as_artifact: bool = False,
         skip_default_slots: bool = False,
+        assemble_augmented_context: bool = False,
     ) -> dict[str, Any]:
         """Run a Model Council multi-model comparison report.
 
@@ -1381,6 +1382,18 @@ class AipApiClient:
         This is the GUI's "models not tied to actor slots/roles" mode:
         the ``beast`` slot is used ONLY for the Judge+Synth synthesis
         stages, not as a panel model.
+
+        ``assemble_augmented_context`` (default ``False``): when
+        ``True`` AND ``turn_id`` is non-empty, the backend calls the
+        shared ``routes/_augmented_context.py::assemble_augmented_context()``
+        helper to build the augmented system messages (corpus turns +
+        wiki + graph + definer profile) and PREPENDS them to each
+        panel call's user prompt. This is the Phase 1 retrieval
+        bridge — fixes the AIP-acronym bug where Multi-Cast panel
+        models answered blind without seeing the corpus. The GUI
+        should pass ``True`` when ``state.current_mode == 'augmented'``
+        AND a real ``turn_id`` is computed (via
+        ``make_turn_id(session_id, turn_count)``).
         """
         client = self._get_http_client()
         payload: dict[str, Any] = {
@@ -1393,6 +1406,7 @@ class AipApiClient:
             "selected_model_ids": selected_model_ids or [],
             "save_as_artifact": save_as_artifact,
             "skip_default_slots": skip_default_slots,
+            "assemble_augmented_context": assemble_augmented_context,
         }
         try:
             resp = await client.post(

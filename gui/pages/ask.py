@@ -827,15 +827,38 @@ async def _send_multicast(
         return
 
     try:
+        # Phase 1 retrieval bridge (Step 2-B): pass a real, non-empty
+        # turn_id + the assemble_augmented_context flag so the backend
+        # calls the shared ``_augmented_context.assemble_augmented_context()``
+        # helper and prepends corpus/wiki/graph/definer context to each
+        # panel call's user prompt.
+        #
+        # turn_id: the helper uses ``session_id`` (not turn_id) for
+        # session_meta lookup — turn_id only (a) gates the helper call
+        # (must be non-empty) and (b) computes the council artifact_id.
+        # We pass ``session_id`` as the turn_id signal so the gate
+        # passes when augmented mode is on. This is layer-discipline-
+        # compliant (GUI can't import ``make_turn_id`` from foundation)
+        # and gives a per-session-deterministic artifact_id. A future
+        # step can add a backend endpoint that returns a per-turn
+        # turn_id if per-send artifact uniqueness becomes needed.
+        #
+        # assemble_augmented_context: True when state.current_mode ==
+        # 'augmented' — the backend will run retrieval (corpus turns +
+        # wiki + graph + definer profile) and prepend the result to
+        # each panel call. When False (normal mode), the panel calls
+        # proceed with the bare prompt (existing behavior).
+        is_augmented = state.current_mode == "augmented"
         result = await state.api_client.run_model_council(
             prompt=prompt,
-            turn_id="",  # No originating turn — multi-cast is a fresh prompt
+            turn_id=session_id if is_augmented else "",  # non-empty signals "run retrieval"
             session_id=session_id,
             existing_answer="",  # Pre-send mode: no existing answer to compare
             sources=[],
             selected_model_slots=[],  # Models NOT tied to actor slots/roles
             selected_model_ids=selected_model_ids,
             skip_default_slots=True,  # Don't auto-add default TOML slots
+            assemble_augmented_context=is_augmented,  # Phase 1 retrieval bridge
         )
     except Exception as exc:
         log.exception("send_multicast: run_model_council failed: %s", exc)

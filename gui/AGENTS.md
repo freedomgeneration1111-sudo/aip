@@ -155,7 +155,28 @@ sexton.py (_embedding_backfill_state, _rate_limited)
   This bypasses the normal WebSocket chat path entirely. Per-model
   results render as separate answer cards; Beast Fusion synthesis
   renders as a final advisory card. The synthesis is ADVISORY ONLY.
-- **Multi-Model dropdown auto-routing (current cycle)**: the Ask page
+- **Phase 1 retrieval bridge (Step 2-B — current cycle)**: when
+  `state.current_mode == 'augmented'`, `_send_multicast` now sends
+  `assemble_augmented_context=True` AND a non-empty `turn_id`
+  (the `session_id`, used as a per-session signal). The backend's
+  `compare_models` endpoint calls the shared
+  `routes/_augmented_context.py::assemble_augmented_context()` helper
+  to build the augmented system messages (corpus turns + wiki + graph
+  + definer profile) and PREPENDS them to each panel call's user
+  prompt. This fixes the AIP-acronym bug — Multi-Cast in augmented
+  mode no longer answers blind. The `turn_id` is the `session_id`
+  (not a per-turn `make_turn_id(session_id, turn_count)`) because the
+  GUI layer discipline forbids importing `make_turn_id` from
+  `aip.foundation.schemas.corpus_turn` directly. The helper itself
+  uses `session_id` (not `turn_id`) for `session_meta` lookup, so
+  `session_id` as the `turn_id` signal is sufficient. The `turn_id`
+  only (a) gates the helper call (must be non-empty) and (b) computes
+  the council `artifact_id` (per-session-deterministic). When
+  `state.current_mode == 'normal'`, `_send_multicast` sends
+  `assemble_augmented_context=False` and `turn_id=""` — the panel
+  calls proceed with the bare prompt (existing behavior, backward
+  compatible).
+- **Multi-Model dropdown auto-routing (prior cycle)**: the Ask page
   chat header now uses a SINGLE multi-select checkbox dropdown
   (`ui.select(..., multiple=True)`) for picking N models from the
   unified "available models" pool. The send handler auto-routes based
@@ -211,7 +232,36 @@ sexton.py (_embedding_backfill_state, _rate_limited)
   unavailable/failed" instead of just "Beast synthesis".
 
 ## Last Cycle
-- **Multi-Model dropdown auto-routing (this cycle)**: replaced the
+- **Phase 1 retrieval bridge — Step 2-B GUI wiring (this cycle)**:
+  `_send_multicast` in `gui/pages/ask.py` now sends
+  `assemble_augmented_context=(state.current_mode == 'augmented')`
+  AND `turn_id=session_id` (when augmented) / `turn_id=""` (when
+  normal) to `api_client.run_model_council`. The backend's
+  `compare_models` endpoint calls the shared
+  `routes/_augmented_context.py::assemble_augmented_context()` helper
+  when the flag is True + turn_id is non-empty, and PREPENDS the
+  augmented system messages (corpus turns + wiki + graph + definer
+  profile) to each panel call's user prompt. This activates the
+  retrieval bridge end-to-end and fixes the AIP-acronym bug —
+  Multi-Cast in augmented mode no longer answers blind. The `turn_id`
+  is the `session_id` (not a per-turn `make_turn_id(session_id,
+  turn_count)`) because the GUI layer discipline forbids importing
+  `make_turn_id` from `aip.foundation.schemas.corpus_turn` directly.
+  The helper itself uses `session_id` (not `turn_id`) for
+  `session_meta` lookup, so `session_id` as the `turn_id` signal is
+  sufficient. `gui/api_client.py::run_model_council` gained the
+  `assemble_augmented_context: bool = False` param + payload key.
+  13 new tests in `tests/test_send_multicast_retrieval_bridge.py`
+  assert the GUI ↔ backend payload contract (every payload key
+  matches a `ModelCouncilRequest` field — the bug is always in the
+  gap). Default `False` preserves backward compat: existing callers
+  that don't send the flag see no behavior change.
+- **Phase 1 retrieval bridge — Step 2-A backend helper (prior cycle)**:
+  extracted the inline ~220-line augmented retrieval block from
+  `routes/chat.py` L225-441 into a shared helper at
+  `routes/_augmented_context.py`. See `src/aip/adapter/AGENTS.md`
+  for the full producer/consumer contract.
+- **Multi-Model dropdown auto-routing (prior cycle)**: replaced the
   separate "Multi-Cast: ON/OFF" toggle button + the second row of
   slot/library checkboxes with a SINGLE multi-select checkbox dropdown
   in the Ask page chat header. The send handler now auto-routes based

@@ -664,3 +664,27 @@ Stage Summary:
   - MODIFY: src/aip/orchestration/AGENTS.md (Last Cycle entry noting RetrievalOrchestrator now consumed by both routes)
 - Backward compat: all new fields default to False/None; existing tests, external API clients, and the current GUI (which doesn't send the flag yet) see no behavior change. 280/281 tests pass (the 1 failure is pre-existing and unrelated).
 - Next step: Step 2-B — wire gui/pages/ask.py::_send_multicast to send turn_id=<real> + assemble_augmented_context=(state.current_mode == 'augmented'), and add the param to gui/api_client.py::run_model_council. This will activate the retrieval bridge end-to-end and let the user verify the AIP-acronym fix with a real dogfood test.
+
+---
+Task ID: phase1-retrieval-bridge-step-2b-2026-06-17
+Agent: Super Z (main)
+Task: Step 2-B — wire the GUI to send turn_id + assemble_augmented_context flag, activating the Phase 1 retrieval bridge end-to-end. Follow the coding protocol strictly: Orient → Contract Check → Code → Verify → Document.
+
+Work Log:
+- Orient: re-read gui/AGENTS.md (Multi-Model dropdown contract + Layer discipline: GUI imports from adapter API ONLY, never foundation/orchestration directly); verified _send_multicast current state (sends turn_id="" + sources=[]); verified run_model_council in api_client.py (has skip_default_slots but not assemble_augmented_context); verified ModelCouncilRequest on backend already has assemble_augmented_context field (shipped in Step 2-A commit 58d21db); checked make_turn_id availability (lives in aip.foundation.schemas.corpus_turn — GUI CANNOT import it per layer discipline); verified get_session_context API method exists for turn_count lookup
+- Contract Check: producer (gui/api_client.py run_model_council payload) must add "assemble_augmented_context" key ↔ consumer (model_council.py ModelCouncilRequest.assemble_augmented_context field — already exists). Payload key name must match Pydantic field name exactly. turn_id must be non-empty when augmented mode is on (gates the backend helper call). The helper itself uses session_id (not turn_id) for session_meta lookup, so session_id as the turn_id signal is sufficient.
+- Code Step 1: added assemble_augmented_context: bool = False param to gui/api_client.py::run_model_council + included "assemble_augmented_context" key in the POST payload dict. Updated the docstring to document the Phase 1 retrieval bridge activation.
+- Code Step 2: wired gui/pages/ask.py::_send_multicast to compute is_augmented = (state.current_mode == "augmented") and pass turn_id=session_id if is_augmented else "" + assemble_augmented_context=is_augmented. Added a detailed inline comment explaining the layer-discipline constraint (GUI can't import make_turn_id from foundation) and why session_id as the turn_id signal is sufficient (the helper uses session_id for session_meta lookup, not turn_id).
+- Verify: ran pytest on the full focused suite (test_send_multicast_retrieval_bridge.py + test_augmented_context_helper.py + test_model_council_fusion.py + test_model_council_cycle6.py + test_model_council_cycle6_1.py + test_model_council_library_ids.py + test_ask_multiselect_dropdown.py + test_ask.py + test_ask_workbench_cycle41.py + test_ui_integration_cycle14.py) — 293 passed, 1 pre-existing failure (test_no_dead_nav_items /graph route — unrelated, verified pre-existing via git stash earlier)
+- Document: updated gui/AGENTS.md — added "Phase 1 retrieval bridge (Step 2-B — current cycle)" contract section documenting the turn_id=session_id + assemble_augmented_context wiring + the layer-discipline constraint; added Last Cycle entry. Updated worklog.md (this entry).
+
+Stage Summary:
+- Phase 1 retrieval bridge: ACTIVATED END-TO-END. The GUI now sends assemble_augmented_context=True + a non-empty turn_id (session_id) when state.current_mode == 'augmented'. The backend calls the shared helper and prepends corpus/wiki/graph/definer context to each panel call's user prompt. The AIP-acronym bug is now structurally fixed AND wired end-to-end — ready for dogfood verification.
+- Files changed:
+  - MODIFY: gui/api_client.py (added assemble_augmented_context param + payload key to run_model_council)
+  - MODIFY: gui/pages/ask.py (_send_multicast now sends turn_id=session_id + assemble_augmented_context=is_augmented)
+  - MODIFY: gui/AGENTS.md (new contract section + Last Cycle entry)
+  - NEW: tests/test_send_multicast_retrieval_bridge.py (13 tests — payload contract, augmented flag wiring, turn_id wiring, end-to-end payload key match)
+- Layer discipline: the GUI does NOT import make_turn_id from aip.foundation.schemas.corpus_turn (forbidden by root AGENTS.md). Instead, the GUI passes session_id as the turn_id signal — the backend's helper uses session_id (not turn_id) for session_meta lookup, so this is sufficient. A future step can add a backend endpoint that returns a per-turn turn_id if per-send artifact uniqueness becomes needed.
+- Backward compat: assemble_augmented_context defaults to False. Existing callers that don't send the flag see no behavior change. Normal mode (state.current_mode == 'normal') sends assemble_augmented_context=False + turn_id="" — the backend's helper gate doesn't fire, panel calls proceed with the bare prompt.
+- Next step: manual dogfood verification — with Multi-Cast ON + Augmented ON + corpus ingested, send "What does AIP stand for?" — panel models should now correctly identify AIP as AI Poiesis (previously they answered blind). This is the PDF's Phase 1 ship criteria.
