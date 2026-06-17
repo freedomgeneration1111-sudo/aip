@@ -331,7 +331,10 @@ class TestBackwardCompatSlotOnly:
         )
         container.model_provider = provider
 
-        async def _fake_call(model_id, user_prompt):
+        async def _fake_call(model_id, user_prompt=None, messages=None):
+            # Bug 1 fix: the panel dispatch now always passes messages=
+            # (the full [system, user] list) instead of user_prompt=.
+            # Accept both signatures for backward compat.
             return {
                 "content": "library answer",
                 "model": model_id,

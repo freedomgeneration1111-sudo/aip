@@ -505,13 +505,18 @@ class TestCompareModelsCallsHelper:
 
         # Helper must NOT have been called
         mock_helper.assert_not_called()
-        # Panel calls must have ONLY the user message (no prefix)
+        # Bug 1 fix: panel calls now ALWAYS have a system message (the
+        # behavioral panel_system_prompt) + the user message. When
+        # assemble_augmented_context=False, there's no augmented prefix,
+        # so the messages list is exactly [system, user] (2 messages).
         for slot_name, msgs in captured_messages:
-            assert len(msgs) == 1, (
-                f"panel call for {slot_name} must have ONLY the user message "
-                f"when assemble_augmented_context=False (no prefix)"
+            assert len(msgs) == 2, (
+                f"panel call for {slot_name} must have [system, user] "
+                f"when assemble_augmented_context=False (behavioral "
+                f"system prompt + user question, no augmented prefix)"
             )
-            assert msgs[0]["role"] == "user"
+            assert msgs[0]["role"] == "system"
+            assert msgs[1]["role"] == "user"
 
     @pytest.mark.asyncio
     async def test_helper_not_called_when_turn_id_empty(self):
@@ -592,12 +597,17 @@ class TestCompareModelsCallsHelper:
 
         # Helper must NOT have been called (turn_id is empty)
         mock_helper.assert_not_called()
-        # Panel calls must have ONLY the user message (no prefix)
+        # Bug 1 fix: panel calls now ALWAYS have a system message (the
+        # behavioral panel_system_prompt) + the user message, even when
+        # the augmented helper is skipped. Messages = [system, user].
         for slot_name, msgs in captured_messages:
-            assert len(msgs) == 1, (
-                f"panel call for {slot_name} must have ONLY the user message "
-                f"when turn_id is empty (no retrieval scope)"
+            assert len(msgs) == 2, (
+                f"panel call for {slot_name} must have [system, user] "
+                f"when turn_id is empty (behavioral system prompt + "
+                f"user question, no augmented prefix)"
             )
+            assert msgs[0]["role"] == "system"
+            assert msgs[1]["role"] == "user"
 
 
 # ── 6. _call_model_slot accepts messages_prefix ────────────────────────

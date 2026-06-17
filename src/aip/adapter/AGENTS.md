@@ -237,6 +237,45 @@ panelists failed so the human sees the full picture.
   keeps working. New callers should import from `_augmented_context`
   directly or use the high-level `assemble_augmented_context()` function.
 
+### Panel Dispatch Contract (Bug 1 + Bug 2 remediation)
+- **Bug 1 fix — Panel message shape**: every panel call (slots +
+  library IDs, augmented mode + normal mode) receives a clean
+  system/user separation:
+  - `messages[0..k-1]` = augmented_prefix system msgs (corpus + wiki
+    + graph + definer) — present only when `assemble_augmented_context=True`
+  - `messages[k]` = `{role: system, content: _PANEL_SYSTEM_PROMPT}`
+    (behavioral rules ONLY — no task content, no "Analyze the prompt
+    below" phrasing)
+  - `messages[k+1]` = `{role: user, content: user_prompt}` (the task)
+  - The `_build_panel_system_prompt()` helper returns the behavioral
+    prompt (rules + formatting + confidence tagging + GAPS instruction).
+    It is prepended to EVERY panel call via the `panel_system_prompt=`
+    kwarg on `_call_model_slot` and as a `system` message in the
+    `panel_messages` list passed to `_call_library_model_id`.
+  - This prevents panel models from meta-analyzing the instructions
+    instead of answering the question (the original Bug 1 symptom).
+- **Bug 2 fix — Dispatch completeness**: the panel dispatch loop logs
+  every dispatched slot with `[PANEL]` markers and ensures the Judge
+  sees every slot (completed OR failed):
+  - `[PANEL] Dispatching → {slot_or_model_id}` — logged before each call
+  - `[PANEL] Response ← {slot_or_model_id} ({token_count} tokens)` —
+    logged after each successful call
+  - `[PANEL] FAILED ← {slot_or_model_id} {exception}` — logged on failure
+  - Per-model isolation: `asyncio.gather(return_exceptions=True)`
+    captures per-task failures as values — a failure on model N does
+    NOT affect models N+1 through end.
+  - **Judge receives a response entry for EVERY dispatched slot**:
+    failed models are injected into the `answers_block` as explicit
+    `[DISPATCH_ERROR: {msg}]` stubs (Bug 2 fix requirement 3). The
+    Judge can surface them in `blind_spots` / `contradictions` /
+    `partial_coverage` rather than silently dropping them.
+  - Previously the `answers_block` loop only iterated
+    `pm.status == "completed"` models, silently dropping failed models
+    and making them invisible to the Judge.
+- **Isolation**: the Bug 1 + Bug 2 fixes ONLY affect panel dispatch.
+  The Judge system prompt, Judge JSON schema, Synthesizer system
+  prompt, Vigil actor, and Sexton actor are NOT modified.
+
 ### Storage Contracts
 - **aiosqlite ONLY**: No `sqlite3.connect()` in any async method, anywhere in this layer.
   This is the single most common source of async bugs. Check every new SQLite call.
@@ -311,7 +350,32 @@ config/aip.config.toml ([models] section)
   message without `turn_id`.
 
 ## Last Cycle
-- **Phase 1 retrieval bridge (this cycle):** extracted the inline
+- **Panel Dispatch remediation — Bug 1 + Bug 2 (this cycle)**:
+  Two confirmed bugs fixed in a single pass. Bug 1: panel models were
+  meta-analyzing the instructions instead of answering the question
+  because normal-mode panel calls sent only a user message with no
+  system prompt. Fix: added `_PANEL_SYSTEM_PROMPT` constant +
+  `_build_panel_system_prompt()` helper that returns behavioral-only
+  instructions (rules + formatting + confidence tagging + GAPS — no
+  task content, no "Analyze the prompt below" phrasing). Every panel
+  call now receives `messages = [augmented_prefix..., system
+  (behavioral), user (task)]`. The `_call_model_slot` helper gained a
+  `panel_system_prompt=` kwarg; the library-model dispatch builds the
+  full `[system, user]` messages list. Bug 2: panel dispatch silently
+  dropped failed models — the Judge's `answers_block` only iterated
+  `pm.status == "completed"` models, making failures invisible to the
+  Judge. Fix: (1) added `[PANEL] Dispatching →`, `[PANEL] Response ←`,
+  and `[PANEL] FAILED ←` log lines for every dispatched slot; (2) the
+  `answers_block` loop now iterates ALL `per_model_results` and injects
+  failed models as explicit `[DISPATCH_ERROR: {msg}]` stubs so the
+  Judge sees every dispatched slot; (3) per-model isolation is
+  preserved via `asyncio.gather(return_exceptions=True)`. 19 new tests
+  in `tests/test_panel_dispatch_remediation.py` verify both bugs +
+  all 3 acceptance criteria (PANEL PROMPT TEST, DISPATCH COMPLETENESS
+  TEST, ISOLATION CHECK). The Judge system prompt, Judge JSON schema,
+  Synthesizer system prompt, Vigil actor, and Sexton actor were NOT
+  modified.
+- **Phase 1 retrieval bridge (prior cycle):** extracted the inline
   ~220-line augmented retrieval block from `routes/chat.py` L225-441
   into a shared helper at `routes/_augmented_context.py`. The helper
   (`assemble_augmented_context()`) encapsulates definer profile

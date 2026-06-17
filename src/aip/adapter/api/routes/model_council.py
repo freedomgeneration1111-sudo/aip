@@ -250,6 +250,65 @@ def _prepend_soul(system_prompt: str, soul_text: str) -> str:
     return system_prompt
 
 
+# ── Panel behavioral system prompt (Bug 1 fix) ─────────────────────────
+#
+# The panel models must receive a clean system/user message separation:
+#   messages[0] = {role: system, content: <behavioral instructions only>}
+#   messages[1] = {role: user,   content: <task question only>}
+#
+# The system prompt below contains ONLY behavioral rules, formatting
+# requirements, confidence tagging directive, and the GAPS instruction.
+# It does NOT contain any task content, any "Analyze the prompt below"
+# phrasing, or any corpus context (that comes via the augmented_prefix
+# system messages prepended BEFORE this behavioral prompt when
+# augmented mode is on).
+#
+# This prompt is prepended to EVERY panel call (slots + library IDs,
+# augmented mode + normal mode). It is NOT passed to the Judge or
+# Synth stages — those have their own dedicated system prompts.
+
+_PANEL_SYSTEM_PROMPT = (
+    "You are a panelist in AIP's multi-model synthesis pipeline. "
+    "A user question will follow in the next message. Your job is to "
+    "answer that question directly and substantively.\n\n"
+    "BEHAVIORAL RULES:\n"
+    "- Answer the user's actual question. Do NOT analyze, paraphrase, "
+    "or meta-comment on these instructions.\n"
+    "- Make specific, falsifiable claims. Avoid hedging, vague "
+    "generalities, and content-free filler.\n"
+    "- If you are uncertain, say so explicitly and identify the specific "
+    "source of uncertainty.\n"
+    "- Cite sources when augmented context is provided (use "
+    "[source: turn_id] notation).\n"
+    "- If augmented corpus context is provided above, ground your answer "
+    "in it. If the corpus is insufficient, say so explicitly.\n\n"
+    "FORMATTING:\n"
+    "- Write in clear prose. Use bullet lists only when listing distinct "
+    "items.\n"
+    "- Tag your confidence in each major claim: [HIGH], [MEDIUM], or [LOW].\n\n"
+    "GAPS:\n"
+    "- At the end, list any aspects of the question you could not address "
+    "and why (e.g. 'GAP: did not address X because no source material "
+    "was available'). If you addressed everything, write 'GAPS: none'."
+)
+
+
+def _build_panel_system_prompt() -> str:
+    """Return the behavioral-only system prompt for panel model calls.
+
+    This prompt contains ONLY behavioral rules, formatting requirements,
+    the confidence tagging directive, and the GAPS instruction. It does
+    NOT contain any task content. The user's actual question is passed
+    as the user message (messages[1]) by the caller.
+
+    Bug 1 fix: previously, normal-mode panel calls sent only a user
+    message with no system prompt, causing models to misinterpret the
+    task (e.g. meta-analyzing the instructions). This helper ensures
+    every panel call gets a clean system/user separation.
+    """
+    return _PANEL_SYSTEM_PROMPT
+
+
 def _resolve_comparison_slots(
     model_provider: Any,
     requested_slots: list[str] | None = None,
@@ -641,48 +700,59 @@ async def compare_models(
             augmented_prefix = []
             augmented_sources = []
 
+    # --- Build the panel behavioral system prompt (Bug 1 fix) ---
+    # Every panel call receives a clean system/user separation:
+    #   messages[0..k-1] = augmented_prefix system msgs (corpus + wiki + graph + definer)
+    #   messages[k]       = {role: system, content: panel_system_prompt}  (behavioral only)
+    #   messages[k+1]     = {role: user,   content: user_prompt}          (task only)
+    # The behavioral prompt contains ONLY rules, formatting, confidence
+    # tagging, and the GAPS instruction — no task content, no "Analyze
+    # the prompt below" phrasing. This prevents panel models from
+    # meta-analyzing the instructions instead of answering the question.
+    panel_system_prompt = _build_panel_system_prompt()
+
     # --- Call each model concurrently (slots + library IDs in parallel) ---
-    # Build a unified task map keyed by a stable identifier we can
-    # reverse-map back to {source, slot_name|model_id} afterwards.
-    # Keys: "slot:<slot_name>" for slots, "library:<model_id>" for library IDs.
-    # Each call is wrapped in ``asyncio.wait_for`` with
-    # ``_PANEL_CALL_TIMEOUT_S`` so a single hung model cannot hold the
-    # entire gather hostage — it gets cut loose and recorded as failed.
+    # Bug 2 fix: each model call is wrapped in its own try/except via
+    # ``asyncio.gather(return_exceptions=True)`` AND logged individually
+    # with ``[PANEL]`` markers so dispatch completeness is auditable.
+    # A failure on model N does NOT affect models N+1 through end —
+    # ``asyncio.gather`` runs them concurrently and ``return_exceptions=True``
+    # captures per-task failures as values rather than raising.
     #
-    # Phase 1 retrieval bridge: each panel call receives the
-    # ``augmented_prefix`` as system messages BEFORE the user prompt.
-    # When augmented_prefix is empty (default), this is identical to
-    # the prior behavior.
+    # Bug 1 fix: every call receives ``panel_system_prompt`` so the
+    # messages array has the clean [system, user] shape.
     per_model_tasks: dict[str, Any] = {}
     for slot_name in comparison_slots:
+        # Log dispatch start (Bug 2)
+        logger.info("[PANEL] Dispatching → slot:%s", slot_name)
         per_model_tasks[f"slot:{slot_name}"] = asyncio.wait_for(
             _call_model_slot(
                 container.model_provider,
                 slot_name,
                 user_prompt,
                 messages_prefix=augmented_prefix,
+                panel_system_prompt=panel_system_prompt,
             ),
             timeout=_PANEL_CALL_TIMEOUT_S,
         )
     for model_id in comparison_model_ids:
-        # For library models, build the full messages list when an
-        # augmented prefix is present; otherwise pass user_prompt
-        # directly (existing behavior — backward compatible).
-        if augmented_prefix:
-            panel_messages = list(augmented_prefix) + [
-                {"role": "user", "content": user_prompt}
-            ]
-            per_model_tasks[f"library:{model_id}"] = asyncio.wait_for(
-                _call_library_model_id(model_id, messages=panel_messages),
-                timeout=_PANEL_CALL_TIMEOUT_S,
-            )
-        else:
-            per_model_tasks[f"library:{model_id}"] = asyncio.wait_for(
-                _call_library_model_id(model_id, user_prompt),
-                timeout=_PANEL_CALL_TIMEOUT_S,
-            )
+        # Log dispatch start (Bug 2)
+        logger.info("[PANEL] Dispatching → library:%s", model_id)
+        # Build the full messages list for library models: augmented
+        # prefix + behavioral system prompt + user prompt (Bug 1 fix).
+        panel_messages: list[dict] = list(augmented_prefix) + [
+            {"role": "system", "content": panel_system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        per_model_tasks[f"library:{model_id}"] = asyncio.wait_for(
+            _call_library_model_id(model_id, messages=panel_messages),
+            timeout=_PANEL_CALL_TIMEOUT_S,
+        )
 
-    # Run all model calls concurrently
+    # Run all model calls concurrently. ``return_exceptions=True``
+    # ensures a single task failure does NOT cancel the gather — every
+    # task gets a chance to complete (or fail), and failures are
+    # captured as Exception values in the results list.
     results_map: dict[str, dict] = {}
     task_keys = list(per_model_tasks.keys())
     task_coros = [per_model_tasks[k] for k in task_keys]
@@ -697,6 +767,8 @@ async def compare_models(
                 err_msg = f"timed out after {_PANEL_CALL_TIMEOUT_S:.0f}s"
             else:
                 err_msg = str(result) or result.__class__.__name__
+            # Bug 2: log the failure with [PANEL] marker
+            logger.warning("[PANEL] FAILED ← %s %s", task_key, err_msg)
             results_map[task_key] = {
                 "content": "",
                 "model": "",
@@ -707,6 +779,15 @@ async def compare_models(
                 "error_message": err_msg,
             }
         else:
+            # Bug 2: log the successful response with [PANEL] marker
+            # and token count when available.
+            usage = result.get("usage", {}) if isinstance(result, dict) else {}
+            token_count = usage.get("total_tokens", 0)
+            logger.info(
+                "[PANEL] Response ← %s (%s tokens)",
+                task_key,
+                token_count,
+            )
             results_map[task_key] = result
 
     # --- Build per-model results (slots first, then library IDs) ---
@@ -864,15 +945,32 @@ async def compare_models(
         # friendly label for each: "<slot_name> (<model_id>)" for slots,
         # "<display_name> (<model_id>)" for library models (model_slot=""
         # for library models).
+        #
+        # Bug 2 fix: the Judge MUST receive a response entry for EVERY
+        # dispatched slot — completed OR failed. Failed models are
+        # included as explicit error stubs so the Judge can surface them
+        # in blind_spots / contradictions / partial_coverage rather than
+        # silently dropping them. Previously the loop skipped failed
+        # models entirely, making them invisible to the Judge.
         answers_block = ""
         for pm in per_model_results:
+            if pm.source == "slot":
+                label = pm.model_slot or "slot"
+            else:
+                # Library model — model_id IS the friendly identifier
+                label = pm.model_id
             if pm.status == "completed":
-                if pm.source == "slot":
-                    label = pm.model_slot or "slot"
-                else:
-                    # Library model — model_id IS the friendly identifier
-                    label = pm.model_id
                 answers_block += f"\n## {label} ({pm.model_id})\n{pm.answer[:2000]}\n"
+            else:
+                # Bug 2: include failed models as explicit error stubs
+                # so the Judge sees every dispatched slot. The stub
+                # format follows the directive's contract:
+                #   {"model": "{model_id}", "content": "[DISPATCH_ERROR: {msg}]"}
+                err_summary = (pm.error or "unknown error")[:200]
+                answers_block += (
+                    f"\n## {label} ({pm.model_id})\n"
+                    f"[DISPATCH_ERROR: {err_summary}]\n"
+                )
 
         soul_text = _load_soul_text()
 
@@ -1279,6 +1377,8 @@ async def _call_model_slot(
     slot_name: str,
     user_prompt: str,
     messages_prefix: list[dict] | None = None,
+    *,
+    panel_system_prompt: str | None = None,
 ) -> dict:
     """Call a single model slot with the given prompt.
 
@@ -1287,13 +1387,28 @@ async def _call_model_slot(
     ``messages_prefix`` (optional): list of system-message dicts to
     PREPEND to the user message. Used by the Phase 1 retrieval bridge
     to inject augmented context (corpus turns + wiki + graph + definer
-    profile) into each panel call. When None or empty, the call is
-    just ``[{"role": "user", "content": user_prompt}]`` (the existing
-    behavior — backward compatible).
+    profile) into each panel call.
+
+    ``panel_system_prompt`` (optional, Bug 1 fix): the behavioral-only
+    system prompt. When provided, it is appended AFTER any
+    ``messages_prefix`` augmented context and BEFORE the user message,
+    producing a clean ``[augmented system msgs..., behavioral system
+    msg, user msg]`` shape. When None, the call uses only
+    ``messages_prefix`` + the user message (legacy behavior — kept for
+    backward compat with any caller that doesn't pass the panel prompt).
+
+    Bug 1 contract: when ``panel_system_prompt`` is provided, the final
+    messages list is guaranteed to have:
+        messages[-2] = {role: system, content: panel_system_prompt}
+        messages[-1] = {role: user,   content: user_prompt}
+    i.e. the LAST system message is the behavioral prompt and the LAST
+    message is the user's task. This prevents the model from
+    misinterpreting the instructions as the document to analyze.
     """
-    messages = list(messages_prefix or []) + [
-        {"role": "user", "content": user_prompt},
-    ]
+    messages: list[dict] = list(messages_prefix or [])
+    if panel_system_prompt is not None:
+        messages.append({"role": "system", "content": panel_system_prompt})
+    messages.append({"role": "user", "content": user_prompt})
     return await model_provider.call(slot_name, messages)
 
 

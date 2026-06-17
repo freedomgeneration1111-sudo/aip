@@ -688,3 +688,52 @@ Stage Summary:
 - Layer discipline: the GUI does NOT import make_turn_id from aip.foundation.schemas.corpus_turn (forbidden by root AGENTS.md). Instead, the GUI passes session_id as the turn_id signal — the backend's helper uses session_id (not turn_id) for session_meta lookup, so this is sufficient. A future step can add a backend endpoint that returns a per-turn turn_id if per-send artifact uniqueness becomes needed.
 - Backward compat: assemble_augmented_context defaults to False. Existing callers that don't send the flag see no behavior change. Normal mode (state.current_mode == 'normal') sends assemble_augmented_context=False + turn_id="" — the backend's helper gate doesn't fire, panel calls proceed with the bare prompt.
 - Next step: manual dogfood verification — with Multi-Cast ON + Augmented ON + corpus ingested, send "What does AIP stand for?" — panel models should now correctly identify AIP as AI Poiesis (previously they answered blind). This is the PDF's Phase 1 ship criteria.
+
+---
+Task ID: panel-dispatch-remediation-2026-06-17
+Agent: Super Z (main)
+Task: Fix two confirmed bugs in the Beast Fusion Panel Dispatch — (1) panel models analyzing their own instructions, (2) panel dispatch silently dropping models. Both fixed in the same pass. Do NOT touch Judge prompt, Synthesizer prompt, JSON schema, or Vigil/Sexton actors. Follow the coding protocol strictly: Orient → Contract Check → Code → Verify → Document.
+
+Work Log:
+- Orient: re-read src/aip/adapter/AGENTS.md (panel dispatch contract); read model_council.py panel dispatch loop (L644-791), _call_model_slot (L1277-1297), _call_library_model_id (L354-468), answers_block construction (L867-875); confirmed the 4 retrieval helpers and chat.py were not affected; identified ISOLATION CHECK files: judge_system_prompt (L887), synth_system_prompt (L1078), vigil.py, sexton.py
+- Contract Check: Bug 1 producer = new _build_panel_system_prompt() helper → consumers = _call_model_slot (gained panel_system_prompt kwarg) + _call_library_model_id (receives full [system, user] messages list). Bug 2 producer = answers_block loop iterating ALL per_model_results → consumer = Judge user prompt (must contain 4 sections for 4 slots, including DISPATCH_ERROR stubs for failures)
+- Code Bug 1 (panel message construction):
+  * Added _PANEL_SYSTEM_PROMPT constant (behavioral-only: rules + formatting + confidence tagging + GAPS — no task content, no "Analyze the prompt below")
+  * Added _build_panel_system_prompt() helper
+  * _call_model_slot gained panel_system_prompt kwarg — appends the behavioral system message AFTER augmented_prefix and BEFORE the user message, producing [augmented_prefix..., system (behavioral), user (task)]
+  * compare_models panel dispatch loop: slots now pass panel_system_prompt=panel_system_prompt; library models build panel_messages = [augmented_prefix..., system (behavioral), user (task)]
+- Code Bug 2 (dispatch completeness):
+  * Added [PANEL] Dispatching → {slot_or_model_id} log line before each call
+  * Added [PANEL] Response ← {slot_or_model_id} ({token_count} tokens) log line after each successful call
+  * Added [PANEL] FAILED ← {slot_or_model_id} {exception} log line on failure
+  * Per-model isolation preserved via asyncio.gather(return_exceptions=True) — a failure on model N does NOT affect models N+1
+  * answers_block loop now iterates ALL per_model_results (not just pm.status == "completed"); failed models injected as [DISPATCH_ERROR: {msg}] stubs so the Judge sees every dispatched slot
+- Verify: 19 new tests in tests/test_panel_dispatch_remediation.py — all pass. Updated 3 existing tests (2 in test_augmented_context_helper.py + 1 in test_model_council_library_ids.py) to reflect the Bug 1 fix (panel calls now have [system, user] shape, not just [user]). Full focused suite: 312 passed, 1 pre-existing failure (test_no_dead_nav_items /graph route — unrelated)
+- Document: updated src/aip/adapter/AGENTS.md — added new "Panel Dispatch Contract (Bug 1 + Bug 2 remediation)" section documenting the message shape + dispatch completeness + isolation guarantees; added Last Cycle entry. Updated worklog.md (this entry).
+
+Stage Summary:
+- Bug 1 FIXED: every panel call now has a clean system/user separation. The behavioral system prompt (_PANEL_SYSTEM_PROMPT) contains ONLY rules, formatting, confidence tagging, and the GAPS instruction — no task content, no "Analyze the prompt below" phrasing. The user's actual question is passed as the user message (messages[-1]). This prevents panel models from meta-analyzing the instructions instead of answering the question.
+- Bug 2 FIXED: panel dispatch now logs every dispatched slot with [PANEL] markers (Dispatching/Response/FAILED). The Judge's answers_block includes a section for EVERY dispatched slot — completed models show their answer, failed models show [DISPATCH_ERROR: {msg}] stubs. No silent omissions.
+- Acceptance Criteria 1 (PANEL PROMPT TEST): PASS — test_panel_messages_have_clean_system_user_separation verifies every panel call has messages[-2]=system (behavioral) + messages[-1]=user (the Probe Shot question), and the system prompt does NOT contain the task content or "Analyze the prompt below".
+- Acceptance Criteria 2 (DISPATCH COMPLETENESS TEST): PASS — test_four_slots_produce_four_dispatch_and_four_response_logs verifies 4 slots → 4 PerModelResult entries + 4 sections in the Judge's answers_block (3 completed + 1 DISPATCH_ERROR stub for the failed slot). test_dispatch_log_entries_match_slot_count verifies 4 [PANEL] Dispatching + 4 [PANEL] Response log entries.
+- Acceptance Criteria 3 (ISOLATION CHECK): PASS — git diff shows only 4 files changed (model_council.py + 3 test files). Vigil actor, Sexton actor, Judge system prompt, Judge JSON schema, and Synth system prompt were NOT modified. test_panel_system_prompt_does_not_leak_into_judge_or_synth confirms the _PANEL_SYSTEM_PROMPT constant does not appear in the judge_system_prompt or synth_system_prompt sections.
+
+Files changed:
+- MODIFY: src/aip/adapter/api/routes/model_council.py (Bug 1: _PANEL_SYSTEM_PROMPT + _build_panel_system_prompt + panel_system_prompt kwarg on _call_model_slot + panel dispatch passes panel_system_prompt; Bug 2: [PANEL] log lines + answers_block includes DISPATCH_ERROR stubs for failed models)
+- MODIFY: tests/test_augmented_context_helper.py (2 tests updated: panel calls now have [system, user] shape, not [user])
+- MODIFY: tests/test_model_council_library_ids.py (1 test signature updated: _fake_call accepts messages= kwarg)
+- NEW: tests/test_panel_dispatch_remediation.py (19 tests: Bug 1 helper + shape + Acceptance Criteria 1; Bug 2 log markers + answers_block + Acceptance Criteria 2; Acceptance Criteria 3 isolation check)
+- MODIFY: src/aip/adapter/AGENTS.md (new "Panel Dispatch Contract" section + Last Cycle entry)
+- MODIFY: worklog.md (this entry)
+
+NOT modified (isolation check):
+- src/aip/orchestration/actors/vigil.py
+- src/aip/orchestration/actors/sexton.py
+- Judge system prompt (judge_system_prompt in model_council.py L887+)
+- Synth system prompt (synth_system_prompt in model_council.py L1078+)
+- Judge JSON schema (consensus/contradictions/partial_coverage/unique_insights/blind_spots)
+
+Test results:
+- 19 new tests in test_panel_dispatch_remediation.py — all pass
+- 199 existing model_council + augmented_context + ask tests — all pass
+- 312 total focused suite — 312 passed, 1 pre-existing failure (/graph nav route — unrelated)
