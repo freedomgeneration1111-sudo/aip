@@ -74,7 +74,7 @@ class CorpusRegistry:
         self._migration_lock: asyncio.Lock = asyncio.Lock()
         self._non_corpus_connection_budget: int = 0  # set in startup()
         self._embedding_model: str | None = None  # set on first register()
-        self._branham_policy_enabled: bool = False
+        self._restricted_policy_enabled: bool = False  # generic: gates ALL sensitive corpora
 
         self._max_connections = max_connections
         self._max_corpora = max_corpora
@@ -105,7 +105,8 @@ class CorpusRegistry:
         self,
         corpora_to_register: list[tuple[str, CorpusType, Path]] | None = None,
         embedding_model: str | None = None,
-        branham_policy_enabled: bool = False,
+        restricted_policy_enabled: bool = False,
+        branham_policy_enabled: bool | None = None,  # deprecated alias
     ) -> None:
         """Initialize all pre-configured corpora, run migrations, set migration_ready.
 
@@ -116,8 +117,12 @@ class CorpusRegistry:
             embedding_model: the shared embedding model id. All corpora must
                 use this model (§3.3). If None, the first corpus to register
                 sets it.
-            branham_policy_enabled: if True, Branham 4-layer isolation is
-                enforced (§3.4).
+            restricted_policy_enabled: if True, the generic 4-layer restricted-corpus
+                isolation is enforced (§3.4). Any corpus registered with sensitive=True
+                is gated — the session must include its corpus_id in
+                allowed_restricted_corpora to access it.
+            branham_policy_enabled: DEPRECATED alias for restricted_policy_enabled.
+                Kept for backward compat with existing callers.
 
         Raises:
             ConnectionBudgetExceeded: if MAX_CORPORA or MAX_CONNECTIONS exceeded.
@@ -130,7 +135,10 @@ class CorpusRegistry:
         (nothing to reconcile).
         """
         self._embedding_model = embedding_model
-        self._branham_policy_enabled = branham_policy_enabled
+        # Handle deprecated alias
+        if branham_policy_enabled is not None:
+            restricted_policy_enabled = branham_policy_enabled
+        self._restricted_policy_enabled = restricted_policy_enabled
 
         # Measure non-corpus connection budget (conservative default if unavailable)
         self._non_corpus_connection_budget = KNOWN_NON_CORPUS_DB_FILES * (1 + NON_CORPUS_READ_POOL_SIZE)
@@ -149,13 +157,21 @@ class CorpusRegistry:
         # Register definer first (it must be in self._corpora before
         # _reconcile_bridge_edges can run).
         definer_registered = False
-        for corpus_id, corpus_type, db_path in corpora_to_register:
+        for entry in corpora_to_register:
+            # Accept 3-tuple (id, type, db_path) or extended 5-tuple
+            # (id, type, db_path, sensitive, access_note)
+            corpus_id = entry[0]
+            corpus_type = entry[1]
+            db_path = entry[2]
+            sensitive = entry[3] if len(entry) > 3 else False
+            access_note = entry[4] if len(entry) > 4 else ""
             try:
                 await self.register(
                     corpus_id=corpus_id,
                     corpus_type=corpus_type,
                     db_path=db_path,
-                    branham_policy_enabled=(branham_policy_enabled and corpus_id == "branham"),
+                    sensitive=sensitive,
+                    access_note=access_note,
                 )
                 if corpus_id == "definer":
                     definer_registered = True
@@ -195,12 +211,25 @@ class CorpusRegistry:
         corpus_id: str,
         corpus_type: CorpusType,
         db_path: Path,
-        branham_policy_enabled: bool = False,
+        sensitive: bool = False,
+        access_note: str = "",
+        branham_policy_enabled: bool | None = None,  # deprecated alias for sensitive
     ) -> CorpusStores:
         """Open or create a corpus database.
 
         Validates budget + embedding model, then calls factory.build().
         Wraps build() in try/except: the factory handles partial-init cleanup.
+
+        Args:
+            corpus_id: unique identifier for the corpus.
+            corpus_type: determines which migrations apply.
+            db_path: path to the corpus SQLite file.
+            sensitive: if True, this corpus requires session opt-in via
+                allowed_restricted_corpora to access (§3.4 generic 4-layer defense).
+            access_note: human-readable explanation of why the corpus is sensitive,
+                shown in the GUI confirmation dialog.
+            branham_policy_enabled: DEPRECATED alias for sensitive. Kept for
+                backward compat with existing callers.
 
         Raises:
             ConnectionBudgetExceeded: if MAX_CORPORA or MAX_CONNECTIONS exceeded.
@@ -210,6 +239,10 @@ class CorpusRegistry:
         if corpus_id in self._corpora:
             # Idempotent: return existing stores
             return self._corpora[corpus_id]
+
+        # Handle deprecated alias
+        if branham_policy_enabled is not None:
+            sensitive = branham_policy_enabled
 
         # Budget validation
         self._validate_connection_budget()
@@ -222,8 +255,9 @@ class CorpusRegistry:
             migration_lock=self._migration_lock,
         )
 
-        # Set Branham policy flag (used by get_stores() Layer 3 check)
-        stores._branham_policy_enabled = branham_policy_enabled  # type: ignore[attr-defined]
+        # Set generic sensitive flags (used by get_stores() Layer 3 check)
+        stores._sensitive = sensitive  # type: ignore[attr-defined]
+        stores._access_note = access_note  # type: ignore[attr-defined]
 
         # Persist deletion_state = ACTIVE in corpus_metadata
         await self._persist_deletion_state(stores, CorpusDeletionState.ACTIVE)
@@ -246,21 +280,30 @@ class CorpusRegistry:
         return stores
 
     # ------------------------------------------------------------------
-    # get_stores() — ADR-008 Rev 3.1 §8 Chunk 2, §3.4 (Branham 4-layer)
+    # get_stores() — ADR-008 Rev 3.1 §8 Chunk 2, §3.4 (generic restricted-corpus 4-layer)
     # ------------------------------------------------------------------
 
     async def get_stores(
         self,
         corpus_id: str,
         *,
-        session_branham_allowlist: bool = False,
+        allowed_restricted_corpora: list[str] | None = None,
+        session_branham_allowlist: bool | None = None,  # deprecated
     ) -> CorpusStores:
         """Look up stores by corpus_id.
 
+        Args:
+            corpus_id: the corpus to access.
+            allowed_restricted_corpora: session-level opt-in list. If the corpus
+                is sensitive=True and its corpus_id is NOT in this list, raises
+                RestrictedCorpusAccessViolation (Layer 3 of 4-layer defense).
+            session_branham_allowlist: DEPRECATED — if True, adds "branham" to
+                allowed_restricted_corpora for backward compat.
+
         Raises:
             CorpusNotFound: if corpus_id is not registered.
-            BranhamIsolationViolation: if Branham corpus is requested without
-                session_branham_allowlist=True (Layer 3 of 4-layer defense).
+            RestrictedCorpusAccessViolation: if a sensitive corpus is requested
+                and its corpus_id is not in allowed_restricted_corpora.
             DeletionStateError: if the corpus is in DELETING state.
         """
         if corpus_id not in self._corpora:
@@ -270,17 +313,23 @@ class CorpusRegistry:
 
         stores = self._corpora[corpus_id]
 
-        # Layer 3: Branham isolation check
-        if getattr(stores, "_branham_policy_enabled", False) and not session_branham_allowlist:
+        # Build the effective allowed list (handle deprecated alias)
+        effective_allowed: set[str] = set(allowed_restricted_corpora or [])
+        if session_branham_allowlist:
+            effective_allowed.add("branham")  # backward compat
+
+        # Layer 3: generic restricted-corpus access check
+        if getattr(stores, "_sensitive", False) and corpus_id not in effective_allowed:
             await self._write_audit(
-                action="BRANHAM_POLICY_TRIGGERED",
+                action="RESTRICTED_CORPUS_ACCESS_DENIED",
                 corpus_id=corpus_id,
                 outcome="DENIED",
-                detail={"reason": "session_branham_allowlist=False"},
+                detail={"reason": "corpus_id not in allowed_restricted_corpora"},
             )
             raise BranhamIsolationViolation(
-                f"Branham corpus {corpus_id!r} requires session_branham_allowlist=True. "
-                f"Layer 3 of 4-layer defense (ADR-008 Rev 3.1 §3.4)."
+                f"Restricted corpus {corpus_id!r} requires opt-in via "
+                f"allowed_restricted_corpora. Layer 3 of 4-layer defense "
+                f"(ADR-008 Rev 3.1 §3.4). Access note: {getattr(stores, '_access_note', '')}"
             )
 
         # Deletion state check

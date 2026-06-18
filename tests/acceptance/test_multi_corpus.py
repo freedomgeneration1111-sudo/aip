@@ -85,11 +85,11 @@ class TestAC01BranhamIsolation:
             corpus_id="branham",
             corpus_type=CorpusType.DOCUMENT,
             db_path=tmp_path / "branham.db",
-            branham_policy_enabled=True,
+            sensitive=True,
         )
 
         with pytest.raises(BranhamIsolationViolation):
-            await registry.get_stores("branham", session_branham_allowlist=False)
+            await registry.get_stores("branham", allowed_restricted_corpora=[])
 
         for cid in await registry.list_corpora():
             try:
@@ -111,7 +111,7 @@ class TestAC01BranhamIsolation:
             corpus_id="branham",
             corpus_type=CorpusType.DOCUMENT,
             db_path=tmp_path / "branham.db",
-            branham_policy_enabled=True,
+            sensitive=True,
         )
 
         container = _FakeContainer(registry)
@@ -119,7 +119,7 @@ class TestAC01BranhamIsolation:
             query="test",
             active_corpus_ids=["definer", "branham"],
             container=container,
-            session_branham_allowlist=False,
+            allowed_restricted_corpora=[],
         )
 
         # Branham was suppressed
@@ -150,7 +150,7 @@ class TestAC01BranhamIsolation:
             corpus_id="branham",
             corpus_type=CorpusType.DOCUMENT,
             db_path=tmp_path / "branham.db",
-            branham_policy_enabled=True,
+            sensitive=True,
         )
 
         container = _FakeContainer(registry)
@@ -161,7 +161,7 @@ class TestAC01BranhamIsolation:
                 query=f"query_{i}",
                 active_corpus_ids=["definer", "branham"],
                 container=container,
-                session_branham_allowlist=False,
+                allowed_restricted_corpora=[],
             )
             # No hits should come from branham
             for hit in hits:

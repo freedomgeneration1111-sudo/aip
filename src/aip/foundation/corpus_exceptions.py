@@ -33,13 +33,24 @@ class ConnectionBudgetExceeded(CorpusError):
     """
 
 
-class BranhamIsolationViolation(CorpusError):
-    """Raised when Branham corpus is queried without session allowlist.
+class RestrictedCorpusAccessViolation(CorpusError):
+    """Raised when a sensitive corpus is queried without session opt-in.
 
     ADR-008 Rev 3.1 §3.4: 4-layer defense. This exception is the Layer 3
-    enforcement point — CorpusRegistry.get_stores() raises it when Branham
-    is requested without session_branham_allowlist=True.
+    enforcement point — CorpusRegistry.get_stores() raises it when a
+    corpus marked sensitive=True is requested and the corpus_id is not
+    in the session's allowed_restricted_corpora set.
+
+    This is the GENERIC version — any corpus can be sensitive, not just
+    Branham. BranhamIsolationViolation is kept as an alias for backward
+    compatibility with the 1000-query acceptance test.
     """
+
+
+# Backward-compat alias — BranhamIsolationViolation is the old name.
+# The 1000-query acceptance test catches this by name. New code should
+# catch RestrictedCorpusAccessViolation instead.
+BranhamIsolationViolation = RestrictedCorpusAccessViolation
 
 
 class CorpusMigrationError(CorpusError):

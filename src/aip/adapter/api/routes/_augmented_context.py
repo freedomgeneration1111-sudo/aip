@@ -313,14 +313,15 @@ async def assemble_augmented_context(
         if active_corpus_ids and registry is not None:
             # Multi-corpus path (§4, §A12)
             from aip.adapter.corpus_retrieval import gather_corpus_results
+            from aip.adapter.session_corpus_binding import get_allowed_restricted_corpora
 
-            branham_allowlist = (session_meta or {}).get("branham_allowlist", False)
+            allowed_restricted = get_allowed_restricted_corpora(session_meta)
             audit_fn = getattr(registry, "_write_audit", None)
             multi_hits, _suppressed = await gather_corpus_results(
                 query=content,
                 active_corpus_ids=active_corpus_ids,
                 container=container,
-                session_branham_allowlist=branham_allowlist,
+                allowed_restricted_corpora=allowed_restricted,
                 audit_fn=audit_fn,
             )
             source_dicts = multi_hits

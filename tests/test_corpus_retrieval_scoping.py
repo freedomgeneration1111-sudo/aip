@@ -257,7 +257,7 @@ class TestGatherCorpusResults:
             corpus_id="branham",
             corpus_type=CorpusType.DOCUMENT,
             db_path=tmp_path / "branham.db",
-            branham_policy_enabled=True,
+            sensitive=True,
         )
 
         container = _make_container_with_registry(registry)
@@ -267,7 +267,7 @@ class TestGatherCorpusResults:
             query="test",
             active_corpus_ids=["definer", "branham"],
             container=container,
-            session_branham_allowlist=False,
+            allowed_restricted_corpora=[],
         )
 
         # Branham was suppressed (not re-raised)
@@ -296,7 +296,7 @@ class TestGatherCorpusResults:
             corpus_id="branham",
             corpus_type=CorpusType.DOCUMENT,
             db_path=tmp_path / "branham.db",
-            branham_policy_enabled=True,
+            sensitive=True,
         )
 
         container = _make_container_with_registry(registry)
@@ -306,7 +306,7 @@ class TestGatherCorpusResults:
             query="test",
             active_corpus_ids=["definer", "branham"],
             container=container,
-            session_branham_allowlist=True,
+            allowed_restricted_corpora=["branham"],
         )
 
         # No suppressions

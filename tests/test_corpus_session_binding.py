@@ -87,8 +87,8 @@ class TestBuildSessionMetaUpdate:
         """§5: branham_allowlist is NEVER persisted when policy disabled."""
         update = build_session_meta_update(
             active_corpus_ids=["definer"],
-            branham_allowlist=True,
-            branham_policy_enabled=False,
+            allowed_restricted_corpora=["branham"],
+            restricted_policy_enabled=False,
         )
         # Explicitly set to False, not omitted — clears any prior True value
         assert update["branham_allowlist"] is False
@@ -97,24 +97,24 @@ class TestBuildSessionMetaUpdate:
         """§5: branham_allowlist IS persisted when policy enabled."""
         update = build_session_meta_update(
             active_corpus_ids=["definer"],
-            branham_allowlist=True,
-            branham_policy_enabled=True,
+            allowed_restricted_corpora=["branham"],
+            restricted_policy_enabled=True,
         )
         assert update["branham_allowlist"] is True
 
     def test_active_corpus_ids_defaults_to_definer(self):
         update = build_session_meta_update(
             active_corpus_ids=[],
-            branham_allowlist=False,
-            branham_policy_enabled=False,
+            allowed_restricted_corpora=[],
+            restricted_policy_enabled=False,
         )
         assert update["active_corpus_ids"] == ["definer"]
 
     def test_active_corpus_ids_adds_definer_if_missing(self):
         update = build_session_meta_update(
             active_corpus_ids=["codeforge"],
-            branham_allowlist=False,
-            branham_policy_enabled=False,
+            allowed_restricted_corpora=[],
+            restricted_policy_enabled=False,
         )
         assert "definer" in update["active_corpus_ids"]
         assert "codeforge" in update["active_corpus_ids"]
@@ -123,8 +123,8 @@ class TestBuildSessionMetaUpdate:
         """When active_corpus_ids is None, the field is not updated."""
         update = build_session_meta_update(
             active_corpus_ids=None,
-            branham_allowlist=False,
-            branham_policy_enabled=False,
+            allowed_restricted_corpora=[],
+            restricted_policy_enabled=False,
         )
         assert "active_corpus_ids" not in update
 
@@ -134,8 +134,8 @@ class TestBuildSessionMetaUpdate:
         # Now policy is disabled — the update must clear the allowlist
         update = build_session_meta_update(
             active_corpus_ids=["definer"],
-            branham_allowlist=True,  # attacker tries to keep it True
-            branham_policy_enabled=False,  # but policy is now disabled
+            allowed_restricted_corpora=["branham"],  # attacker tries to keep it True
+            restricted_policy_enabled=False,  # but policy is now disabled
         )
         assert update["branham_allowlist"] is False  # stripped
 
@@ -150,7 +150,7 @@ class TestIsSensitiveCorpus:
             corpus_id="branham",
             corpus_type=CorpusType.DOCUMENT,
             db_path=tmp_path / "branham.db",
-            branham_policy_enabled=True,
+            sensitive=True,
         )
         assert is_sensitive_corpus("branham", registry) is True
 
@@ -235,7 +235,7 @@ class TestResolveScopedStores:
         scoped = await resolve_scoped_stores(
             container=container,
             active_corpus_ids=["definer", "codeforge"],
-            session_branham_allowlist=False,
+            allowed_restricted_corpora=[],
         )
         assert "definer" in scoped
         assert "codeforge" in scoped
@@ -260,7 +260,7 @@ class TestResolveScopedStores:
             corpus_id="branham",
             corpus_type=CorpusType.DOCUMENT,
             db_path=tmp_path / "branham.db",
-            branham_policy_enabled=True,
+            sensitive=True,
         )
 
         container = _make_container(registry)
@@ -268,7 +268,7 @@ class TestResolveScopedStores:
         scoped = await resolve_scoped_stores(
             container=container,
             active_corpus_ids=["definer", "branham"],
-            session_branham_allowlist=False,
+            allowed_restricted_corpora=[],
         )
         assert "definer" in scoped
         assert "branham" not in scoped  # omitted — no allowlist
@@ -293,14 +293,14 @@ class TestResolveScopedStores:
             corpus_id="branham",
             corpus_type=CorpusType.DOCUMENT,
             db_path=tmp_path / "branham.db",
-            branham_policy_enabled=True,
+            sensitive=True,
         )
 
         container = _make_container(registry)
         scoped = await resolve_scoped_stores(
             container=container,
             active_corpus_ids=["definer", "branham"],
-            session_branham_allowlist=True,
+            allowed_restricted_corpora=["branham"],
         )
         assert "definer" in scoped
         assert "branham" in scoped  # included — allowlist present
@@ -317,7 +317,7 @@ class TestResolveScopedStores:
         scoped = await resolve_scoped_stores(
             container=container,
             active_corpus_ids=["definer"],
-            session_branham_allowlist=False,
+            allowed_restricted_corpora=[],
         )
         assert len(scoped) == 0
 

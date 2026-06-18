@@ -70,6 +70,8 @@ class CorpusStores:
         "closed",
         "deletion_state",
         "_branham_policy_enabled",
+        "_sensitive",
+        "_access_note",
     )
 
     def __init__(
@@ -96,9 +98,12 @@ class CorpusStores:
         self.write_lock: asyncio.Lock = asyncio.Lock()
         self.closed: bool = False
         self.deletion_state: CorpusDeletionState = CorpusDeletionState.ACTIVE
-        # Branham policy flag — set by CorpusRegistry.register() when
-        # branham_policy_enabled=True. Checked by get_stores() Layer 3.
+        # Generic sensitive/restricted-corpus flags — set by CorpusRegistry.register()
+        # when sensitive=True. Checked by get_stores() Layer 3.
+        # _branham_policy_enabled is kept as a backward-compat alias for _sensitive.
         self._branham_policy_enabled: bool = False
+        self._sensitive: bool = False
+        self._access_note: str = ""
 
     async def close_all(self) -> None:
         """Idempotent async close of all contained stores + connection manager.
@@ -162,7 +167,9 @@ class CorpusStores:
             "corpus_type": self.corpus_type.value,
             "closed": self.closed,
             "deletion_state": self.deletion_state.value,
-            "branham_policy_enabled": self._branham_policy_enabled,
+            "branham_policy_enabled": self._sensitive,  # backward compat alias
+            "sensitive": self._sensitive,
+            "access_note": self._access_note,
             "has_turn_store": self.turn_store is not None,
             "has_lexical_store": self.lexical_store is not None,
             "has_vector_store": self.vector_store is not None,

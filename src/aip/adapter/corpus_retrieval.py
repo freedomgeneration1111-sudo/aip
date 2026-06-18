@@ -157,21 +157,24 @@ async def gather_corpus_results(
     active_corpus_ids: list[str],
     container: Any,
     *,
-    session_branham_allowlist: bool = False,
+    allowed_restricted_corpora: list[str] | None = None,
+    session_branham_allowlist: bool | None = None,  # deprecated
     audit_fn: Any = None,
 ) -> tuple[list[dict], list[Exception]]:
-    """Fan out retrieval across active corpora, graceful on Branham isolation.
+    """Fan out retrieval across active corpora, graceful on restricted-corpus denial.
 
     ADR-008 Rev 3.1 Amendment §A12: uses asyncio.gather with
-    return_exceptions=True so a BranhamIsolationViolation on one corpus
-    doesn't abort the others. Non-Branham exceptions are re-raised.
+    return_exceptions=True so a RestrictedCorpusAccessViolation on one corpus
+    doesn't abort the others. Non-restricted exceptions are re-raised.
 
     Args:
         query: the search query.
         active_corpus_ids: list of corpus_ids to search.
         container: AipContainer with corpus_registry.
-        session_branham_allowlist: True if the session has Branham allowlist.
-        audit_fn: optional async callback for BRANHAM_POLICY_TRIGGERED audit.
+        allowed_restricted_corpora: session-level opt-in list for sensitive corpora.
+        session_branham_allowlist: DEPRECATED — if True, adds "branham" to
+            allowed_restricted_corpora for backward compat.
+        audit_fn: optional async callback for RESTRICTED_CORPUS_ACCESS_DENIED audit.
 
     Returns:
         (hits, exceptions) where hits is a list of namespaced hit dicts
@@ -185,9 +188,15 @@ async def gather_corpus_results(
     if registry is None:
         return ([], [])
 
+    # Build effective allowed list (handle deprecated alias)
+    effective_allowed: list[str] = list(allowed_restricted_corpora or [])
+    if session_branham_allowlist:
+        if "branham" not in effective_allowed:
+            effective_allowed.append("branham")
+
     # Build per-corpus search coroutines
     async def _search_one_corpus(cid: str) -> list[dict]:
-        stores = await registry.get_stores(cid, session_branham_allowlist=session_branham_allowlist)
+        stores = await registry.get_stores(cid, allowed_restricted_corpora=effective_allowed)
         if stores.turn_store is None:
             return []
 

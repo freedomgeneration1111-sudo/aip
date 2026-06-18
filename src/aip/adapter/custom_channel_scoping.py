@@ -8,7 +8,7 @@ ADR-008 Rev 3.1 Amendment §A14:
   "Custom channel register_fns receive only the CorpusStores the registry
    resolved for the session (post Branham/allowlist check); they never get
    a raw db_path or the container. Add an acceptance test: a custom channel
-   cannot reach branham without policy approval."
+   cannot reach restricted corpora without policy approval."
 
 This module provides a wrapper that filters the stores passed to custom
 channels, ensuring only session-resolved CorpusStores are visible.
@@ -34,8 +34,8 @@ class ScopedCorpusStores:
     ADR-008 Rev 3.1 §A14: custom channels receive this wrapper instead of
     the raw container or a db_path. The wrapper only exposes stores for
     corpus_ids that the registry resolved for the session (after the
-    Branham/allowlist check). A custom channel cannot reach branham without
-    policy approval because branham won't be in the resolved set unless the
+    Branham/allowlist check). A custom channel cannot reach restricted corpora without
+    policy approval because they won't be in the resolved set unless the
     session has the allowlist.
 
     This is a defensive layer — even if a custom channel is buggy or
@@ -48,7 +48,7 @@ class ScopedCorpusStores:
 
         Only the corpora in this dict are accessible. The dict is typically
         built by resolving active_corpus_ids through the registry with the
-        session's branham_allowlist.
+        session's allowed_restricted_corpora.
         """
         # Use object.__setattr__ to bypass __setattr__ if we were to use slots.
         # For a regular class, just store normally.
@@ -57,8 +57,8 @@ class ScopedCorpusStores:
     def get_stores(self, corpus_id: str) -> Any:
         """Get CorpusStores for a corpus_id. Returns None if not in the resolved set.
 
-        A custom channel calling this with "branham" will get None unless
-        branham was in the session's active_corpus_ids AND the session had
+        A custom channel calling this with a sensitive corpus_id will get None unless
+        the corpus was in the session's active_corpus_ids AND the session had
         the allowlist (which the registry checked during resolution).
         """
         return self._resolved.get(corpus_id)
@@ -78,13 +78,13 @@ class ScopedCorpusStores:
 async def resolve_scoped_stores(
     container: Any,
     active_corpus_ids: list[str],
-    session_branham_allowlist: bool,
+    allowed_restricted_corpora: list[str] | None = None,
 ) -> ScopedCorpusStores:
     """Resolve active_corpus_ids through the registry into a ScopedCorpusStores.
 
     ADR-008 Rev 3.1 §A14: this is the resolution point where Branham
     isolation is enforced. Each corpus is fetched via
-    registry.get_stores(corpus_id, session_branham_allowlist=...).
+    registry.get_stores(corpus_id, allowed_restricted_corpora=...).
     BranhamIsolationViolation is caught and the corpus is simply omitted
     from the resolved set (graceful degrade, not an error).
 
@@ -99,10 +99,10 @@ async def resolve_scoped_stores(
     resolved: dict[str, Any] = {}
     for cid in active_corpus_ids:
         try:
-            stores = await registry.get_stores(cid, session_branham_allowlist=session_branham_allowlist)
+            stores = await registry.get_stores(cid, allowed_restricted_corpora=allowed_restricted_corpora)
             resolved[cid] = stores
         except BranhamIsolationViolation:
-            logger.info("scoped_stores_branham_suppressed corpus=%s", cid)
+            logger.info("scoped_stores_restricted_suppressed corpus=%s", cid)
             # Omit from resolved set — custom channel won't see it
         except Exception as exc:
             logger.warning("scoped_stores_resolve_failed corpus=%s error=%s", cid, exc)
