@@ -1,15 +1,106 @@
 # Aristotle tutoring session workflow — ADR-ARISTOTLE §3 state machine.
 #
-# This is a placeholder for Phase A. The full workflow will drive:
-#   TEACH (SOCRATES) → PROBE (EXAMINER) → QUIZ (EXAMINER) →
-#   EVALUATE (EXAMINER+MENTOR) → (mastered) next concept
-#                            ↘ (struggling) REMEDIATE (SOCRATES)
+# The session opens itself. The system already knows where the learner left
+# off, what's due, and what they never quite grasped — so it begins mid-stride,
+# like a tutor who has been waiting. No menu, no "what would you like to study."
 #
-# The workflow engine is wired into the host via WorkflowRegistry.add_path
-# (ADR-014 §5.4). This file is discovered at stage 3 register.
+# Internally this is the state machine; the learner only feels rhythm:
+#
+#   TEACH ──► PROBE ──► QUIZ ──► EVALUATE ──┬─► (mastered) ─► next concept
+#     ▲                                      │
+#     └──────────── REMEDIATE ◄──────────────┘ (struggling → different framing)
+#
+# - TEACH (SOCRATES): explain, with an alternate framing on retry.
+# - PROBE (EXAMINER): low-stakes "tell me in your own words."
+# - QUIZ (EXAMINER): a real question.
+# - EVALUATE (EXAMINER + MENTOR): score, update mastery + struggle_pattern.
+# - REMEDIATE (SOCRATES, informed by struggle_pattern): re-teach from a new angle.
+#
+# Branching is invisible. The student never sees the mode names (ADR-ARISTOTLE §1:
+# single-voice principle — Aristotle is the only character the learner meets).
+#
+# This workflow is DECLARED but not yet EXECUTABLE — the workflow engine
+# (orchestration/workflow/engine.py) exists but is not wired into the container
+# (ADR-014 §8 step 2 deferred WorkflowEngine wiring). The host discovers this
+# file via WorkflowRegistry.add_path at stage 3; execution comes when the
+# engine is wired. The node structure below matches the existing workflow YAML
+# convention (workflows/synthesis_session_v1.yaml).
 template_id: tutoring_session_v1
 name: "Tutoring Session v1"
-description: "ARISTOTLE TEACH→PROBE→QUIZ→EVALUATE→REMEDIATE state machine (Phase A placeholder)"
+description: >
+  ARISTOTLE TEACH→PROBE→QUIZ→EVALUATE→REMEDIATE state machine.
+  Single-voice: the learner meets Aristotle, not the modes (ADR-ARISTOTLE §1).
+  Bilingual: content_primary + content_alt (ADR-ARISTOTLE §7).
 trigger: manual
 domains: [tutoring]
-model_gen_assumption: "SOCRATES uses the beast slot for explanation generation"
+model_gen_assumption: >
+  SOCRATES uses the beast slot for explanation generation.
+  EXAMINER uses the evaluation slot for question generation + scoring.
+  MENTOR uses the sexton slot for struggle_pattern diagnostic sentence generation.
+
+nodes:
+  - id: teach
+    type: synthesize
+    description: >
+      SOCRATES: explain the current concept. Pull the passage + alternate
+      framings from the textbook corpus. If this is a retry (after REMEDIATE),
+      use a different framing. Bilingual: content_primary + content_alt.
+    actor: socrates
+    next: probe
+
+  - id: probe
+    type: synthesize
+    description: >
+      EXAMINER: low-stakes "tell me in your own words." Not graded — just
+      checks the explanation landed. If the probe reveals confusion, branch
+      to REMEDIATE early (skip QUIZ).
+    actor: examiner
+    next: quiz
+
+  - id: quiz
+    type: synthesize
+    description: >
+      EXAMINER: a real question. Generated from the concept's bloom_target.
+      The student's answer is recorded for EVALUATE.
+    actor: examiner
+    next: evaluate
+
+  - id: evaluate
+    type: review
+    description: >
+      EXAMINER + MENTOR: score the quiz answer. Update mastery for the
+      concept. MENTOR updates struggle_pattern (one persistent AI-written
+      diagnostic sentence per student). If mastery < threshold, branch to
+      REMEDIATE; else branch to next_concept.
+    actor: examiner
+    next: remediate_on_struggle
+
+  - id: remediate_on_struggle
+    type: decision
+    description: >
+      Branch: if mastery >= threshold, go to next_concept. Else go to
+      REMEDIATE. This node is invisible to the learner — it's internal
+      orchestration (ADR-ARISTOTLE §1: single-voice principle).
+    branches:
+      - condition: "mastery >= threshold"
+        next: next_concept
+      - condition: "mastery < threshold"
+        next: remediate
+
+  - id: remediate
+    type: synthesize
+    description: >
+      SOCRATES: re-teach from a new angle, informed by struggle_pattern.
+      Pull an alternate framing from the textbook corpus. The struggle_pattern
+      sentence feeds the prompt so the re-teaching addresses the specific gap.
+    actor: socrates
+    next: probe  # re-probe after remediation
+
+  - id: next_concept
+    type: commit
+    description: >
+      Concept mastered. Consult the prerequisite DAG for the next concept
+      whose foundations are now met. The session continues — the learner
+      only feels rhythm (ADR-ARISTOTLE §3).
+    actor: socrates
+    next: teach

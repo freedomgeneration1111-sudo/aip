@@ -9,20 +9,28 @@ and `host.manifest` resolve to ARISTOTLE's validated config + manifest.
 """
 from __future__ import annotations
 
-from aristotle.actors import SocratesActor
+from aristotle.actors import ExaminerActor, MentorActor, SocratesActor
 
 
 def on_load(host) -> None:
     """Register ARISTOTLE's actors (ADR-ARISTOTLE §2).
 
-    Phase A ships SOCRATES only. EXAMINER + MENTOR are Phase A follow-ups;
-    HERALD is Phase C (depends on the Phase 0 web/feed layer).
+    Phase A ships three actors:
+      - SOCRATES — teach / explain / re-explain (ADR-ARISTOTLE §2)
+      - EXAMINER — probe / quiz / evaluate (ADR-ARISTOTLE §2)
+      - MENTOR — track the long arc + struggle_pattern (ADR-ARISTOTLE §2)
 
-    SOCRATES is manual-only (cadence=0) — the tutoring state machine is
-    driven by user turns, not by a timer. This matches ADR-ARISTOTLE §3:
-    "the learner only feels rhythm" — the system begins mid-stride.
+    HERALD (field awareness) is Phase C — depends on the Phase 0 web/feed
+    layer (ADR-014 §3.4), which is not yet built.
+
+    All three are manual-only (cadence=0.0) — the tutoring state machine
+    is driven by user turns, not by a timer (ADR-ARISTOTLE §3: "the learner
+    only feels rhythm"). The host runs one cycle on start, then waits for
+    cancellation.
     """
     host.register_actor("socrates", SocratesActor, cadence=0.0)
+    host.register_actor("examiner", ExaminerActor, cadence=0.0)
+    host.register_actor("mentor", MentorActor, cadence=0.0)
 
 
 def on_unload(host) -> None:

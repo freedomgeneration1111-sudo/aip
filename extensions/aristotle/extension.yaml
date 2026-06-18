@@ -7,7 +7,7 @@ enabled: true
 contributes:
   corpora:
     - { role: textbook, type: document, sensitive: false }
-  actors: [socrates]
+  actors: [socrates, examiner, mentor]
   channels: []
   workflows_dir: workflows
   migrations: migrations
