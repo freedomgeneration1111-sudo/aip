@@ -14,6 +14,9 @@ from __future__ import annotations
 
 # -- actors --
 from .actors import (
+    Actor,
+    ActorContext,
+    ActorResult,
     VigilStore,
 )
 
@@ -88,6 +91,9 @@ __all__ = [
     "BudgetStore",
     # actors
     "VigilStore",
+    "Actor",
+    "ActorContext",
+    "ActorResult",
     # knowledge
     "KnowledgeStore",
     # plugin

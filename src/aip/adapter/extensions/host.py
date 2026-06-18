@@ -28,7 +28,6 @@ import asyncio
 import importlib
 import logging
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
@@ -48,6 +47,7 @@ from aip.adapter.extensions.registry import (
 )
 from aip.adapter.extensions.state import ExtensionState
 from aip.adapter.extensions.supervision import supervised_task
+from aip.foundation.protocols.actors import Actor, ActorContext, ActorResult
 from aip.foundation.corpus_types import CorpusType
 
 logger = logging.getLogger(__name__)
@@ -133,6 +133,10 @@ async def _actor_scheduler_loop(
     by user turns, not by the scheduler).
 
     cadence>0 means run every `cadence` seconds, gated on cancel_event.
+
+    Uses the foundation ActorContext (ADR-014 §5.2). The scheduler handles
+    ActorResult: logs non-ok results, honors next_run_at override for the
+    next cycle only.
     """
     # Build the actor instance once.
     try:
@@ -145,54 +149,79 @@ async def _actor_scheduler_loop(
         )
         return
 
-    # Minimal ActorContext per ADR-014 §5.2.
-    ctx = _ActorContext(
+    # Validate the actor conforms to the foundation Actor Protocol
+    # (ADR-014 §5.2). A non-conforming actor is logged and the scheduler
+    # exits — the host's register_actor already recorded the name, so
+    # registered_actors() will still list it, but no cycles run.
+    if not isinstance(actor, Actor):
+        logger.warning(
+            "actor_not_conforming ext=%s name=%s class=%s — does not match "
+            "foundation.protocols.actors.Actor Protocol; skipping scheduler",
+            registration.ext_id, registration.name, type(actor).__name__,
+        )
+        return
+
+    # Build the foundation ActorContext (ADR-014 §5.2). The logger is a
+    # stdlib LoggerAdapter bound with ext + actor names for correlation.
+    # (Foundation types logger as Any — works with both stdlib logging and
+    # structlog.BoundLogger. The host uses stdlib logging.)
+    ctx_logger = logging.LoggerAdapter(
+        logger,
+        {"ext": registration.ext_id, "actor": registration.name},
+    )
+    ctx = ActorContext(
         container=container,
         config=config,
+        logger=ctx_logger,
         cancel_event=cancel_event,
     )
 
     # Run one cycle immediately (so manual-only actors do something on start).
-    try:
-        await actor.run_cycle(ctx)
-    except Exception as exc:
-        logger.warning(
-            "actor_cycle_failed ext=%s name=%s error=%s:%s",
-            registration.ext_id, registration.name,
-            type(exc).__name__, exc,
-        )
+    await _run_one_cycle(actor, ctx, registration)
 
     # If cadence is 0, wait forever for cancellation (manual-only actor).
     if registration.cadence <= 0:
         await cancel_event.wait()
         return
 
-    # Cadence > 0: loop until cancelled.
+    # Cadence > 0: loop until cancelled. Honor ActorResult.next_run_at override.
+    next_timeout: float = registration.cadence
     while not cancel_event.is_set():
         try:
-            await asyncio.wait_for(cancel_event.wait(), timeout=registration.cadence)
+            await asyncio.wait_for(cancel_event.wait(), timeout=next_timeout)
         except asyncio.TimeoutError:
-            # Cadence interval elapsed — run a cycle.
-            try:
-                await actor.run_cycle(ctx)
-            except Exception as exc:
-                logger.warning(
-                    "actor_cycle_failed ext=%s name=%s error=%s:%s",
-                    registration.ext_id, registration.name,
-                    type(exc).__name__, exc,
-                )
+            result = await _run_one_cycle(actor, ctx, registration)
+            if result is not None and result.next_run_at is not None:
+                # Override cadence for the next cycle only.
+                import time
+                now = time.monotonic()
+                next_timeout = max(0.1, result.next_run_at - now)
+            else:
+                next_timeout = registration.cadence
 
 
-@dataclass
-class _ActorContext:
-    """Minimal ActorContext — ADR-014 §5.2.
-
-    Carries the container, the extension's validated config, and the cancel
-    event. Passed to every actor.run_cycle() call.
-    """
-    container: Any
-    config: Any
-    cancel_event: asyncio.Event
+async def _run_one_cycle(
+    actor: Actor,
+    ctx: ActorContext,
+    registration: ActorRegistration,
+) -> ActorResult | None:
+    """Run a single actor cycle, log the result, return it for the scheduler."""
+    try:
+        result = await actor.run_cycle(ctx)
+        if result is not None and not result.ok:
+            logger.warning(
+                "actor_cycle_not_ok ext=%s name=%s error=%s",
+                registration.ext_id, registration.name,
+                result.error,
+            )
+        return result
+    except Exception as exc:
+        logger.warning(
+            "actor_cycle_failed ext=%s name=%s error=%s:%s",
+            registration.ext_id, registration.name,
+            type(exc).__name__, exc,
+        )
+        return None
 
 
 # --------------------------------------------------------------------------

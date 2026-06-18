@@ -38,16 +38,26 @@ _HOOKS_PY = textwrap.dedent(
     \"\"\"Demo extension on_load hook — registers one actor.\"\"\"
     from __future__ import annotations
 
+    from aip.foundation.protocols.actors import ActorResult
+
 
     class _DemoActor:
+        \"\"\"Minimal actor conforming to foundation.protocols.actors.Actor.
+
+        cadence=0 means manual-only — runs one cycle on start, then waits
+        for cancellation. This is the ARISTOTLE shape (tutoring state
+        machine driven by user turns, not by a timer).
+        \"\"\"
         name = "demo_actor"
         cadence = 0.0
 
         async def run_cycle(self, ctx):
-            return {"ok": True}
+            # A real actor would do work here (query the corpus, call a
+            # model, update state). This demo just returns success.
+            return ActorResult(ok=True)
 
         def health(self):
-            return {"state": "active"}
+            return {"state": "active", "last_run": None, "error_count": 0}
 
 
     def on_load(host):
