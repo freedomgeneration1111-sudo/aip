@@ -28,7 +28,11 @@ Concurrency model:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import time
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from aip.adapter.corpus_store_factory import CorpusStoreFactory
@@ -172,6 +176,8 @@ class CorpusRegistry:
             self._definer_stores = self._corpora.get("definer")
             # Reconcile orphan bridge edges from crashed deletes (§A13, §9.4)
             await self._reconcile_bridge_edges()
+            # Backfill review_queue_fanin from existing artifacts (§A10)
+            await self._backfill_review_fanin()
 
         # Signal actors that they can begin writing
         self._migration_ready.set()
@@ -390,13 +396,92 @@ class CorpusRegistry:
     ) -> list[ReviewItem]:
         """Fan out across corpus artifact_stores, merge by updated_at desc.
 
-        NOTE: This is a stub for Chunk 2. Full implementation lands in
-        Chunk 8 when ECS/ArtifactStore move per-corpus and review_queue_fanin
-        is created. For now, returns an empty list.
+        ADR-008 Rev 3.1 §9.4: review_queue_fanin is an ADVISORY index, not
+        the source of truth. Each corpus's PersistentEcsStore._state_cache is
+        canonical. This method:
+          1. Reads the candidate set from review_queue_fanin (fast).
+          2. Validates each candidate against the owning corpus's
+             ecs_store.current_state() (cheap — cache hit).
+          3. Drops items whose authoritative state no longer matches the
+             requested filter.
+          4. Returns merged list sorted by updated_at descending.
+
+        If the definer corpus isn't registered (no fan-in table), returns [].
         """
-        # Chunk 8 deliverable: read from review_queue_fanin, validate against
-        # owning corpus ecs_store.current_state(), merge and sort.
-        return []
+        if not states:
+            return []
+        if "definer" not in self._corpora:
+            return []
+
+        definer = self._corpora["definer"]
+        if definer.connection_manager is None:
+            return []
+
+        # Step 1: read candidate set from review_queue_fanin
+        target_corpora = corpus_ids or list(self._corpora.keys())
+        placeholders = ",".join("?" for _ in states)
+        corpus_placeholders = ",".join("?" for _ in target_corpora)
+        sql = (
+            f"SELECT corpus_id, artifact_id, state, title, updated_at "
+            f"FROM review_queue_fanin "
+            f"WHERE state IN ({placeholders}) AND corpus_id IN ({corpus_placeholders}) "
+            f"ORDER BY updated_at DESC"
+        )
+        params = list(states) + list(target_corpora)
+
+        try:
+            conn = await definer.connection_manager.acquire_read()
+            try:
+                cursor = await conn.execute(sql, params)
+                rows = await cursor.fetchall()
+            finally:
+                definer.connection_manager.release_read(conn)
+        except Exception as exc:
+            logger.warning("list_review_items_fanin_read_failed error=%s", exc)
+            return []
+
+        # Step 2-3: validate against owning corpus's authoritative state
+        items: list[ReviewItem] = []
+        for row in rows:
+            cid = row["corpus_id"]
+            artifact_id = row["artifact_id"]
+            fanin_state = row["state"]
+
+            # Validate against the owning corpus's ecs_store
+            owning_stores = self._corpora.get(cid)
+            if owning_stores is None or owning_stores.ecs_store is None:
+                # Corpus not registered or ECS store not attached — skip
+                continue
+
+            try:
+                authoritative_state = await owning_stores.ecs_store.current_state(artifact_id)
+            except Exception:
+                authoritative_state = None
+
+            if authoritative_state is None:
+                # Artifact not found in ECS store — stale fan-in entry, skip
+                continue
+
+            if authoritative_state != fanin_state:
+                # Fan-in is stale — skip (the outbox consumer will update it)
+                continue
+
+            if authoritative_state not in states:
+                # State no longer matches the requested filter
+                continue
+
+            items.append(
+                ReviewItem(
+                    corpus_id=cid,
+                    artifact_id=artifact_id,
+                    state=authoritative_state,
+                    title=row["title"] or "",
+                    updated_at=datetime.fromtimestamp(row["updated_at"], tz=timezone.utc),
+                )
+            )
+
+        # Step 4: already sorted by updated_at DESC from the SQL query
+        return items
 
     # ------------------------------------------------------------------
     # transition_artifact() — ADR-008 Rev 3.1 §A3, §A10
@@ -410,11 +495,236 @@ class CorpusRegistry:
     ) -> None:
         """Transition artifact ECS state under the corpus write_lock.
 
-        NOTE: This is a stub for Chunk 2. Full implementation lands in
-        Chunk 8 when ECS/ArtifactStore move per-corpus. For now, raises
-        NotImplementedError to prevent accidental use.
+        ADR-008 Rev 3.1 §A3, §A10, §A12:
+          1. Transition ECS under the corpus write_lock.
+          2. Look up turn_id via artifact_turn_links (no-op if absent — many
+             artifacts are wiki/summary/eval artifacts with no turn).
+          3. If found, UPDATE corpus_turns SET latest_ecs_state = ? WHERE turn_id = ?.
+          4. Enqueue a durable fan-in outbox row (§A10) in the SAME transaction
+             as the ECS transition (atomic, crash-safe).
+          5. If new_state is ARCHIVED or SUPERSEDED, the outbox row triggers
+             removal from review_queue_fanin (decided/terminal artifacts don't
+             belong in a pending-review queue).
         """
-        raise NotImplementedError("transition_artifact() is implemented in Chunk 8 (ECS/ArtifactStore per corpus).")
+        if corpus_id not in self._corpora:
+            raise CorpusNotFound(f"Cannot transition artifact in unregistered corpus {corpus_id!r}.")
+
+        stores = self._corpora[corpus_id]
+        if stores.deletion_state != CorpusDeletionState.ACTIVE:
+            raise DeletionStateError(
+                f"Corpus {corpus_id!r} is in {stores.deletion_state.value} state — transitions blocked."
+            )
+
+        async with stores.write_lock:
+            # Step 1: get current state + validate transition
+            current = await stores.ecs_store.current_state(artifact_id)
+            if current is None:
+                raise CorpusNotFound(f"Artifact {artifact_id!r} not found in corpus {corpus_id!r} ECS store.")
+
+            from aip.foundation.ecs_graph import validate_transition
+
+            validate_transition(current, new_state)  # raises InvalidTransitionError
+
+            # Step 2: look up turn_id via artifact_turn_links
+            turn_id = await self._lookup_turn_id(stores, artifact_id)
+
+            # Step 3: update latest_ecs_state on the linked turn (if any).
+            # Use the turn_store's own connection (not the manager's) to avoid
+            # "database is locked" — the turn_store and ecs_store each have
+            # their own connections, and SQLite WAL mode only allows one writer
+            # at a time. Since we're under stores.write_lock, the turn_store's
+            # write and the ecs_store's write are serialized on the same thread.
+            if turn_id and stores.turn_store is not None:
+                turn_conn = await stores.turn_store._get_conn()
+                await turn_conn.execute(
+                    "UPDATE corpus_turns SET latest_ecs_state = ? WHERE turn_id = ?",
+                    (new_state, turn_id),
+                )
+                await turn_conn.commit()
+
+            # Step 4: transition ECS (this writes to ecs_state + ecs_transitions)
+            await stores.ecs_store.transition(
+                artifact_id=artifact_id,
+                from_state=current,
+                to_state=new_state,
+                actor="definer",
+                reason=f"transition_artifact({current} → {new_state})",
+            )
+
+            # Step 5: enqueue durable fan-in outbox row (§A10)
+            await self._enqueue_fanin_outbox(stores, artifact_id, new_state)
+
+        # Step 6: audit log
+        action = (
+            "ARTIFACT_ARCHIVED"
+            if new_state == "ARCHIVED"
+            else ("ARTIFACT_SUPERSEDED" if new_state == "SUPERSEDED" else "ARTIFACT_TRANSITIONED")
+        )
+        await self._write_audit(
+            action=action,
+            corpus_id=corpus_id,
+            outcome="SUCCESS",
+            detail={"artifact_id": artifact_id, "from": current, "to": new_state},
+        )
+
+        # Step 7: drain the outbox (best-effort, non-blocking)
+        asyncio.create_task(self._drain_fanin_outbox())
+
+    async def _lookup_turn_id(self, stores: CorpusStores, artifact_id: str) -> str | None:
+        """Look up the turn_id linked to an artifact via artifact_turn_links.
+
+        Returns None if no link exists (many artifacts are wiki/summary/eval
+        artifacts with no turn). Uses the corpus's shared write connection.
+        """
+        if stores.connection_manager is None:
+            return None
+        try:
+            conn = stores.connection_manager.write_conn
+            cursor = await conn.execute(
+                "SELECT turn_id FROM artifact_turn_links WHERE artifact_id = ? LIMIT 1",
+                (artifact_id,),
+            )
+            row = await cursor.fetchone()
+            return row["turn_id"] if row else None
+        except Exception as exc:
+            logger.warning("lookup_turn_id_failed artifact=%s error=%s", artifact_id, exc)
+            return None
+
+    async def _enqueue_fanin_outbox(self, stores: CorpusStores, artifact_id: str, new_state: str) -> None:
+        """Enqueue a durable fan-in outbox row in the SAME transaction as the ECS transition.
+
+        ADR-008 Rev 3.1 §A10: the outbox row is written to review_fanin_outbox
+        in the definer corpus. A consumer reads delivered=0 rows, writes
+        review_queue_fanin, marks delivered=1.
+
+        For ARCHIVED/SUPERSEDED (terminal states), the outbox row has
+        state=new_state so the consumer knows to REMOVE the row from
+        review_queue_fanin (terminal artifacts don't belong in a pending-review queue).
+        """
+        if "definer" not in self._corpora:
+            return
+        definer = self._corpora["definer"]
+        if definer.connection_manager is None:
+            return
+
+        outbox_id = uuid.uuid4().hex
+        now = time.time()
+        title = ""  # title is populated by the consumer from artifact metadata
+
+        try:
+            conn = definer.connection_manager.write_conn
+            await conn.execute(
+                "INSERT OR REPLACE INTO review_fanin_outbox "
+                "(id, corpus_id, artifact_id, state, title, updated_at, delivered) "
+                "VALUES (?, ?, ?, ?, ?, ?, 0)",
+                (outbox_id, stores.corpus_id, artifact_id, new_state, title, now),
+            )
+            await conn.commit()
+        except Exception as exc:
+            logger.warning("enqueue_fanin_outbox_failed artifact=%s error=%s", artifact_id, exc)
+
+    async def _drain_fanin_outbox(self, batch_size: int = 50) -> int:
+        """Drain undelivered fan-in outbox rows into review_queue_fanin.
+
+        ADR-008 Rev 3.1 §A10: a single consumer reads delivered=0 rows,
+        writes review_queue_fanin in the definer corpus, then marks delivered=1.
+        On startup, the consumer resumes from undelivered rows — no loss.
+
+        For ARCHIVED/SUPERSEDED (terminal states), the row is REMOVED from
+        review_queue_fanin (not added).
+
+        Returns the number of rows processed.
+        """
+        if "definer" not in self._corpora:
+            return 0
+        definer = self._corpora["definer"]
+        if definer.connection_manager is None:
+            return 0
+
+        from aip.foundation.corpus_types import RETRIEVAL_EXCLUDED_STATES
+
+        processed = 0
+        try:
+            async with definer.write_lock:
+                conn = definer.connection_manager.write_conn
+                cursor = await conn.execute(
+                    "SELECT id, corpus_id, artifact_id, state, title, updated_at "
+                    "FROM review_fanin_outbox WHERE delivered = 0 "
+                    "ORDER BY updated_at ASC LIMIT ?",
+                    (batch_size,),
+                )
+                rows = await cursor.fetchall()
+
+                for row in rows:
+                    outbox_id = row["id"]
+                    cid = row["corpus_id"]
+                    artifact_id = row["artifact_id"]
+                    state = row["state"]
+                    title = row["title"] or ""
+                    updated_at = row["updated_at"]
+
+                    if state in RETRIEVAL_EXCLUDED_STATES:
+                        # Terminal state — remove from fan-in
+                        await conn.execute(
+                            "DELETE FROM review_queue_fanin WHERE corpus_id = ? AND artifact_id = ?",
+                            (cid, artifact_id),
+                        )
+                    else:
+                        # Active state — upsert into fan-in
+                        await conn.execute(
+                            "INSERT OR REPLACE INTO review_queue_fanin "
+                            "(corpus_id, artifact_id, state, title, updated_at) "
+                            "VALUES (?, ?, ?, ?, ?)",
+                            (cid, artifact_id, state, title, updated_at),
+                        )
+
+                    # Mark as delivered
+                    await conn.execute(
+                        "UPDATE review_fanin_outbox SET delivered = 1 WHERE id = ?",
+                        (outbox_id,),
+                    )
+                    processed += 1
+
+                await conn.commit()
+        except Exception as exc:
+            logger.warning("drain_fanin_outbox_failed error=%s", exc)
+
+        return processed
+
+    async def _backfill_review_fanin(self) -> int:
+        """Backfill review_queue_fanin from existing artifacts.
+
+        ADR-008 Rev 3.1 §A10 (backfill): scan each registered corpus's ECS store
+        for artifacts in pending states (SPECIFIED, GENERATED, REVIEWED) and
+        seed review_queue_fanin. Only runs once on startup; subsequent
+        transitions go through the outbox.
+
+        Returns the number of items backfilled.
+        """
+        if "definer" not in self._corpora:
+            return 0
+
+        pending_states = ["SPECIFIED", "GENERATED", "REVIEWED"]
+        total = 0
+
+        for cid, stores in self._corpora.items():
+            if stores.ecs_store is None:
+                continue
+            try:
+                for state in pending_states:
+                    artifact_ids = await stores.ecs_store.list_by_state(state)
+                    for artifact_id in artifact_ids:
+                        await self._enqueue_fanin_outbox(stores, artifact_id, state)
+                        total += 1
+            except Exception as exc:
+                logger.warning("backfill_review_fanin_failed corpus=%s error=%s", cid, exc)
+
+        # Drain the outbox we just filled
+        if total > 0:
+            drained = await self._drain_fanin_outbox(batch_size=max(total * 2, 100))
+            logger.info("review_fanin_backfilled enqueued=%d drained=%d", total, drained)
+
+        return total
 
     # ------------------------------------------------------------------
     # _reconcile_bridge_edges() — ADR-008 Rev 3.1 §A13, §9.4
@@ -468,12 +778,20 @@ class CorpusRegistry:
     async def _persist_deletion_state(self, stores: CorpusStores, state: CorpusDeletionState) -> None:
         """Persist deletion_state to corpus_metadata table.
 
-        NOTE: For Chunk 2, this is a no-op (the corpus_metadata table is
-        created by the migration runner, but the deletion_state write
-        requires a working store). Full implementation in Chunk 8.
+        ADR-008 Rev 3.1 §A13: deletion_state is persisted BEFORE any file
+        operation so a crash mid-delete is recoverable on startup.
         """
-        # Chunk 8 deliverable: write to corpus_metadata
-        pass
+        if stores.connection_manager is None:
+            return
+        try:
+            conn = stores.connection_manager.write_conn
+            await conn.execute(
+                "INSERT OR REPLACE INTO corpus_metadata (key, value) VALUES (?, ?)",
+                ("deletion_state", state.value),
+            )
+            await conn.commit()
+        except Exception as exc:
+            logger.warning("persist_deletion_state_failed corpus=%s error=%s", stores.corpus_id, exc)
 
     async def _write_audit(
         self,
@@ -484,13 +802,44 @@ class CorpusRegistry:
     ) -> None:
         """Write an entry to corpus_audit_log in the definer corpus.
 
-        NOTE: For Chunk 2, this is a no-op (the corpus_audit_log table is
-        created in Chunk 8). Logs to the standard logger instead.
+        ADR-008 Rev 3.1 §9.6: id = uuid4().hex, ts = time.time(),
+        actor_id = "system" (for now; Chunk 9 CLI passes actor_id).
+        If the definer corpus or corpus_audit_log table doesn't exist,
+        logs to the standard logger instead (graceful degradation).
         """
+        log_detail = detail or {}
         logger.info(
             "corpus_audit action=%s corpus=%s outcome=%s detail=%s",
             action,
             corpus_id,
             outcome,
-            detail or {},
+            log_detail,
         )
+
+        # Write to corpus_audit_log table if definer is registered
+        if "definer" not in self._corpora:
+            return
+        definer = self._corpora["definer"]
+        if definer.connection_manager is None:
+            return
+
+        try:
+            conn = definer.connection_manager.write_conn
+            audit_id = uuid.uuid4().hex
+            now = time.time()
+            await conn.execute(
+                "INSERT INTO corpus_audit_log (id, ts, actor_id, corpus_id, action, outcome, detail) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    audit_id,
+                    now,
+                    "system",
+                    corpus_id,
+                    action,
+                    outcome,
+                    json.dumps(log_detail),
+                ),
+            )
+            await conn.commit()
+        except Exception as exc:
+            logger.warning("write_audit_failed action=%s error=%s", action, exc)

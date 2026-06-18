@@ -86,6 +86,12 @@ _DDL_MIGRATIONS = [
     "ALTER TABLE corpus_turns ADD COLUMN doc_version INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE corpus_turns ADD COLUMN embed_fail_count INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE corpus_turns ADD COLUMN last_embed_error TEXT NOT NULL DEFAULT ''",
+    # ADR-008 Rev 3.1 M001 + M003 — also added here so the store's own
+    # _create_tables handles them on fresh databases. The migration runner
+    # (§A8) tracks these via fingerprint for crash recovery, but the store
+    # must also create them for direct-construction tests and legacy paths.
+    "ALTER TABLE corpus_turns ADD COLUMN revision_parent_id TEXT",
+    "ALTER TABLE corpus_turns ADD COLUMN latest_ecs_state TEXT NOT NULL DEFAULT 'GENERATED'",
 ]
 
 _DDL_FTS = """
@@ -255,9 +261,10 @@ class CorpusTurnStore(StoreHealthMixin, ReadPoolMixin):
                     searchable_text, word_count,
                     embedded, metadata_json, embedding_model, needs_reembed, last_embed_at,
                     embed_fail_count, last_embed_error,
+                    revision_parent_id,
                     created_at, updated_at
                 ) VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                 )
                 """,
                 (
@@ -291,6 +298,7 @@ class CorpusTurnStore(StoreHealthMixin, ReadPoolMixin):
                     getattr(turn, "last_embed_at", None),
                     int(getattr(turn, "embed_fail_count", 0) or 0),
                     getattr(turn, "last_embed_error", "") or "",
+                    getattr(turn, "revision_parent_id", None),
                     created_at,
                     now,
                 ),
@@ -424,8 +432,16 @@ class CorpusTurnStore(StoreHealthMixin, ReadPoolMixin):
         source_model: str | None = None,
         min_importance: float = 0.0,
         limit: int = 10,
+        include_archived: bool = False,
     ) -> list[CorpusTurn]:
-        """FTS5 search with optional filters. Returns [] on no results."""
+        """FTS5 search with optional filters. Returns [] on no results.
+
+        ADR-008 Rev 3.1 §6: by default, excludes turns whose latest_ecs_state
+        is in RETRIEVAL_EXCLUDED_STATES (ARCHIVED, SUPERSEDED). Pass
+        include_archived=True to include them (for history queries).
+        """
+        from aip.foundation.corpus_types import RETRIEVAL_EXCLUDED_STATES
+
         conn = await self._checkout_read_conn()
         try:
             sql = """
@@ -435,6 +451,11 @@ class CorpusTurnStore(StoreHealthMixin, ReadPoolMixin):
                 WHERE corpus_turns_fts MATCH ?
             """
             params: list[Any] = [query]
+
+            # ADR-008 §6: exclude ARCHIVED/SUPERSEDED by default
+            if not include_archived:
+                excluded = "','".join(sorted(RETRIEVAL_EXCLUDED_STATES))
+                sql += f" AND (t.latest_ecs_state IS NULL OR t.latest_ecs_state NOT IN ('{excluded}'))"
 
             if primary_domain:
                 sql += " AND t.primary_domain = ?"
@@ -452,6 +473,60 @@ class CorpusTurnStore(StoreHealthMixin, ReadPoolMixin):
             cursor = await conn.execute(sql, params)
             rows = await cursor.fetchall()
             return [self._row_to_turn(row) for row in rows]
+        except Exception:
+            await self._reset_conn()
+            raise
+        finally:
+            self._return_read_conn(conn)
+
+    async def delete_turn(self, turn_id: str) -> bool:
+        """Delete a turn and its FTS5 entry (via corpus_turns_ad trigger).
+
+        ADR-008 Rev 3.1 §A4: opt-in GC for ARCHIVED turns. The corpus_turns_ad
+        trigger automatically removes the FTS5 row when the base row is deleted.
+        Returns True if a row was deleted, False if the turn didn't exist.
+
+        NOTE: Callers MUST also call vector_store.delete(turn_id) to remove
+        the vector entry, and clean up any artifact_turn_links / bridge edges.
+        This method only handles the corpus_turns + FTS5 cleanup.
+        """
+        conn = await self._get_conn()
+        try:
+            cursor = await conn.execute("DELETE FROM corpus_turns WHERE turn_id = ?", (turn_id,))
+            await conn.commit()
+            return cursor.rowcount > 0
+        except Exception:
+            await self._reset_conn()
+            raise
+
+    async def states_for(self, turn_ids: list[str]) -> dict[str, str]:
+        """Batch lookup of latest_ecs_state for a list of turn_ids.
+
+        ADR-008 Rev 3.1 §A2: used by the fusion-layer ECS filter in
+        assemble_augmented_context() to exclude ARCHIVED/SUPERSEDED turns
+        from lexical and vector channel results (which don't join corpus_turns
+        and would otherwise leak archived content).
+
+        Returns dict[turn_id → latest_ecs_state]. Turns not found are omitted.
+        If the latest_ecs_state column doesn't exist (pre-M003), returns {}.
+        """
+        if not turn_ids:
+            return {}
+        conn = await self._checkout_read_conn()
+        try:
+            # Check if latest_ecs_state column exists (pre-M003 compatibility)
+            cursor = await conn.execute("PRAGMA table_info(corpus_turns)")
+            cols = {row[1] for row in await cursor.fetchall()}
+            if "latest_ecs_state" not in cols:
+                return {}
+
+            placeholders = ",".join("?" for _ in turn_ids)
+            cursor = await conn.execute(
+                f"SELECT turn_id, latest_ecs_state FROM corpus_turns WHERE turn_id IN ({placeholders})",
+                turn_ids,
+            )
+            rows = await cursor.fetchall()
+            return {row["turn_id"]: row["latest_ecs_state"] for row in rows}
         except Exception:
             await self._reset_conn()
             raise
@@ -895,6 +970,7 @@ class CorpusTurnStore(StoreHealthMixin, ReadPoolMixin):
             last_embed_at=row["last_embed_at"] if "last_embed_at" in row.keys() else None,
             embed_fail_count=int(row["embed_fail_count"] or 0) if "embed_fail_count" in row.keys() else 0,
             last_embed_error=row["last_embed_error"] if "last_embed_error" in row.keys() else "",
+            revision_parent_id=row["revision_parent_id"] if "revision_parent_id" in row.keys() else None,
             searchable_text=row["searchable_text"] or "",
             word_count=int(row["word_count"] or 0),
         )

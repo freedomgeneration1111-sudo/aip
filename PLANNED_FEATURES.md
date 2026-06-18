@@ -97,7 +97,7 @@ is the implementation default.
 | 2a | Per-corpus shared connection manager (APPROVED) | ✅ Complete — CorpusConnectionManager, 1 write + N read per corpus |
 | 2b | Migration runner outside `_create_tables` | ✅ Complete — CorpusMigrationRunner, fingerprint + sql_checksum |
 | 2c | 5-scheduler migration gate in `app.py` | ✅ Complete — defensive helper, 5 schedulers gated |
-| 8 | ECS/ArtifactStore per corpus | 🔲 Next |
+| 8 | ECS/ArtifactStore per corpus | ✅ Complete — 29 tests, delete_turn/states_for/revision_parent_id (§A4/§A2/§A12), artifact_turn_links M004 (§A3), durable outbox (§A10), review_queue.corpus_id M005 (§A11), full transition_artifact + list_review_items + backfill (§9.4), aip audit log CLI (§A15) |
 | 3 | Call-site migration (264 sites / 21 files) | 🔲 Pending |
 | 4 | Retrieval scoping (fusion-layer ECS filter) | 🔲 Pending |
 | 5 | Session/project binding + custom-channel scoping | 🔲 Pending |
@@ -162,6 +162,7 @@ be an enhancement over the current PersonalizedPageRank approach.
 | 2026-06-17 | Global docs hardening pass — cross-referenced ROADMAP.md Phase 6 + Phase 1.6. Added DEBT-010 (TracePanel right_drawer) to TECH_DEBT.md. | Super Z (main) |
 | 2026-06-18 | ADR-008 Multi-Corpus Chunk 1 complete: added ARCHIVED terminal state to ECS graph, created 4 foundation files (corpus_types, corpus_exceptions, corpus_constants, protocols/corpus_registry), 43 new tests. Added "In Progress" section tracking the 9-chunk sequence. Updated Codebase-as-Corpus to reference ADR-008 (supersedes ADR-004). | GLM (Coding Agent) |
 | 2026-06-18 | ADR-008 Multi-Corpus Chunk 2 complete: CorpusRegistry + CorpusStoreFactory + CorpusConnectionManager (§A0 shared pool) + CorpusMigrationRunner (§A8 fingerprint+checksum) + 5-scheduler migration gate in app.py (§A5). 55 new tests. Stubs for transition_artifact/list_review_items/_reconcile_bridge_edges (Chunks 6/8). | GLM (Coding Agent) |
+| 2026-06-18 | ADR-008 Multi-Corpus Chunk 8 complete: ECS/ArtifactStore per corpus. CorpusTurnStore: delete_turn, states_for, search(include_archived), revision_parent_id round-trip. Factory: ECS+artifact attachment, M004/M005, definer-only tables. Registry: full transition_artifact (durable outbox §A10), list_review_items (§9.4 validation), backfill, audit log. CLI: aip audit log. 29 new tests. | GLM (Coding Agent) |
 
 ---
 

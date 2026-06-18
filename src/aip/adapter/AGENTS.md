@@ -394,7 +394,22 @@ config/aip.config.toml ([models] section)
   message without `turn_id`.
 
 ## Last Cycle
-- **ADR-008 Multi-Corpus Chunk 2** (this cycle): CorpusRegistry + Factory +
+- **ADR-008 Multi-Corpus Chunk 8** (this cycle): ECS/ArtifactStore per corpus +
+  durable fan-in outbox + audit log CLI. Key additions: CorpusTurnStore gained
+  `delete_turn()` (§A4), `states_for()` (§A2 batch lookup), `search(include_archived=)`
+  (§6 ECS filter), `revision_parent_id` field round-trip (§A12). CorpusStoreFactory
+  now attaches `ecs_store` + `artifact_store` per corpus, creates definer-only tables
+  (review_queue_fanin, corpus_audit_log, review_fanin_outbox), runs M004
+  (artifact_turn_links) + M005 (review_queue.corpus_id). CorpusRegistry gained full
+  `transition_artifact()` (§A3+§A10: ECS transition → turn_id lookup → latest_ecs_state
+  update → durable outbox enqueue → audit log), full `list_review_items()` (§9.4:
+  fan-in candidate set → authoritative ECS validation → merged sorted), `_backfill_review_fanin()`
+  on startup, `_drain_fanin_outbox()` consumer, `_write_audit()` to corpus_audit_log table,
+  `_persist_deletion_state()` to corpus_metadata. New `cli/audit.py` with `aip audit log`
+  command (§A15). 29 new tests in `tests/test_corpus_ecs_per_corpus.py`. Stubs remaining:
+  `_reconcile_bridge_edges()` (Chunk 6), lexical/vector/graph stores not yet attached
+  to CorpusStores (Chunk 6 for graph, post-Chunk-3 for lexical/vector).
+- **ADR-008 Multi-Corpus Chunk 2**: CorpusRegistry + Factory + shared connection manager
   shared connection manager + migration runner + scheduler gates. 5 new adapter
   files: `corpus_connection.py` (CorpusConnectionManager — 1 write + N read
   conns shared by all 6 stores per corpus, §A0), `corpus_stores.py` (CorpusStores

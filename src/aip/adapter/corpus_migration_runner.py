@@ -302,7 +302,11 @@ class CorpusMigrationRunner:
         ordinal = (row["cnt"] if row else 0) + 1
 
         try:
-            await conn.execute(migration.sql)
+            # Split multi-statement SQL on ';' and execute each non-empty
+            # statement separately. aiosqlite executes one statement per call.
+            statements = [s.strip() for s in migration.sql.split(";") if s.strip()]
+            for stmt in statements:
+                await conn.execute(stmt)
         except sqlite3.OperationalError as exc:
             msg = str(exc).lower()
             if "duplicate column name" in msg:

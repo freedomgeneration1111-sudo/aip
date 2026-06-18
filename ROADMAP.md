@@ -104,7 +104,7 @@ the roadmap, update both documents.
 - ⏳ **IN PROGRESS — ADR-008 Rev 3.1** (supersedes ADR-004). 9-chunk sequence:
   - ✅ Chunk 1: Foundation types + ECS ARCHIVED state (complete, 43 tests)
   - ✅ Chunk 2: CorpusRegistry + Factory (complete, 55 tests — includes 2a shared connection manager APPROVED, 2b migration runner, 2c 5-scheduler gate)
-  - 🔲 Chunk 8: ECS/ArtifactStore per corpus (delete_turn, artifact_turn_links, durable outbox, revision_parent_id, aip audit log)
+  - ✅ Chunk 8: ECS/ArtifactStore per corpus (complete, 29 tests — delete_turn, artifact_turn_links/M004, durable outbox, revision_parent_id, aip audit log)
   - 🔲 Chunk 3: Call-site migration (264 sites / 21 files)
   - 🔲 Chunk 4: Retrieval scoping (fusion-layer ECS filter, Branham allowlist threading)
   - 🔲 Chunk 5: Session/project binding + custom-channel scoping
@@ -306,3 +306,4 @@ Remaining items:
 | 2026-06-17 | Phase 6: Fusion pipeline complete; Phase 1.6 proposed; DEBT-006 reference fixed | Super Z |
 | 2026-06-18 | ADR-008 Multi-Corpus Chunk 1 complete: ARCHIVED terminal state added to ECS graph, 4 foundation files created, 43 tests. Phase 1.5 marked IN PROGRESS. | GLM (Coding Agent) |
 | 2026-06-18 | ADR-008 Multi-Corpus Chunk 2 complete: CorpusRegistry + Factory + shared connection manager (§A0) + migration runner (§A8) + 5-scheduler gate (§A5). 55 tests. | GLM (Coding Agent) |
+| 2026-06-18 | ADR-008 Multi-Corpus Chunk 8 complete: ECS/ArtifactStore per corpus. delete_turn, states_for, revision_parent_id, M004/M005, durable outbox, transition_artifact, list_review_items, backfill, aip audit log CLI. 29 tests. | GLM (Coding Agent) |

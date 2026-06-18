@@ -12,6 +12,7 @@ import click
 
 from aip.cli import artifact as artifact_cmd
 from aip.cli import ask as ask_cmd
+from aip.cli import audit as audit_cmd
 from aip.cli import backup as backup_cmd
 from aip.cli import codex as codex_cmd
 from aip.cli import config as config_cmd
@@ -98,6 +99,7 @@ cli.add_command(codex_cmd.codex)
 cli.add_command(eval_cmd.eval_cmd)
 cli.add_command(export_cmd.export)
 cli.add_command(backup_cmd.backup)
+cli.add_command(audit_cmd.audit)
 cli.add_command(validate)
 
 

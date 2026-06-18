@@ -74,17 +74,22 @@ MIGRATIONS_FOR_CORPUS_TYPE: dict["CorpusType", list[str]] = {
         "M001_add_revision_parent_id",
         "M002_add_target_corpus_id",  # definer only — bridge edges live here
         "M003_add_latest_ecs_state",
+        "M004_add_artifact_turn_links",
+        "M005_add_review_queue_corpus_id",  # definer only — review_queue lives here
     ],
     CorpusType.CODE: [
         "M001_add_revision_parent_id",
         "M003_add_latest_ecs_state",
+        "M004_add_artifact_turn_links",
     ],
     CorpusType.DOCUMENT: [
         "M001_add_revision_parent_id",
         "M003_add_latest_ecs_state",
+        "M004_add_artifact_turn_links",
     ],
     CorpusType.BOOK: [
         "M001_add_revision_parent_id",
         "M003_add_latest_ecs_state",
+        "M004_add_artifact_turn_links",
     ],
 }

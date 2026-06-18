@@ -141,6 +141,14 @@ class CorpusTurn:
     # Last embedding error message. Empty string = no error or last embed
     # succeeded. Useful for diagnosing systematic embedding failures.
 
+    # ADR-008 Rev 3.1 §A12: Book revision chain (M001 migration).
+    # For manuscript chapters: when a new chapter revision is created, the
+    # old turn is ARCHIVED and the new turn sets revision_parent_id = old_turn_id.
+    # This preserves the revision chain for history queries while excluding
+    # archived turns from default retrieval. None = original (no parent).
+    # Also used by code corpus (M001) and document corpus for revision tracking.
+    revision_parent_id: str | None = None
+
     # Computed fields — populated at ingestion time
     searchable_text: str = ""
     # user_text + "\n\n" + assistant_text + (thinking if present)

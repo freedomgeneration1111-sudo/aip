@@ -79,11 +79,40 @@ _M003_ADD_LATEST_ECS_STATE = Migration(
     verify=(("table_info(corpus_turns)", "latest_ecs_state"),),
 )
 
+# M004: artifact_turn_links — ADR-008 Rev 3.1 §A3.
+# Explicit link table mapping artifacts to turns (many artifacts have no turn —
+# wiki, summary, eval artifacts). transition_artifact() uses this to find the
+# turn_id when updating latest_ecs_state on the corpus_turns row.
+_M004_ADD_ARTIFACT_TURN_LINKS = Migration(
+    name="M004_add_artifact_turn_links",
+    sql=(
+        "CREATE TABLE IF NOT EXISTS artifact_turn_links ("
+        "artifact_id TEXT NOT NULL, "
+        "turn_id TEXT NOT NULL, "
+        "PRIMARY KEY (artifact_id, turn_id)"
+        "); "
+        "CREATE INDEX IF NOT EXISTS idx_atl_turn ON artifact_turn_links(turn_id)"
+    ),
+    verify=(("table_info(artifact_turn_links)", "artifact_id"),),
+)
+
+# M005: review_queue.corpus_id — ADR-008 Rev 3.1 §A11.
+# Adds corpus_id to the existing review_queue table so DEFINER decisions can
+# route back to the owning corpus. Default 'definer' for backward compat.
+# This migration only applies to the definer corpus (where review_queue lives).
+_M005_ADD_REVIEW_QUEUE_CORPUS_ID = Migration(
+    name="M005_add_review_queue_corpus_id",
+    sql="ALTER TABLE review_queue ADD COLUMN corpus_id TEXT NOT NULL DEFAULT 'definer'",
+    verify=(("table_info(review_queue)", "corpus_id"),),
+)
+
 # Registry: name → Migration
 MIGRATIONS: dict[str, Migration] = {
     _M001_ADD_REVISION_PARENT_ID.name: _M001_ADD_REVISION_PARENT_ID,
     _M002_ADD_TARGET_CORPUS_ID.name: _M002_ADD_TARGET_CORPUS_ID,
     _M003_ADD_LATEST_ECS_STATE.name: _M003_ADD_LATEST_ECS_STATE,
+    _M004_ADD_ARTIFACT_TURN_LINKS.name: _M004_ADD_ARTIFACT_TURN_LINKS,
+    _M005_ADD_REVIEW_QUEUE_CORPUS_ID.name: _M005_ADD_REVIEW_QUEUE_CORPUS_ID,
 }
 
 
@@ -149,11 +178,13 @@ class CorpusStoreFactory:
             # (M001, M003) run ALTER TABLE on corpus_turns, so the base table must
             # exist before migrations run. Per §A8, migrations run OUTSIDE
             # _create_tables — but the base tables must exist first.
-            #
-            # For Chunk 2, only CorpusTurnStore is wired. The other 5 stores
-            # (lexical, vector, graph, artifact, ecs) are attached in Chunk 8
-            # when ECS/ArtifactStore move per-corpus.
             stores.turn_store = await self._build_turn_store(manager, corpus_id)
+
+            # Step 4b: for the definer corpus, ensure review_queue table exists
+            # before M005 tries to ALTER it. The ReviewQueueStore creates this
+            # table; we initialize it here so M005 can add the corpus_id column.
+            if corpus_type == CorpusType.CONVERSATION:
+                await self._ensure_review_queue_table(manager)
 
             # Step 5: run migrations under migration_lock + corpus write_lock.
             # Both locks required (§A8 + §3.6). Migrations run after base tables
@@ -167,6 +198,19 @@ class CorpusStoreFactory:
                         migrations_registry=MIGRATIONS,
                         corpus_id=corpus_id,
                     )
+
+                    # Step 5b: create definer-only tables (review_queue_fanin,
+                    # corpus_audit_log, review_fanin_outbox) — ADR-008 §8 Chunk 8.
+                    # These are NOT migrations (they're new tables, not ALTERs)
+                    # but they're created under the same lock for atomicity.
+                    if corpus_type == CorpusType.CONVERSATION:
+                        await self._create_definer_only_tables(manager)
+
+            # Step 6: attach ECS + artifact stores (ADR-008 §8 Chunk 8).
+            # These use the corpus db_path (same as turn_store). In a future
+            # refactor (post-Chunk-3), they'll use the shared connection manager.
+            stores.ecs_store = await self._build_ecs_store(manager, corpus_id)
+            stores.artifact_store = await self._build_artifact_store(manager, corpus_id)
 
             logger.info(
                 "corpus_stores_built corpus=%s type=%s db_path=%s",
@@ -201,3 +245,123 @@ class CorpusStoreFactory:
         store = CorpusTurnStore(manager.db_path)
         await store.initialize()
         return store
+
+    async def _build_ecs_store(self, manager: CorpusConnectionManager, corpus_id: str):
+        """Build a PersistentEcsStore for this corpus.
+
+        ADR-008 §8 Chunk 8: ECS store is per-corpus. Uses the corpus db_path.
+        The ECS store creates its own tables (ecs_state, ecs_transitions) via
+        its initialize() method.
+        """
+        from aip.adapter.ecs_store_persistent import PersistentEcsStore
+
+        store = PersistentEcsStore(manager.db_path)
+        await store.initialize()
+        return store
+
+    async def _build_artifact_store(self, manager: CorpusConnectionManager, corpus_id: str):
+        """Build a VersionedArtifactStore for this corpus.
+
+        ADR-008 §8 Chunk 8: ArtifactStore is per-corpus. Uses the corpus db_path.
+        The artifact store creates its own table (artifacts) via initialize().
+        """
+        from aip.adapter.artifact_store_versioned import VersionedArtifactStore
+
+        store = VersionedArtifactStore(manager.db_path)
+        await store.initialize()
+        return store
+
+    async def _ensure_review_queue_table(self, manager: CorpusConnectionManager) -> None:
+        """Ensure the review_queue table exists in the definer corpus.
+
+        M005 (add review_queue.corpus_id) needs the base review_queue table
+        to exist before it can ALTER it. The ReviewQueueStore creates this
+        table; we initialize it here so M005 succeeds.
+        """
+        from aip.adapter.review_queue_store import ReviewQueueStore
+
+        store = ReviewQueueStore(manager.db_path)
+        await store.initialize()
+        await store.close()
+
+    async def _create_definer_only_tables(self, manager: CorpusConnectionManager) -> None:
+        """Create definer-only tables: review_queue_fanin, corpus_audit_log,
+        review_fanin_outbox.
+
+        ADR-008 Rev 3.1 §8 Chunk 8, §A10, §9.6:
+          - review_queue_fanin: cross-corpus review discovery index (definer only)
+          - corpus_audit_log: lifecycle events (definer only)
+          - review_fanin_outbox: durable outbox for fan-in updates (definer only,
+            since the fan-in table lives in definer)
+
+        These are created under the migration lock + corpus write_lock for
+        atomicity. They are NOT migrations (they're new tables, not ALTERs)
+        but they're idempotent (CREATE TABLE IF NOT EXISTS).
+        """
+        conn = manager.write_conn
+
+        # review_queue_fanin: cross-corpus discovery index (§9.4)
+        # Primary key is (corpus_id, artifact_id) — one row per artifact across
+        # all corpora. Index on (state, updated_at) for list_review_items() perf.
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS review_queue_fanin (
+                corpus_id TEXT NOT NULL,
+                artifact_id TEXT NOT NULL,
+                state TEXT NOT NULL,
+                title TEXT,
+                updated_at REAL NOT NULL,
+                PRIMARY KEY (corpus_id, artifact_id)
+            )
+            """
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_review_queue_fanin_state_updated "
+            "ON review_queue_fanin(state, updated_at DESC)"
+        )
+
+        # corpus_audit_log: lifecycle events (§9.6)
+        # id = uuid4().hex (§A16 C-3). Records CORPUS_REGISTERED, CORPUS_DELETED,
+        # BRIDGE_ORPHAN_CLEANED, BRANHAM_POLICY_TRIGGERED, MIGRATION_APPLIED,
+        # ARTIFACT_ARCHIVED, ARTIFACT_SUPERSEDED.
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS corpus_audit_log (
+                id TEXT PRIMARY KEY,
+                ts REAL NOT NULL,
+                actor_id TEXT NOT NULL,
+                corpus_id TEXT,
+                action TEXT NOT NULL,
+                outcome TEXT NOT NULL,
+                detail TEXT
+            )
+            """
+        )
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_corpus_audit_log_ts ON corpus_audit_log(ts DESC)")
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_corpus_audit_log_corpus_action ON corpus_audit_log(corpus_id, action)"
+        )
+
+        # review_fanin_outbox: durable outbox for fan-in updates (§A10)
+        # Written in the SAME transaction as the ECS transition (atomic, crash-safe).
+        # A consumer reads delivered=0 rows, writes review_queue_fanin, marks delivered=1.
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS review_fanin_outbox (
+                id TEXT PRIMARY KEY,
+                corpus_id TEXT NOT NULL,
+                artifact_id TEXT NOT NULL,
+                state TEXT NOT NULL,
+                title TEXT,
+                updated_at REAL NOT NULL,
+                delivered INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_review_fanin_outbox_undelivered "
+            "ON review_fanin_outbox(delivered, updated_at)"
+        )
+
+        await conn.commit()
+        logger.debug("definer_only_tables_created db_path=%s", manager.db_path)

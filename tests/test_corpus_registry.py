@@ -828,13 +828,18 @@ class TestCorpusRegistry:
         await registry.startup(corpora_to_register=None)
         assert registry.migration_ready.is_set() is True
 
-    async def test_transition_artifact_raises_not_implemented(self, temp_dir: Path):
-        """transition_artifact() is a stub for Chunk 2 — raises NotImplementedError."""
+    async def test_transition_artifact_raises_corpus_not_found(self, temp_dir: Path):
+        """transition_artifact() raises CorpusNotFound for unregistered corpus.
+
+        Chunk 8: transition_artifact() is now fully implemented. It raises
+        CorpusNotFound if the corpus isn't registered, and if the artifact
+        isn't found in the ECS store.
+        """
         registry = CorpusRegistry()
         await registry.startup()
 
-        with pytest.raises(NotImplementedError, match="Chunk 8"):
-            await registry.transition_artifact("definer", "art-001", "ARCHIVED")
+        with pytest.raises(CorpusNotFound):
+            await registry.transition_artifact("nonexistent", "art-001", "ARCHIVED")
 
     async def test_list_review_items_returns_empty_list(self):
         """list_review_items() is a stub for Chunk 2 — returns empty list."""
