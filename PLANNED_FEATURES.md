@@ -102,7 +102,7 @@ is the implementation default.
 | 4 | Retrieval scoping (fusion-layer ECS filter) | ✅ Complete — 21 tests, corpus_retrieval.py (namespace_hit_id, cache_key, filter_excluded_states §A2, gather_corpus_results §A12), assemble_augmented_context multi-corpus path |
 | 5 | Session/project binding + custom-channel scoping | ✅ Complete — 30 tests, session_corpus_binding.py (active_corpus_ids + branham_allowlist, §5 policy enforcement), custom_channel_scoping.py (ScopedCorpusStores §A14), GUI corpus_selector.py |
 | 6 | Graph bridge edges + actor GraphStore refactor | ✅ Complete — 17 tests, GraphEdge.target_corpus_id (§A7), M002 migration, 4 new GraphStore methods (upsert/delete/get_bridge_neighbors/get_orphan_bridge_targets), _reconcile_bridge_edges (§A13), delete_corpus bridge cleanup |
-| 7 | Code corpus ingest (AST parser) | 🔲 Pending — delivers Phase 1.6 below |
+| 7 | Code corpus ingest (AST parser) | ✅ Complete — 24 tests, python_ast_parser.py (functions/classes/module registration calls), code_ingest_pipeline.py (stale detection via content_hash), 3 golden queries acceptance tests against actual AIP codebase. Delivers Phase 1.6. |
 | 9 | Acceptance suite + `aip corpus migrate --force` + `aip backup` rewrite | 🔲 Pending |
 
 See `docs/decisions/ADR-008-multi-corpus-architecture-rev3.md` + Amendment for full spec.
@@ -167,6 +167,7 @@ be an enhancement over the current PersonalizedPageRank approach.
 | 2026-06-18 | ADR-008 Multi-Corpus Chunk 4 complete: Retrieval scoping. New corpus_retrieval.py: namespace_hit_id/parse_hit_id (§4), corpus_aware_cache_key (§4 sorted), filter_excluded_states (§A2 fusion-layer ECS filter), gather_corpus_results (§A12 Branham graceful degrade). assemble_augmented_context extended for multi-corpus path. 21 new tests. | GLM (Coding Agent) |
 | 2026-06-18 | ADR-008 Multi-Corpus Chunk 5 complete: Session/project binding + custom-channel scoping. session_corpus_binding.py (active_corpus_ids, branham_allowlist, §5 policy enforcement). custom_channel_scoping.py (ScopedCorpusStores §A14). GUI corpus_selector.py. 30 new tests. | GLM (Coding Agent) |
 | 2026-06-18 | ADR-008 Multi-Corpus Chunk 6 complete: Graph bridge edges. GraphEdge.target_corpus_id (§A7). M002 migration. 4 new GraphStore methods (upsert_bridge_edge, delete_bridge_edges, get_bridge_neighbors, get_orphan_bridge_targets). _reconcile_bridge_edges (§A13) + delete_corpus bridge cleanup. 17 new tests. | GLM (Coding Agent) |
+| 2026-06-18 | ADR-008 Multi-Corpus Chunk 7 complete: Code corpus ingest. python_ast_parser.py (functions/classes/module registration calls, skip .pyi/test_*, SyntaxError→[]). code_ingest_pipeline.py (stale detection via content_hash, skip/supersede). 3 golden queries acceptance tests against actual AIP codebase. 24 new tests. Delivers Phase 1.6 Codebase-as-Corpus. | GLM (Coding Agent) |
 
 ---
 

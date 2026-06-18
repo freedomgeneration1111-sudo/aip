@@ -91,6 +91,20 @@ orchestration/review_export_pipeline.py (review decision)
   checks. Vigil does NOT do tagging. Mixing these breaks the ADR-011 contract.
 
 ## Last Cycle
+- **ADR-008 Multi-Corpus Chunk 7** (this cycle): Code corpus ingest (Python
+  AST parser). New `ingestion/parsers/python_ast_parser.py` — parses Python
+  source into CodeTurnSpec objects: (1) per function/method (decorators +
+  signature + docstring + first 20 body lines), (2) per class with Call/Assign
+  body nodes (captures __init_subclass__/metaclass/registry patterns), (3)
+  per module-level registration call (register_channel, register_plugin, etc.).
+  Skip rules: .pyi, test_*.py, *_test.py. SyntaxError returns [] (logged,
+  never raises). content_hash = SHA256(ast.unparse(node)) for stale detection.
+  New `adapter/code_ingest_pipeline.py` — walks a directory, parses each .py,
+  writes CorpusTurns to CorpusTurnStore with stale detection (skip if
+  content_hash matches existing, supersede if changed). 24 new tests in
+  `tests/test_corpus_code_ingest.py` including 3 golden queries acceptance
+  tests against the actual AIP Brain codebase (retrieval channel registration,
+  FastAPI route embedding, async context manager close pattern).
 - **Phase 1 retrieval bridge (this cycle, no orchestration code change)**:
   The shared `routes/_augmented_context.py::assemble_augmented_context()`
   helper now consumes the `RetrievalOrchestrator` (via

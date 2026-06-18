@@ -109,7 +109,7 @@ the roadmap, update both documents.
   - ✅ Chunk 4: Retrieval scoping (complete, 21 tests — fusion-layer ECS filter §A2, hit ID namespacing, cache key, Branham graceful degrade §A12, assemble_augmented_context multi-corpus path)
   - ✅ Chunk 5: Session/project binding + custom-channel scoping (complete, 30 tests — session_corpus_binding §5 policy, custom_channel_scoping §A14 ScopedCorpusStores, GUI corpus_selector)
   - ✅ Chunk 6: Graph bridge edges + actor GraphStore refactor (complete, 17 tests — GraphEdge.target_corpus_id §A7, M002 migration, 4 new GraphStore methods, _reconcile_bridge_edges §A13, delete_corpus bridge cleanup)
-  - 🔲 Chunk 7: Code corpus ingest (AST parser — delivers Phase 1.6)
+  - ✅ Chunk 7: Code corpus ingest (complete, 24 tests — Python AST parser: functions/classes/module registration calls, stale detection via content_hash, 3 golden queries acceptance tests. Delivers Phase 1.6 Codebase-as-Corpus)
   - 🔲 Chunk 9: Acceptance suite + aip corpus migrate --force + aip backup (strategy A default)
 - 🔲 Branham research corpus (1200 sermons + books + critic sites) — post-Chunk 9
 - 🔲 NBCM citations corpus (academic papers across relevant domains) — post-Chunk 9
@@ -311,3 +311,4 @@ Remaining items:
 | 2026-06-18 | ADR-008 Multi-Corpus Chunk 4 complete: Retrieval scoping. corpus_retrieval.py: namespace_hit_id, corpus_aware_cache_key, filter_excluded_states (§A2), gather_corpus_results (§A12). assemble_augmented_context multi-corpus path. 21 tests. | GLM (Coding Agent) |
 | 2026-06-18 | ADR-008 Multi-Corpus Chunk 5 complete: Session/project binding + custom-channel scoping. session_corpus_binding.py (§5 policy enforcement). custom_channel_scoping.py (§A14 ScopedCorpusStores). GUI corpus_selector.py. 30 tests. | GLM (Coding Agent) |
 | 2026-06-18 | ADR-008 Multi-Corpus Chunk 6 complete: Graph bridge edges. GraphEdge.target_corpus_id (§A7). M002 migration. 4 new GraphStore methods. _reconcile_bridge_edges (§A13). delete_corpus bridge cleanup. 17 tests. | GLM (Coding Agent) |
+| 2026-06-18 | ADR-008 Multi-Corpus Chunk 7 complete: Code corpus ingest. python_ast_parser.py (functions/classes/module registration). code_ingest_pipeline.py (stale detection). 3 golden queries acceptance tests. 24 tests. Delivers Phase 1.6. | GLM (Coding Agent) |
