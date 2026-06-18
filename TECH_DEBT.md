@@ -1,7 +1,7 @@
 # AIP Technical Debt Register
 
 **Owner:** B. Moses Jorgensen  
-**Last Updated:** 2026-06-11 (Chunk 7: ask_pipeline decomposition and retrieval trace cleanup)
+**Last Updated:** 2026-06-18 (DEBT-011: branham deprecated aliases — one release cycle)
 
 Each entry records a deliberate deferral — what was skipped, why, and what triggers remediation.
 
@@ -331,5 +331,71 @@ next GUI modification pass on trace_panel.py.
 - `gui/AGENTS.md` → "ui.right_drawer() is FORBIDDEN" gotcha
 - `gui/components/model_council_panel.py` → `_open_dialog()` pattern (reference implementation)
 - `gui/components/beast_panel.py` → same dialog conversion pattern
+
+---
+
+## DEBT-011 — Branham Deprecated Aliases (One-Release-Cycle Removal)
+
+**Status:** Active — scheduled removal after one release cycle  
+**Phase:** ADR-014 Phase 0 Extension Platform (step 0)  
+**Filed:** 2026-06-18
+
+**What was deferred:**
+The branham → sensitive generalization (commit `956f06f`) removed the
+`corpus_id == "branham"` special-case branch but left behind a surface
+of backward-compat shims. ADR-014 step 0 finished the half-done rename
+of the audit action (`BRANHAM_POLICY_TRIGGERED` →
+`RESTRICTED_CORPUS_ACCESS_DENIED`) — that part is DONE. The remaining
+shims are deliberately kept for one release cycle:
+
+1. **Exception alias**: `BranhamIsolationViolation = RestrictedCorpusAccessViolation`
+   in `src/aip/foundation/corpus_exceptions.py:53`. Kept because the
+   "1000-query acceptance test" imports it by name (per the comment at
+   line 50-52).
+2. **Deprecated parameter aliases**:
+   - `session_branham_allowlist: bool | None` in `corpus_retrieval.py:161`
+     and `corpus_registry.py:300` — translates to
+     `allowed_restricted_corpora += ["branham"]`.
+   - `branham_policy_enabled: bool | None` in `corpus_registry.py` `register()`
+     and `startup()` — deprecated alias for `sensitive`.
+3. **Structured log key**: `branham_isolation_suppressed` in
+   `corpus_retrieval.py:250`. This is a log filter key operators may
+   grep for; not an audit action.
+4. **Backward-compat session metadata field**: `branham_allowlist: True`
+   (boolean) read by `session_corpus_binding.py:69-70` to add `"branham"`
+   to the allowed list for old sessions.
+
+**Why deferred:**
+The audit action rename was the user-facing surface that had to be clean
+before the first ARISTOTLE audit entry. The exception alias and parameter
+aliases are operator/developer-facing surfaces that are cheaper to keep
+than to migrate in the same commit. The "1000-query acceptance test"
+referenced in `corpus_exceptions.py:50-52` needs to be updated to use
+`RestrictedCorpusAccessViolation` before the alias can be removed.
+
+**Remediation trigger:**
+After one release cycle (i.e. after ADR-014 steps 1–3 land and ARISTOTLE
+Phase A is dogfoodable), in a single dedicated commit:
+1. Update the 1000-query acceptance test to use `RestrictedCorpusAccessViolation`.
+2. Remove `BranhamIsolationViolation` alias from `corpus_exceptions.py`.
+3. Remove `session_branham_allowlist` parameter from `corpus_retrieval.py`
+   and `corpus_registry.py`.
+4. Remove `branham_policy_enabled` parameter from `corpus_registry.py`.
+5. Remove the `branham_allowlist` boolean read in `session_corpus_binding.py:69-70`.
+6. Rename the log key `branham_isolation_suppressed` →
+   `restricted_corpus_suppressed` in `corpus_retrieval.py:250`.
+7. Update the docstrings in `session_corpus_binding.py` and
+   `corpus_retrieval.py` that reference the old name.
+
+**Related work:**
+- ADR-014 §1 (branham rename decision) and §10 (longevity hedges)
+- `src/aip/foundation/corpus_exceptions.py:50-53` — exception alias
+- `src/aip/adapter/corpus_retrieval.py:161,193-195,244,250` — deprecated
+  param + audit action (audit action DONE; rest pending)
+- `src/aip/adapter/corpus_registry.py:300,319` — deprecated param alias
+- `src/aip/adapter/session_corpus_binding.py:60-81,131` — backward-compat
+  session metadata field
+- `src/aip/adapter/corpus_stores.py:104,170` — `_branham_policy_enabled`
+  slot + health output alias
 
 ---

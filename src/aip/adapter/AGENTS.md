@@ -392,9 +392,37 @@ config/aip.config.toml ([models] section)
   the GUI's per-turn actions (Beast Counsel, Link Wiki, Model Council turn
   linkage) all bail with "No turn ID available". Never send a `response`
   message without `turn_id`.
+- **Audit action vocabulary**: The audit log uses string-literal action
+  names (`CORPUS_REGISTERED`, `RESTRICTED_CORPUS_ACCESS_DENIED`,
+  `CORPUS_DELETED`, `BRIDGE_ORPHAN_CLEANED`, `MIGRATION_APPLIED`,
+  `ARTIFACT_ARCHIVED`, `ARTIFACT_SUPERSEDED`, `ARTIFACT_TRANSITIONED`).
+  `BRANHAM_POLICY_TRIGGERED` was the last stale action name and is now
+  `RESTRICTED_CORPUS_ACCESS_DENIED` (renamed per ADR-014 step 0). The
+  `BranhamIsolationViolation` exception alias and the deprecated parameter
+  aliases (`session_branham_allowlist`, `branham_policy_enabled`) are
+  kept for one release cycle. Extension-contributed audit actions follow
+  the `{EXT_ID Upper}_...` namespace convention (ADR-014 §10).
 
 ## Last Cycle
-- **ADR-008 Multi-Corpus Chunk 9** (this cycle — FINAL CHUNK): Acceptance
+- **ADR-014 Phase 0 Extension Platform — Step 0 + contract** (this cycle):
+  - Renamed the last stale `BRANHAM_POLICY_TRIGGERED` audit action to
+    `RESTRICTED_CORPUS_ACCESS_DENIED` in `corpus_retrieval.py:244` (now
+    matches `corpus_registry.py:324`). Updated the stale comment in
+    `corpus_store_factory.py:325`. The `BranhamIsolationViolation`
+    exception alias and deprecated parameter aliases are kept for one
+    release cycle (ADR-014 §1).
+  - Added ADR-014 (`docs/decisions/ADR-014-phase0-extension-host.md`)
+    defining the `ExtensionHost` lifecycle, manifest v1 schema, and
+    build order. The ADR corrects the prior draft's §1 overstatement
+    that PluginManager/AipMcpServer/WorkflowRegistry are "working
+    extension points" — they are structurally present but unwired.
+  - Added `tests/test_extension_lifecycle.py` as the TDD contract
+    (RED by design — fails to collect until `aip.adapter.extensions`
+    exists). Eleven tests pin the lifecycle: discover, validate,
+    config-schema-failure, id-collision, migrate, register actors,
+    mount GUI (v1.1, xfail), failed-extension isolation, disabled,
+    health surface, stop-cancels-actors.
+- **ADR-008 Multi-Corpus Chunk 9** (prior cycle — FINAL CHUNK): Acceptance
   suite + CLI deliverables. New `tests/acceptance/test_multi_corpus.py`
   with AC-01 through AC-09: Branham isolation (100-query CI-scaled version
   of 1000-query test), cross-corpus RRF namespacing, ECS lifecycle (ARCHIVED
@@ -763,7 +791,7 @@ The API owns its router definitions. The CLI owns its command structure.
 | `api/app.py` | App factory, startup/scheduler coordination, Sexton startup task. ADR-008 §A5: 5 actor schedulers gated on `corpus_registry.migration_ready` |
 | `api/routes/corpus.py` | Corpus routes — enriches with Sexton state |
 | `cli/` | Supplementary CLI commands (collaborators, plugins) — main CLI is `aip.cli` |
-| `corpus_registry.py` | ADR-008: CorpusRegistry — concrete impl, register/get_stores/delete_corpus, budget validation, Branham Layer 3, §A13 two-phase delete |
+| `corpus_registry.py` | ADR-008: CorpusRegistry — concrete impl, register/get_stores/delete_corpus, budget validation, restricted-corpus Layer 3 (sensitive flag), §A13 two-phase delete. Audit action `RESTRICTED_CORPUS_ACCESS_DENIED` (renamed from `BRANHAM_POLICY_TRIGGERED` per ADR-014 step 0). |
 | `corpus_store_factory.py` | ADR-008: CorpusStoreFactory — builds CorpusStores with shared connection manager, registers M001/M002/M003 migrations |
 | `corpus_connection.py` | ADR-008 §A0: CorpusConnectionManager — 1 write + N read conns shared by all 6 stores per corpus (makes budget math work) |
 | `corpus_stores.py` | ADR-008 §5.3: CorpusStores — regular class with `__slots__`, async `close_all()`, `__aenter__/__aexit__`, write_lock, deletion_state |

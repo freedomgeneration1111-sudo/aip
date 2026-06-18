@@ -52,7 +52,7 @@ developers and operators working on AIP itself.
 ## Key Subdirectories
 | Path | Role |
 |------|------|
-| `decisions/` | Architecture Decision Records (14 ADRs) |
+| `decisions/` | Architecture Decision Records (15 ADRs) |
 | `internal/specs/` | Build specifications per phase |
 | `internal/` | Internal design docs (ask, ingestion, review_export) |
 | `ui/` | UI design references, mockups, style system |
@@ -75,6 +75,7 @@ developers and operators working on AIP itself.
 | ADR-011 | Actor role boundaries | Beast/Vigil/Sexton separation |
 | ADR-012 | Single-writer sufficiency | Write concurrency model |
 | ADR-013 | Retrieval quality validation closure | Quality gate design |
+| ADR-014 | Phase 0 extension platform — ExtensionHost lifecycle & manifest v1 | Extension contract; ARISTOTLE is the first consumer |
 
 ## Work Guidance
 - Adding an ADR: copy `ADR-000-template.md`, fill in sections, commit

@@ -9,7 +9,7 @@
 > were already implemented, and an external analysis missed a resolved
 > debt item (DEBT-006) — both because there was no unified tracker.
 >
-> **Last Updated:** 2026-06-17
+> **Last Updated:** 2026-06-18
 > **Maintained by:** Super Z (main agent) + DEFINER review
 
 ## How to use this file
@@ -80,6 +80,28 @@ These are genuine gaps worth pursuing. They are NOT yet implemented.
 | **Real-time provenance feedback widget** | Display the prior turns injected into the generative prompt, allowing DEFINER to trace provenance instantly. BeastContextPreparer has the data; just doesn't surface it to UI. | ~half day | None — `response_sources` already in WS payload. |
 | **Context Preparer visualizer** | UI panel showing how FTS5, vector, and entity resolution compose the final context stack. The most powerful retrieval debugging tool in the system. | ~1 day | `RetrievalTrace` already populated; needs UI surface. |
 | **Automated consistency-checker** | Cross-turn contradiction detection. Fits naturally as Vigil's 5th evaluation pass. | ~1 day | Vigil actor architecture. |
+
+---
+
+## Status: In Progress (ADR-014 Phase 0 Extension Platform)
+
+ADR-014 (build target, PROPOSED) defines the `ExtensionHost` lifecycle, manifest v1
+schema, and the seven-step build order. ARISTOTLE is the first consumer. The
+TDD contract (`tests/test_extension_lifecycle.py`) is RED by design — it fails
+to collect until `aip.adapter.extensions` exists.
+
+| Step | Name | Status |
+|------|------|--------|
+| 0 | Branham audit-action rename (kill the last stale name) | ✅ Complete — `corpus_retrieval.py:244` now emits `RESTRICTED_CORPUS_ACCESS_DENIED`; stale comment in `corpus_store_factory.py:325` updated. Exception alias + deprecated param aliases kept one release cycle. |
+| 1 | `ExtensionState` / `ExtensionRegistry` / `ExtensionHost` skeleton + `_supervised_task` + failing `test_extension_lifecycle.py` | 📋 Contract written (RED); implementation pending |
+| 2 | Wire `PluginManager` / `WorkflowRegistry` / `McpToolRegistry` as host-owned services on `container.extensions` | ⏳ Not started |
+| 3 | `register_actor` / `register_workflow` + `Actor` Protocol (new actors only) | ⏳ Not started |
+| 4 | `MigrationLoader` (`.sql` → `Migration` dataclasses) + stages 0–3 green | ⏳ Not started |
+| 5 | Manifest v1 validator (pydantic v2) + cross-stage coherence checks | ⏳ Not started |
+| 6 | (v1.1) `register_gui_page` + stage 4 mount; layout reads nav from registry | ⏳ Not started |
+| 7 | (v1.2) `register_mcp_tool` + MCP generalization | ⏳ Not started |
+
+See `docs/decisions/ADR-014-phase0-extension-host.md` for the full spec.
 
 ---
 
@@ -169,13 +191,15 @@ be an enhancement over the current PersonalizedPageRank approach.
 | 2026-06-18 | ADR-008 Multi-Corpus Chunk 6 complete: Graph bridge edges. GraphEdge.target_corpus_id (§A7). M002 migration. 4 new GraphStore methods (upsert_bridge_edge, delete_bridge_edges, get_bridge_neighbors, get_orphan_bridge_targets). _reconcile_bridge_edges (§A13) + delete_corpus bridge cleanup. 17 new tests. | GLM (Coding Agent) |
 | 2026-06-18 | ADR-008 Multi-Corpus Chunk 7 complete: Code corpus ingest. python_ast_parser.py (functions/classes/module registration calls, skip .pyi/test_*, SyntaxError→[]). code_ingest_pipeline.py (stale detection via content_hash, skip/supersede). 3 golden queries acceptance tests against actual AIP codebase. 24 new tests. Delivers Phase 1.6 Codebase-as-Corpus. | GLM (Coding Agent) |
 | 2026-06-18 | ADR-008 Multi-Corpus Chunk 9 complete (FINAL CHUNK): Acceptance suite AC-01 through AC-09 (19 tests). `aip corpus migrate --force` CLI (§A15). `aip backup` strategy A rewrite with corpus DB discovery (§9.7). All 9 chunks complete — ADR-008 multi-corpus architecture shipped. | GLM (Coding Agent) |
+| 2026-06-18 | ADR-014 Phase 0 Extension Platform introduced. Step 0 complete: branham audit-action rename (`BRANHAM_POLICY_TRIGGERED` → `RESTRICTED_CORPUS_ACCESS_DENIED`) in `corpus_retrieval.py` + stale comment in `corpus_store_factory.py`. ADR-014 added to `docs/decisions/`. `tests/test_extension_lifecycle.py` added as the TDD contract (RED by design, 11 tests). Steps 1–7 are the next build unit. | Super Z (main) |
 
 ---
 
 ## Cross-References
 
 - **ROADMAP.md** → Phase 6 (Fusion Pipeline, ✅ COMPLETE) + Phase 1.6 (Codebase-as-Corpus, 💡 PROPOSED)
-- **TECH_DEBT.md** → DEBT-006 (RESOLVED), DEBT-010 (TracePanel right_drawer, Active)
+- **TECH_DEBT.md** → DEBT-006 (RESOLVED), DEBT-010 (TracePanel right_drawer, Active), DEBT-011 (branham deprecated aliases, Active — one release cycle)
 - **STATUS.md** → Fusion Pipeline section (2026-06-17) with full test inventory
 - **DOGFOOD_READY.md** → Phase 4.1 capabilities in "What works well" section
 - **AGENTS.md** → Root Status-Tracking Docs table + Docs Framework Rule 7 + Orient step requires reading this file
+- **ADR-014** → `docs/decisions/ADR-014-phase0-extension-host.md` — Phase 0 extension platform build target (steps 0–7)

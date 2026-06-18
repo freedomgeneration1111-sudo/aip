@@ -909,3 +909,44 @@ Stage Summary:
 - Global docs hardening COMPLETE. All 5 root docs are current and cross-referenced. The "advice in the dark" problem that caused Claude's DEBT-006 miss is structurally addressed: the coding protocol (AGENTS.md) requires reading all status-tracking docs before recommending changes, and PLANNED_FEATURES.md is the canonical tracker.
 - New debt item DEBT-010 filed: TracePanel uses forbidden ui.right_drawer() — should be converted to ui.dialog() (same pattern as BeastPanel + ModelCouncilPanel) during the next GUI pass on trace_panel.py.
 - The Near-Term section of PLANNED_FEATURES.md is now empty. The Long-Term section has 3 items: codebase-as-corpus (Phase 1.6), adaptive per-query retrieval weighting, learned entity resolution. The Operational section has 3 items: close embedding gap, re-run retrieval eval, manual GUI review.
+
+---
+Task ID: 11
+Agent: Super Z (main)
+Task: ADR-014 Phase 0 Extension Platform — Step 0 + contract (branham audit-action rename, ADR-014, TDD test)
+
+Work Log:
+- Oriented per Coding Cycle Protocol: read root AGENTS.md, PLANNED_FEATURES.md, TECH_DEBT.md, docs/AGENTS.md, tests/AGENTS.md, adapter/AGENTS.md. Verified ADR conventions (ADR-000-template.md, ADR-013 format).
+- Verified the branham audit-action surface: `corpus_retrieval.py:244` was the last runtime emitter of `BRANHAM_POLICY_TRIGGERED`; `corpus_registry.py:324` already correctly emitted `RESTRICTED_CORPUS_ACCESS_DENIED`. Confirmed via grep that no test asserts the old name.
+- Step 0 (DONE): renamed `BRANHAM_POLICY_TRIGGERED` → `RESTRICTED_CORPUS_ACCESS_DENIED` in `corpus_retrieval.py:244`. Updated stale comment in `corpus_store_factory.py:325` to match. Module still imports cleanly (verified via `PYTHONPATH=src python -c "import aip.adapter.corpus_retrieval"`). The `BranhamIsolationViolation` exception alias and deprecated parameter aliases are kept for one release cycle per ADR-014 §1.
+- Wrote ADR-014 (`docs/decisions/ADR-014-phase0-extension-host.md`) applying all 14 ADR edits from the round-2 review: lifespan integration sketch, pydantic v2 manifest validation, FAILED-vs-DEGRADED boundary sub-table, §4.1 Shutdown stages, §5.1 ExtensionHost public API sketch, §5.2 Actor Protocol sketch, §5.3 manifest actors/channels advisory, §5.4 WorkflowRegistry.add_path, §6.1 field semantics, §6.2 corpus_id namespacing `{ext_id}:{role}`, §6.3 path resolution, §6.4 config.schema sandboxing, §7 corrected gating (REGISTERED vs MOUNTED), §10 audit action namespace convention, depends:[] reserved.
+- Wrote `tests/test_extension_lifecycle.py` applying all 7 test edits from the round-2 review: top-level `config:` (not under `contributes:`), `container` fixture passed to ExtensionHost, `mount_gui` flag dropped (GUI test xfail-eligible), added test_extension_with_invalid_config_fails_at_validate, added test_two_extensions_with_same_id_fails_cleanly, added test_stop_cancels_extension_actors, wrote hooks.py with on_load calling register_actor. Eleven tests pinning the lifecycle. RED by design — fails to collect on `from aip.adapter.extensions.host import ExtensionHost` (verified via ast.parse + import attempt).
+- Updated adapter/AGENTS.md: added audit-action-vocabulary Known Gotcha; updated Last Cycle with ADR-014 entry; updated corpus_registry.py Key File description to reflect the rename.
+- Updated tests/AGENTS.md: added test_extension_lifecycle.py to Test File Map.
+- Updated docs/AGENTS.md: added ADR-014 to Key ADRs table; incremented ADR count 14 → 15.
+- Updated PLANNED_FEATURES.md: added new "In Progress (ADR-014)" section with 8-step tracker (step 0 ✅, steps 1–7 ⏳); added Change Log entry; added DEBT-011 cross-reference; updated Last Updated date.
+- Updated TECH_DEBT.md: filed DEBT-011 (Branham Deprecated Aliases — one-release-cycle removal) with explicit remediation trigger and 7-step removal checklist; updated Last Updated date.
+- Verified: zero references to `BRANHAM_POLICY_TRIGGERED` remain in `src/` or `tests/`. Four references to `RESTRICTED_CORPUS_ACCESS_DENIED` (producer + comment + docstring + consumer). `corpus_retrieval` imports cleanly.
+- Committed per concern (3 commits): (1) branham rename in 2 source files, (2) ADR-014 + test contract, (3) docs updates. Pushed to feat/multi-corpus.
+
+Stage Summary:
+- ADR-014 Phase 0 Extension Platform contract is complete and ready for implementation.
+- Branham audit-action rename (step 0) is DONE — the first ARISTOTLE audit entry will log under the right name.
+- ADR-014 (`docs/decisions/ADR-014-phase0-extension-host.md`) is the build target: 10 sections covering settled decisions, placement, ExtensionState, lifecycle stages + shutdown, host public API + Actor Protocol + manifest advisory semantics, manifest v1 schema + path resolution + config trust, health surface, 8-step build order, net-new work callouts, longevity hedges.
+- `tests/test_extension_lifecycle.py` is the TDD contract (RED by design, 11 tests). The next build unit makes it GREEN for stages 0–3 + 5.
+- DEBT-011 filed for the one-release-cycle branham alias removal.
+- All status-tracking docs (PLANNED_FEATURES, TECH_DEBT, docs/AGENTS, tests/AGENTS, adapter/AGENTS) updated per Coding Cycle Protocol §5.
+- Test environment limitation: pytest is not installed in the working venv (uv sync timed out due to network). Full test suite verification deferred to CI. The one-line string rename was verified by: (1) module imports cleanly, (2) no test references the old name (grep), (3) the new name is already in use in a sibling file (grep).
+
+Files changed:
+- src/aip/adapter/corpus_retrieval.py (1 line — audit action rename)
+- src/aip/adapter/corpus_store_factory.py (1 comment line — stale action name)
+- docs/decisions/ADR-014-phase0-extension-host.md (NEW — 11 KB ADR)
+- tests/test_extension_lifecycle.py (NEW — 11 tests, RED by design)
+- src/aip/adapter/AGENTS.md (Known Gotcha + Last Cycle + Key File entry)
+- tests/AGENTS.md (Test File Map entry)
+- docs/AGENTS.md (Key ADRs table + subdirectory count)
+- PLANNED_FEATURES.md (new In Progress section + Change Log + Cross-References + Last Updated)
+- TECH_DEBT.md (DEBT-011 entry + Last Updated)
+- worklog.md (this entry)
+
