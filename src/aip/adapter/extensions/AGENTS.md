@@ -191,9 +191,43 @@ otherwise see "unknown migrations applied" and raise
   replaced `except Exception: continue` with a logged WARNING that includes
   the file path and exception. A malformed contributed workflow is now
   debuggable instead of invisible.
+- **The host adds `extensions/` to sys.path at stage 1 validate (ADR-014 §6.4).**
+  This is required so the extension's Python modules (`aristotle.config`,
+  `aristotle.actors.socrates`, `aristotle.hooks` sibling imports) are
+  importable via `importlib.import_module`. Without it, `config.schema`
+  loading fails with `ModuleNotFoundError`. The extensions/ dir (PARENT of
+  the extension dir) is added, so the extension's package name becomes a
+  top-level import. **Risk**: extension package names could collide with
+  installed packages (e.g. naming an extension `click` or `yaml`). The
+  operator owns the extensions dir and is responsible for avoiding
+  collisions. Pip-installed extensions (importlib.resources) are a v2 concern.
 
 ## Last Cycle
-- **ADR-014 step 3 — Actor Protocol formalization** (this cycle):
+- **ARISTOTLE Phase A dogfood drop** (this cycle):
+  - Built `extensions/aristotle/` (7 files) — the first real extension on
+    the platform. Manifest v1 with one `textbook` corpus, `socrates` actor,
+    `M001_aristotle.sql` migration (aristotle_concept + aristotle_struggle_pattern
+    with bilingual schema), `AristotleSettings` dataclass (en/ur defaults),
+    `SocratesActor` conforming to the foundation Actor Protocol, `hooks.py`
+    registering SOCRATES at stage 5, placeholder `tutoring_session_v1.yaml`
+    workflow. See `extensions/aristotle/AGENTS.md` for the full contract.
+  - **Surfaced + fixed a platform gap**: the host's `_import_class` did
+    `importlib.import_module("aristotle.config")` but `aristotle` wasn't
+    importable because `extensions/` wasn't on sys.path. Fixed by adding
+    `extensions/` to sys.path at stage 1 validate (`host.py` — new "host
+    adds extensions/ to sys.path" Known Gotcha above). This is exactly the
+    kind of gap ARISTOTLE was supposed to surface (ADR-ARISTOTLE §9).
+  - Added `tests/test_aristotle_extension.py` (7 integration tests):
+    manifest validates; migrations create tables; SOCRATES registers;
+    SOCRATES conforms to Actor Protocol; config.schema loads; health
+    surfaces; stop cancels.
+  - Verified locally: manifest validates (8 fields); AristotleSettings
+    instantiates with bilingual defaults (en/ur); SocratesActor conforms
+    to Actor Protocol; all 14 existing Actor Protocol + WorkflowRegistry
+    tests still pass (no regression from the sys.path fix).
+  - Full ARISTOTLE integration tests deferred to CI (need aiosqlite for
+    CorpusRegistry).
+- **ADR-014 step 3 — Actor Protocol formalization** (prior cycle):
   - Replaced the local `_ActorContext` dataclass in `host.py` with the
     foundation `ActorContext` (ADR-014 §5.2). The host now imports
     `Actor`, `ActorContext`, `ActorResult` from
