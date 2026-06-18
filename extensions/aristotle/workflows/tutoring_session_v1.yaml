@@ -1,0 +1,15 @@
+# Aristotle tutoring session workflow — ADR-ARISTOTLE §3 state machine.
+#
+# This is a placeholder for Phase A. The full workflow will drive:
+#   TEACH (SOCRATES) → PROBE (EXAMINER) → QUIZ (EXAMINER) →
+#   EVALUATE (EXAMINER+MENTOR) → (mastered) next concept
+#                            ↘ (struggling) REMEDIATE (SOCRATES)
+#
+# The workflow engine is wired into the host via WorkflowRegistry.add_path
+# (ADR-014 §5.4). This file is discovered at stage 3 register.
+template_id: tutoring_session_v1
+name: "Tutoring Session v1"
+description: "ARISTOTLE TEACH→PROBE→QUIZ→EVALUATE→REMEDIATE state machine (Phase A placeholder)"
+trigger: manual
+domains: [tutoring]
+model_gen_assumption: "SOCRATES uses the beast slot for explanation generation"
