@@ -44,6 +44,11 @@ Thumbs.db
 db/
 !db/.gitkeep
 
+# ADR-014: extensions/ is operator-populated, not tracked.
+# Extensions are pip-installed (pip install git+.../AIP_Aristotle.git) or
+# cloned into extensions/<id>/ for development. The dir is never committed.
+extensions/
+
 # Demo DB exception — allow prebuilt demo database files
 !demo/aip_demo/db/*.db
 !demo/aip_demo/db/

@@ -1251,3 +1251,52 @@ Files changed:
 - PLANNED_FEATURES.md (step 2 → Complete + Change Log)
 - worklog.md (this entry)
 
+
+---
+Task ID: 18
+Agent: Super Z (main)
+Task: ARISTOTLE extraction + entry-point discovery (separation of concerns + downloadability)
+
+Work Log:
+- Oriented per Coding Cycle Protocol: read existing boundary tests (test_import_boundary.py — AST-walking pattern), enumerated actual aip.* imports across extensions/aristotle/ (only aip.foundation.protocols.actors — clean), confirmed AIP_Brain is pip-installable (pyproject.toml has hatchling backend + packages = ["src/aip"]). Incorporated Claude's analysis: SoC is the import boundary (not the repo split), the boundary test is the real fix, downloadability requires packaging (Option B not A), and pip install -e dissolves the coordination-friction objection.
+- Step 1 (boundary test): Wrote tests/test_extension_import_boundary.py. Two AST-checked rules: (1) extensions import from aip.* ONLY through the allowlist (aip.foundation.protocols.*, aip.adapter.extensions, aip.foundation.schemas); (2) nothing in src/aip/ imports from any extension package. Catches static, lazy, AND importlib imports. Verified: 3 tests pass against in-tree ARISTOTLE; ARISTOTLE's only aip.* import is aip.foundation.protocols.actors (on the allowlist); the allowlist logic correctly forbids aip.adapter.corpus_registry, aip.orchestration.*, aip.adapter.api.*, bare aip.
+- Step 2 (README): Added "Installing Extensions" section to README.md with pip install git+URL instructions for both platform + extension, plus the editable-install dev workflow.
+- Step 3 (entry-point discovery): Added _discover_entry_points() to ExtensionHost. Scans importlib.metadata.entry_points(group="aip.extensions"). Each entry point is a callable get_manifest() returning a Manifest instance. Resolves the extension's on-disk root via importlib.resources.files(pkg_name). Records are keyed by manifest.id and marked _entry_point_sourced so validate() knows to skip YAML parse + sys.path. Failures are logged and skipped (a broken entry point never blocks other extensions). Updated discover() to call both paths (filesystem + entry points).
+- Step 4 (sys.path hack guard): Updated _validate_one to branch: entry-point-sourced records skip YAML parse (manifest already constructed) AND skip sys.path manipulation (package already installed). Extracted the shared post-parse logic (manifest_version range check + id collision + config.schema load) into _validate_post_parse() so both paths use it. The sys.path hack now only runs for filesystem-sourced (dev-clone) extensions.
+- Step 5 (verify entry-point path): Verified get_manifest() works: it loads extension.yaml via importlib.resources, validates via Manifest.model_validate, returns a Manifest instance. Verified all 3 actors import + conform from the new repo location. 36 tests pass locally (no regression).
+- Step 6 (AIP_Aristotle repo): Created /home/z/my-project/AIP_Aristotle/ with:
+  - aristotle/ package (copied from extensions/aristotle/): __init__.py, entrypoint.py (get_manifest), config.py, hooks.py, extension.yaml, actors/ (socrates, examiner, mentor, __init__), migrations/M001_aristotle.sql, workflows/tutoring_session_v1.yaml, AGENTS.md.
+  - pyproject.toml: name=aip-aristotle, depends on aip>=0.1.0, declares [project.entry-points."aip.extensions"] aristotle = "aristotle.entrypoint:get_manifest". hatchling build backend. force-include for non-Python files (extension.yaml, migrations/, workflows/).
+  - tests/: test_aristotle_extension.py + test_aristotle_actors.py (moved from AIP_Brain, + the 4 workflow engine-compatibility tests appended).
+  - README.md + .gitignore.
+  - Initialized git repo, committed, pushed to https://github.com/freedomgeneration1111-sudo/AIP_Aristotle (resolved README conflict from GitHub UI initial commit — took ours).
+- Step 7 (remove from AIP_Brain): git rm -r extensions/aristotle/ + tests/test_aristotle_extension.py + tests/test_aristotle_actors.py. Added extensions/ to .gitignore (operator-populated, not tracked). Removed the 4 ARISTOTLE-specific test functions from tests/test_workflow_engine_wiring.py (they reference the ARISTOTLE workflow YAML which is now in the separate repo; they were moved to AIP_Aristotle/tests/test_aristotle_actors.py). Updated the test file docstring to note ARISTOTLE tests live in the AIP_Aristotle repo.
+- Verified after removal: 21 platform tests pass + 1 skip (boundary summary skips when extensions/ is empty). 9 ARISTOTLE tests pass from the new repo location (5 conformance + 4 workflow). No regression.
+- Updated PLANNED_FEATURES.md Change Log with the extraction entry.
+
+Stage Summary:
+- ARISTOTLE is now a separate pip-installable package at https://github.com/freedomgeneration1111-sudo/AIP_Aristotle. Install: `pip install git+https://github.com/freedomgeneration1111-sudo/AIP_Aristotle.git`. Dev: `pip install -e .` after `pip install -e ../AIP_Brain`.
+- The platform discovers ARISTOTLE via importlib.metadata.entry_points(group="aip.extensions") — the standard Python plugin mechanism. No sys.path hack for pip-installed extensions. The filesystem discovery path remains for dev clones.
+- Separation of concerns is machine-enforced by tests/test_extension_import_boundary.py: extensions import only aip.foundation.protocols.* + aip.adapter.extensions + aip.foundation.schemas; the platform imports nothing from extensions. The boundary is permanent and self-defending, in or out of a separate repo.
+- The platform's extensions/ directory is gitignored — operator-populated, never tracked. Extensions are pip-installed or cloned into extensions/<id>/ for development.
+- AIP_Brain's pyproject.toml was already pip-installable (hatchling backend, packages = ["src/aip"]) — no platform packaging change needed.
+- Downloadability is real: Sameer or Ramesh runs `pip install git+https://github.com/freedomgeneration1111-sudo/AIP_Aristotle.git` and ARISTOTLE is installed. No PyPI needed for pre-alpha.
+- The precedent is set for LOOM and CodeForge: each is its own repo, its own pyproject.toml declaring the aip.extensions entry point, its own version + release cycle.
+
+Files changed (AIP_Brain):
+- tests/test_extension_import_boundary.py (NEW — 3 boundary tests)
+- src/aip/adapter/extensions/host.py (entry-point discovery + _validate_post_parse refactor)
+- README.md (extension install instructions)
+- .gitignore (extensions/ added)
+- tests/test_workflow_engine_wiring.py (removed 4 ARISTOTLE-specific tests; updated docstring)
+- extensions/aristotle/ (REMOVED — moved to AIP_Aristotle repo)
+- tests/test_aristotle_extension.py (REMOVED — moved to AIP_Aristotle repo)
+- tests/test_aristotle_actors.py (REMOVED — moved to AIP_Aristotle repo)
+- PLANNED_FEATURES.md (Change Log)
+- worklog.md (this entry)
+
+Files created (AIP_Aristotle — new repo):
+- pyproject.toml, README.md, .gitignore
+- aristotle/ (entrypoint.py + all files moved from extensions/aristotle/)
+- tests/ (test_aristotle_extension.py + test_aristotle_actors.py with workflow tests appended)
+
