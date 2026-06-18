@@ -91,7 +91,28 @@ orchestration/review_export_pipeline.py (review decision)
   checks. Vigil does NOT do tagging. Mixing these breaks the ADR-011 contract.
 
 ## Last Cycle
-- **ADR-008 Multi-Corpus Chunk 7** (this cycle): Code corpus ingest (Python
+- **ADR-014 step 2 — WorkflowRegistry.add_path + silent-failure fix** (this cycle):
+  - Added `WorkflowRegistry.add_path(dir: Path) -> None` (ADR-014 §5.4):
+    re-globs a per-extension workflows dir and merges templates into the
+    registry. Called by `ExtensionHost._register_one()` at stage 3 for each
+    extension's `workflows_dir`.
+  - Tracks per-template source dirs (`_template_source_dirs`) so
+    `load_workflow()` resolves paths correctly when templates come from
+    multiple dirs (default `workflows/` + per-extension dirs). Extension
+    templates store absolute `yaml_path`; default templates store relative.
+  - Replaced `except Exception: continue` in `_load_templates` with a
+    logged WARNING (`workflow_template_parse_failed` with file path +
+    exception). Malformed YAMLs are now debuggable, not silent.
+  - Refactored `_load_templates()` to take a `source_dir` param (was
+    hardcoded to `self.workflows_dir`). `__init__` calls it once for the
+    default dir; `add_path` calls it for each extension dir.
+  - The default `synthesis_session_v1` template is only auto-injected when
+    loading the default dir (not extension dirs).
+  - Verified: all 3 existing `test_extended_workflows.py` tests pass
+    (backward compat preserved); 6 new behavior tests pass (default
+    discovery, add_path, load_workflow for extension templates, malformed
+    YAML logged + skipped, missing dir no-op, absolute path resolution).
+- **ADR-008 Multi-Corpus Chunk 7** (prior cycle): Code corpus ingest (Python
   AST parser). New `ingestion/parsers/python_ast_parser.py` — parses Python
   source into CodeTurnSpec objects: (1) per function/method (decorators +
   signature + docstring + first 20 body lines), (2) per class with Call/Assign
