@@ -394,7 +394,23 @@ config/aip.config.toml ([models] section)
   message without `turn_id`.
 
 ## Last Cycle
-- **ADR-008 Multi-Corpus Chunk 5** (this cycle): Session/project binding +
+- **ADR-008 Multi-Corpus Chunk 6** (this cycle): Graph bridge edges. Added
+  `target_corpus_id` field to GraphEdge (§A7). M002 migration: ALTER TABLE
+  graph_edges ADD COLUMN target_corpus_id TEXT + bridge edge index — applied
+  in _create_tables (benign on re-run). Replaced 2 SELECT * on graph_edges
+  with explicit named columns (§A7 — prevents column mis-mapping). Updated
+  _row_to_edge to read target_corpus_id by name (defaults None for pre-M002
+  databases). New GraphStore methods: `upsert_bridge_edge` (inserts bridge
+  edge with non-NULL target_corpus_id), `delete_bridge_edges(target_corpus_id)`
+  (idempotent, returns row count), `get_bridge_neighbors(turn_id, corpus_id=None)`
+  (returns bridge edges from a turn, optional corpus filter), `get_orphan_bridge_targets()`
+  (distinct target_corpus_id values for reconciliation). Implemented
+  `_reconcile_bridge_edges()` in CorpusRegistry — scans definer graph_edges
+  for orphan bridge edges, deletes those pointing to unregistered corpora,
+  audits BRIDGE_ORPHAN_CLEANED. Updated `delete_corpus()` Phase 2 to call
+  `delete_bridge_edges(corpus_id)` on the definer graph. 17 new tests in
+  `tests/test_corpus_graph_bridge_edges.py`.
+- **ADR-008 Multi-Corpus Chunk 5**: Session/project binding +
   custom-channel scoping. New `session_corpus_binding.py` — helpers for
   reading/writing active_corpus_ids + branham_allowlist in session metadata_json.
   Enforces §5 policy: branham_allowlist is NEVER persisted when

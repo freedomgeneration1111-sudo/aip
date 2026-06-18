@@ -108,7 +108,7 @@ the roadmap, update both documents.
   - ⏳ Chunk 3: Call-site migration (partial — infrastructure complete, mechanical rewrite deferred)
   - ✅ Chunk 4: Retrieval scoping (complete, 21 tests — fusion-layer ECS filter §A2, hit ID namespacing, cache key, Branham graceful degrade §A12, assemble_augmented_context multi-corpus path)
   - ✅ Chunk 5: Session/project binding + custom-channel scoping (complete, 30 tests — session_corpus_binding §5 policy, custom_channel_scoping §A14 ScopedCorpusStores, GUI corpus_selector)
-  - 🔲 Chunk 6: Graph bridge edges + actor GraphStore refactor
+  - ✅ Chunk 6: Graph bridge edges + actor GraphStore refactor (complete, 17 tests — GraphEdge.target_corpus_id §A7, M002 migration, 4 new GraphStore methods, _reconcile_bridge_edges §A13, delete_corpus bridge cleanup)
   - 🔲 Chunk 7: Code corpus ingest (AST parser — delivers Phase 1.6)
   - 🔲 Chunk 9: Acceptance suite + aip corpus migrate --force + aip backup (strategy A default)
 - 🔲 Branham research corpus (1200 sermons + books + critic sites) — post-Chunk 9
@@ -310,3 +310,4 @@ Remaining items:
 | 2026-06-18 | ADR-008 Multi-Corpus Chunk 3 partial: call-site migration infrastructure. corpus_registry field + definer_stores property on AipContainer. AskStores.from_corpus_stores (§A1). set_embedding_provider registry-aware (§A6). 12 tests. Mechanical rewrite of 264 sites deferred. | GLM (Coding Agent) |
 | 2026-06-18 | ADR-008 Multi-Corpus Chunk 4 complete: Retrieval scoping. corpus_retrieval.py: namespace_hit_id, corpus_aware_cache_key, filter_excluded_states (§A2), gather_corpus_results (§A12). assemble_augmented_context multi-corpus path. 21 tests. | GLM (Coding Agent) |
 | 2026-06-18 | ADR-008 Multi-Corpus Chunk 5 complete: Session/project binding + custom-channel scoping. session_corpus_binding.py (§5 policy enforcement). custom_channel_scoping.py (§A14 ScopedCorpusStores). GUI corpus_selector.py. 30 tests. | GLM (Coding Agent) |
+| 2026-06-18 | ADR-008 Multi-Corpus Chunk 6 complete: Graph bridge edges. GraphEdge.target_corpus_id (§A7). M002 migration. 4 new GraphStore methods. _reconcile_bridge_edges (§A13). delete_corpus bridge cleanup. 17 tests. | GLM (Coding Agent) |

@@ -86,6 +86,19 @@ _DDL_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_graph_nodes_type ON graph_nodes(entity_type)",
 ]
 
+# ADR-008 Rev 3.1 §A7 M002: add target_corpus_id column for cross-corpus
+# bridge edges. None = intra-corpus edge; non-None = bridge edge.
+# Applied via _create_tables with the same "duplicate column name is benign"
+# pattern as CorpusTurnStore._DDL_MIGRATIONS.
+_DDL_GRAPH_EDGES_M002 = "ALTER TABLE graph_edges ADD COLUMN target_corpus_id TEXT"
+
+# ADR-008 Rev 3.1 §6: index on target_corpus_id for bridge edge lookups
+# (delete_bridge_edges, get_bridge_neighbors, _reconcile_bridge_edges).
+_DDL_IDX_BRIDGE_EDGES = (
+    "CREATE INDEX IF NOT EXISTS idx_graph_edges_target_corpus "
+    "ON graph_edges(target_corpus_id) WHERE target_corpus_id IS NOT NULL"
+)
+
 
 def _is_busy_error(exc: Exception) -> bool:
     """Return True if the exception is an SQLITE_BUSY error."""
@@ -116,7 +129,12 @@ class GraphNode:
 
 @dataclass
 class GraphEdge:
-    """A directed edge in the knowledge graph."""
+    """A directed edge in the knowledge graph.
+
+    ADR-008 Rev 3.1 §A7: target_corpus_id is the cross-corpus bridge edge
+    marker. NULL = intra-corpus edge (unchanged behavior). non-NULL =
+    cross-corpus bridge edge pointing to a turn in another corpus.
+    """
 
     id: str  # f"{source_id}__{relationship_type}__{target_id}"
     source_id: str
@@ -127,6 +145,9 @@ class GraphEdge:
     evidence_turn_ids: list[str] = field(default_factory=list)
     weight: float = 1.0
     created_at: str | None = None
+    # ADR-008 Rev 3.1 §A7: cross-corpus bridge edge marker.
+    # None = intra-corpus edge. Non-None = bridge edge to target_corpus_id.
+    target_corpus_id: str | None = None
 
 
 class GraphStore(GraphStoreProtocol, StoreHealthMixin, ReadPoolMixin):
@@ -168,12 +189,23 @@ class GraphStore(GraphStoreProtocol, StoreHealthMixin, ReadPoolMixin):
         return self._conn
 
     async def _create_tables(self, conn: aiosqlite.Connection) -> None:
-        """Create graph tables, indexes, and extraction log."""
+        """Create graph tables, indexes, and extraction log.
+
+        ADR-008 Rev 3.1 §A7 M002: also adds target_corpus_id column to
+        graph_edges (for cross-corpus bridge edges) + the bridge edge index.
+        """
         await conn.execute(_DDL_GRAPH_NODES)
         await conn.execute(_DDL_GRAPH_EDGES)
         await conn.execute(_DDL_GRAPH_EXTRACTION_LOG)
         for idx_ddl in _DDL_INDEXES:
             await conn.execute(idx_ddl)
+        # ADR-008 §A7 M002: add target_corpus_id column (benign on re-run)
+        try:
+            await conn.execute(_DDL_GRAPH_EDGES_M002)
+        except sqlite3.OperationalError:
+            pass  # column already exists
+        # ADR-008 §6: bridge edge index
+        await conn.execute(_DDL_IDX_BRIDGE_EDGES)
         await conn.commit()
 
     async def initialize(self) -> None:
@@ -466,8 +498,13 @@ class GraphStore(GraphStoreProtocol, StoreHealthMixin, ReadPoolMixin):
         """Return all edges where node is source or target."""
         conn = await self._checkout_read_conn()
         try:
+            # ADR-008 §A7: explicit named columns (not SELECT *) so
+            # target_corpus_id is always read correctly regardless of
+            # column ordering.
             cursor = await conn.execute(
-                "SELECT * FROM graph_edges WHERE source_id = ? OR target_id = ?",
+                "SELECT id, source_id, target_id, relationship_type, bridge_tag, "
+                "confidence, evidence_turn_ids_json, weight, created_at, target_corpus_id "
+                "FROM graph_edges WHERE source_id = ? OR target_id = ?",
                 (node_id, node_id),
             )
             rows = await cursor.fetchall()
@@ -559,8 +596,11 @@ class GraphStore(GraphStoreProtocol, StoreHealthMixin, ReadPoolMixin):
         """
         conn = await self._checkout_read_conn()
         try:
+            # ADR-008 §A7: explicit named columns (not SELECT *)
             cursor = await conn.execute(
-                "SELECT * FROM graph_edges WHERE confidence >= ? ORDER BY id LIMIT ?",
+                "SELECT id, source_id, target_id, relationship_type, bridge_tag, "
+                "confidence, evidence_turn_ids_json, weight, created_at, target_corpus_id "
+                "FROM graph_edges WHERE confidence >= ? ORDER BY id LIMIT ?",
                 (min_confidence, limit),
             )
             rows = await cursor.fetchall()
@@ -616,6 +656,154 @@ class GraphStore(GraphStoreProtocol, StoreHealthMixin, ReadPoolMixin):
             self._return_read_conn(conn)
 
     # -------------------------------------------------------------------
+    # ADR-008 Rev 3.1 §6: Cross-corpus bridge edge methods
+    # -------------------------------------------------------------------
+
+    async def upsert_bridge_edge(
+        self,
+        source_id: str,
+        source_corpus_id: str,
+        target_id: str,
+        target_corpus_id: str,
+        edge_type: str,
+        weight: float = 1.0,
+    ) -> str:
+        """Insert or update a cross-corpus bridge edge.
+
+        ADR-008 Rev 3.1 §6: bridge edges live ONLY in the definer graph.
+        The target_corpus_id column is non-NULL, marking this as a bridge edge.
+
+        Args:
+            source_id: the source node/turn ID (in the definer corpus).
+            source_corpus_id: always "definer" (bridge edges originate here).
+            target_id: the target turn ID in the other corpus.
+            target_corpus_id: the corpus the target turn belongs to.
+            edge_type: relationship type (e.g. "REFERENCES", "DECIDED_BY").
+            weight: edge weight (default 1.0).
+
+        Returns:
+            The edge ID (f"{source_id}__{edge_type}__{target_id}__{target_corpus_id}").
+        """
+        edge_id = f"{source_id}__{edge_type}__{target_id}__{target_corpus_id}"
+        conn = await self._get_conn()
+        t0 = time.monotonic()
+        try:
+            now = datetime.now(timezone.utc).isoformat()
+            await conn.execute(
+                """
+                INSERT OR REPLACE INTO graph_edges
+                (id, source_id, target_id, relationship_type, bridge_tag,
+                 confidence, evidence_turn_ids_json, weight, created_at, target_corpus_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    edge_id,
+                    source_id,
+                    target_id,
+                    edge_type,
+                    f"bridge:{source_corpus_id}:{target_corpus_id}",
+                    1.0,
+                    json.dumps([]),
+                    float(weight),
+                    now,
+                    target_corpus_id,
+                ),
+            )
+            await self._execute_with_retry(conn.commit)
+            self._health_track_operation(time.monotonic() - t0)
+            return edge_id
+        except Exception:
+            await self._reset_conn()
+            raise
+
+    async def delete_bridge_edges(self, target_corpus_id: str) -> int:
+        """Delete all bridge edges pointing to a given target corpus.
+
+        ADR-008 Rev 3.1 §6: called during delete_corpus() and
+        _reconcile_bridge_edges(). Idempotent — returns the number of rows
+        deleted (0 if none existed).
+        """
+        conn = await self._get_conn()
+        t0 = time.monotonic()
+        try:
+            cursor = await conn.execute(
+                "DELETE FROM graph_edges WHERE target_corpus_id = ?",
+                (target_corpus_id,),
+            )
+            await self._execute_with_retry(conn.commit)
+            deleted = cursor.rowcount or 0
+            self._health_track_operation(time.monotonic() - t0)
+            return deleted
+        except Exception:
+            await self._reset_conn()
+            raise
+
+    async def get_bridge_neighbors(
+        self,
+        turn_id: str,
+        corpus_id: str | None = None,
+    ) -> list[GraphEdge]:
+        """Return all cross-corpus bridge edges originating from a given turn.
+
+        ADR-008 Rev 3.1 §6: returns edges where source_id = turn_id AND
+        target_corpus_id IS NOT NULL. Returns empty list (not error) if no
+        bridge edges exist.
+
+        Args:
+            turn_id: the source turn ID.
+            corpus_id: optional filter — only return edges pointing to this
+                target corpus. If None, returns all bridge edges from this turn.
+
+        Returns:
+            List of GraphEdge objects (all with non-None target_corpus_id).
+        """
+        conn = await self._checkout_read_conn()
+        try:
+            if corpus_id is not None:
+                cursor = await conn.execute(
+                    "SELECT id, source_id, target_id, relationship_type, bridge_tag, "
+                    "confidence, evidence_turn_ids_json, weight, created_at, target_corpus_id "
+                    "FROM graph_edges "
+                    "WHERE source_id = ? AND target_corpus_id = ?",
+                    (turn_id, corpus_id),
+                )
+            else:
+                cursor = await conn.execute(
+                    "SELECT id, source_id, target_id, relationship_type, bridge_tag, "
+                    "confidence, evidence_turn_ids_json, weight, created_at, target_corpus_id "
+                    "FROM graph_edges "
+                    "WHERE source_id = ? AND target_corpus_id IS NOT NULL",
+                    (turn_id,),
+                )
+            rows = await cursor.fetchall()
+            return [self._row_to_edge(r) for r in rows]
+        except Exception:
+            await self._reset_conn()
+            raise
+        finally:
+            self._return_read_conn(conn)
+
+    async def get_orphan_bridge_targets(self) -> list[str]:
+        """Return all target_corpus_id values that have bridge edges.
+
+        ADR-008 Rev 3.1 §A13: used by _reconcile_bridge_edges() on startup
+        to find orphan bridge edges (targets not in the registry). Returns
+        distinct target_corpus_id values, excluding None.
+        """
+        conn = await self._checkout_read_conn()
+        try:
+            cursor = await conn.execute(
+                "SELECT DISTINCT target_corpus_id FROM graph_edges WHERE target_corpus_id IS NOT NULL"
+            )
+            rows = await cursor.fetchall()
+            return [row[0] for row in rows]
+        except Exception:
+            await self._reset_conn()
+            raise
+        finally:
+            self._return_read_conn(conn)
+
+    # -------------------------------------------------------------------
     # Health / diagnostics
     # -------------------------------------------------------------------
 
@@ -649,6 +837,12 @@ class GraphStore(GraphStoreProtocol, StoreHealthMixin, ReadPoolMixin):
 
     @staticmethod
     def _row_to_edge(row: sqlite3.Row) -> GraphEdge:
+        # ADR-008 §A7: read target_corpus_id by name; default None for
+        # pre-M002 databases (the column may not exist on legacy schemas).
+        try:
+            target_corpus_id = row["target_corpus_id"]
+        except (IndexError, KeyError):
+            target_corpus_id = None
         return GraphEdge(
             id=row["id"],
             source_id=row["source_id"],
@@ -659,4 +853,5 @@ class GraphStore(GraphStoreProtocol, StoreHealthMixin, ReadPoolMixin):
             evidence_turn_ids=json.loads(row["evidence_turn_ids_json"] or "[]"),
             weight=float(row["weight"] or 1.0),
             created_at=row["created_at"],
+            target_corpus_id=target_corpus_id,
         )

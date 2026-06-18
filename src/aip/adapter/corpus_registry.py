@@ -326,8 +326,31 @@ class CorpusRegistry:
         db_path_str = stores.connection_manager.db_path if stores.connection_manager else ""
         db_path = Path(db_path_str) if db_path_str else None
 
-        # Phase 2: delete bridge edges (stub — Chunk 6 implements this)
-        # await self._delete_bridge_edges_for(corpus_id)
+        # Phase 2: delete bridge edges pointing to this corpus (§A13).
+        # Bridge edges live in the definer graph. We clean them up so
+        # cross-corpus RRF doesn't try to follow edges to a deleted corpus.
+        if corpus_id != "definer" and "definer" in self._corpora:
+            definer = self._corpora["definer"]
+            if definer.connection_manager is not None:
+                try:
+                    from aip.adapter.graph_store import GraphStore
+
+                    gs = GraphStore(definer.connection_manager.db_path)
+                    await gs.initialize()
+                    deleted = await gs.delete_bridge_edges(corpus_id)
+                    if deleted > 0:
+                        logger.info(
+                            "corpus_delete_bridge_edges_cleaned corpus=%s edges=%d",
+                            corpus_id,
+                            deleted,
+                        )
+                    await gs.close()
+                except Exception as exc:
+                    logger.warning(
+                        "corpus_delete_bridge_edges_failed corpus=%s error=%s",
+                        corpus_id,
+                        exc,
+                    )
 
         # Phase 3: WAL checkpoint (flush WAL sidecar before rename)
         if stores.connection_manager is not None:
@@ -731,16 +754,61 @@ class CorpusRegistry:
     # ------------------------------------------------------------------
 
     async def _reconcile_bridge_edges(self) -> None:
-        """Scan definer graph_edges for orphan bridge edges. Stub for Chunk 2.
+        """Scan definer graph_edges for orphan bridge edges and clean them up.
 
-        Full implementation in Chunk 6 when bridge edges exist:
-          - Scans definer.graph_edges WHERE target_corpus_id IS NOT NULL.
-          - For each target_corpus_id not in self._corpora:
-            - calls definer_stores.graph_store.delete_bridge_edges(target_corpus_id)
-            - emits WARNING log + audit log: action=BRIDGE_ORPHAN_CLEANED
+        ADR-008 Rev 3.1 §A13, §9.4: runs on startup, before _migration_ready.set().
+        Scans definer.graph_edges WHERE target_corpus_id IS NOT NULL.
+        For each target_corpus_id not in self._corpora:
+          - calls definer_stores.graph_store.delete_bridge_edges(target_corpus_id)
+          - emits WARNING log + audit log: action=BRIDGE_ORPHAN_CLEANED
+
+        This recovers from crashes during delete_corpus() where the corpus
+        was removed from _corpora but bridge edges weren't cleaned up.
         """
-        # Chunk 6 deliverable
-        pass
+        definer = self._corpora.get("definer")
+        if definer is None or definer.connection_manager is None:
+            return
+
+        # The definer corpus doesn't have a graph_store attached yet (Chunk 6
+        # doesn't attach graph_store to CorpusStores — that's a follow-up).
+        # We need to access the graph_store via the definer's db_path.
+        # For now, create a temporary GraphStore to scan for orphans.
+        # In a future refactor, graph_store will be attached to CorpusStores.
+        try:
+            from aip.adapter.graph_store import GraphStore
+
+            gs = GraphStore(definer.connection_manager.db_path)
+            await gs.initialize()
+
+            # Get all target_corpus_id values that have bridge edges
+            orphan_targets = await gs.get_orphan_bridge_targets()
+
+            cleaned = 0
+            for target_cid in orphan_targets:
+                if target_cid not in self._corpora:
+                    deleted = await gs.delete_bridge_edges(target_cid)
+                    cleaned += deleted
+                    logger.warning(
+                        "bridge_orphan_cleaned target_corpus=%s edges_deleted=%d",
+                        target_cid,
+                        deleted,
+                    )
+                    await self._write_audit(
+                        action="BRIDGE_ORPHAN_CLEANED",
+                        corpus_id=target_cid,
+                        outcome="SUCCESS",
+                        detail={"edges_deleted": deleted},
+                    )
+
+            if cleaned > 0:
+                logger.info(
+                    "bridge_orphan_reconciliation_complete total_cleaned=%d",
+                    cleaned,
+                )
+
+            await gs.close()
+        except Exception as exc:
+            logger.warning("bridge_orphan_reconciliation_failed error=%s", exc)
 
     # ------------------------------------------------------------------
     # Budget validation — ADR-008 Rev 3.1 §9.3
