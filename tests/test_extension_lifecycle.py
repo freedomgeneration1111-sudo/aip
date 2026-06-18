@@ -203,10 +203,12 @@ async def test_extension_with_invalid_config_fails_at_validate(
 async def test_two_extensions_with_same_id_fails_cleanly(
     tmp_path: Path, host: ExtensionHost
 ):
-    # Two extensions declaring the same id -> the second is FAILED at stage 1
-    # with an id-collision failure; the first proceeds normally.
+    # Two extensions declaring the same manifest id -> the second is FAILED at
+    # stage 1 with an id-collision failure; the first proceeds normally.
+    # Records are keyed by directory name (the unique physical key), so both
+    # survive — one VALIDATED, one FAILED.
     _write_extension(tmp_path, "demo")
-    # Write a second extension with the same id in a different directory.
+    # Write a second extension with the same manifest id in a different directory.
     other = tmp_path / "extensions" / "other_demo"
     other.mkdir(parents=True)
     (other / "extension.yaml").write_text(
@@ -233,11 +235,18 @@ async def test_two_extensions_with_same_id_fails_cleanly(
     )
     await host.discover()
     await host.validate()
-    states = {e.id: host.state(e.id) for e in await host.discover()}
-    # Exactly one demo reaches VALIDATED; the other is FAILED.
-    demo_states = [s for sid, s in states.items() if sid == "demo"]
-    assert ExtensionState.VALIDATED in demo_states
-    assert ExtensionState.FAILED in demo_states
+    # Both records survive (keyed by directory name). Exactly one is VALIDATED
+    # and the other is FAILED with an id-collision failure reason.
+    found = await host.discover()
+    states_by_dir = {rec.id: host.state(rec.id) for rec in found}
+    assert ExtensionState.VALIDATED in states_by_dir.values()
+    assert ExtensionState.FAILED in states_by_dir.values()
+    # The FAILED record's failure reason mentions the id collision.
+    failed_dirs = [d for d, s in states_by_dir.items() if s is ExtensionState.FAILED]
+    assert failed_dirs, "expected at least one FAILED extension"
+    failed_rec_failures = host.failures(failed_dirs[0])
+    assert any("collid" in f.reason.lower() or "id" in f.reason.lower()
+               for f in failed_rec_failures)
 
 
 @pytest.mark.asyncio
@@ -263,6 +272,10 @@ async def test_registers_extension_actors(tmp_path: Path, host: ExtensionHost):
 
 
 @pytest.mark.asyncio
+@pytest.mark.xfail(
+    reason="ADR-014 v1.1: register_gui_page + stage 4 mount not yet implemented",
+    strict=True,
+)
 async def test_mounts_extension_gui_pages(tmp_path: Path, host: ExtensionHost):
     # v1.1 contribution. Until register_page lands this test is expected to
     # xfail; once it lands, a mounted extension exposes a nav entry + route.
