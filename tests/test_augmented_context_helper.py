@@ -83,6 +83,7 @@ class TestHelperNoStores:
         container = MagicMock()
         container.corpus_turn_store = None
         container.lexical_store = None
+        container.corpus_registry = None  # ADR-008 Chunk 4: no registry either
 
         result = await assemble_augmented_context(
             content="What is AIP?",
@@ -108,6 +109,8 @@ class TestHelperNoStores:
 
         # Container that raises on attribute access
         class BrokenContainer:
+            corpus_registry = None  # ADR-008 Chunk 4: no registry
+
             @property
             def corpus_turn_store(self):
                 raise RuntimeError("store access broken")
@@ -126,6 +129,7 @@ class TestHelperNoStores:
         container = MagicMock()
         container.corpus_turn_store = None
         container.lexical_store = None
+        container.corpus_registry = None  # ADR-008 Chunk 4: no registry
         result = await assemble_augmented_context(
             content="test",
             session_id="test",

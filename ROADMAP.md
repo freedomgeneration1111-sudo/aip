@@ -106,7 +106,7 @@ the roadmap, update both documents.
   - ✅ Chunk 2: CorpusRegistry + Factory (complete, 55 tests — includes 2a shared connection manager APPROVED, 2b migration runner, 2c 5-scheduler gate)
   - ✅ Chunk 8: ECS/ArtifactStore per corpus (complete, 29 tests — delete_turn, artifact_turn_links/M004, durable outbox, revision_parent_id, aip audit log)
   - ⏳ Chunk 3: Call-site migration (partial — infrastructure complete, mechanical rewrite deferred)
-  - 🔲 Chunk 4: Retrieval scoping (fusion-layer ECS filter, Branham allowlist threading)
+  - ✅ Chunk 4: Retrieval scoping (complete, 21 tests — fusion-layer ECS filter §A2, hit ID namespacing, cache key, Branham graceful degrade §A12, assemble_augmented_context multi-corpus path)
   - 🔲 Chunk 5: Session/project binding + custom-channel scoping
   - 🔲 Chunk 6: Graph bridge edges + actor GraphStore refactor
   - 🔲 Chunk 7: Code corpus ingest (AST parser — delivers Phase 1.6)
@@ -308,3 +308,4 @@ Remaining items:
 | 2026-06-18 | ADR-008 Multi-Corpus Chunk 2 complete: CorpusRegistry + Factory + shared connection manager (§A0) + migration runner (§A8) + 5-scheduler gate (§A5). 55 tests. | GLM (Coding Agent) |
 | 2026-06-18 | ADR-008 Multi-Corpus Chunk 8 complete: ECS/ArtifactStore per corpus. delete_turn, states_for, revision_parent_id, M004/M005, durable outbox, transition_artifact, list_review_items, backfill, aip audit log CLI. 29 tests. | GLM (Coding Agent) |
 | 2026-06-18 | ADR-008 Multi-Corpus Chunk 3 partial: call-site migration infrastructure. corpus_registry field + definer_stores property on AipContainer. AskStores.from_corpus_stores (§A1). set_embedding_provider registry-aware (§A6). 12 tests. Mechanical rewrite of 264 sites deferred. | GLM (Coding Agent) |
+| 2026-06-18 | ADR-008 Multi-Corpus Chunk 4 complete: Retrieval scoping. corpus_retrieval.py: namespace_hit_id, corpus_aware_cache_key, filter_excluded_states (§A2), gather_corpus_results (§A12). assemble_augmented_context multi-corpus path. 21 tests. | GLM (Coding Agent) |

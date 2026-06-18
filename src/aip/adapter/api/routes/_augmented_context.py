@@ -251,10 +251,14 @@ async def assemble_augmented_context(
     """
     # Short-circuit: no retrieval possible without at least one store.
     # The caller proceeds with the bare prompt (current Multi-Cast behavior).
-    if (
-        getattr(container, "corpus_turn_store", None) is None
-        and getattr(container, "lexical_store", None) is None
-    ):
+    # ADR-008 Chunk 4: if corpus_registry is wired, retrieval is possible
+    # even if legacy singletons are None.
+    _has_registry = getattr(container, "corpus_registry", None) is not None
+    _has_legacy = (
+        getattr(container, "corpus_turn_store", None) is not None
+        or getattr(container, "lexical_store", None) is not None
+    )
+    if not _has_registry and not _has_legacy:
         return AugmentedContext(assembled=False)
 
     # Look up session_meta when not provided by the caller.
@@ -277,9 +281,7 @@ async def assemble_augmented_context(
             if dcfg.get("inject_in_augmented_chat", True):
                 dp = getattr(container, "definer_profile", None)
                 if dp is not None:
-                    block = dp.get_injection_block(
-                        max_tokens_estimate=dcfg.get("max_profile_tokens", 800)
-                    )
+                    block = dp.get_injection_block(max_tokens_estimate=dcfg.get("max_profile_tokens", 800))
                     if block:
                         messages.append({"role": "system", "content": block})
         except Exception as exc:
@@ -299,9 +301,33 @@ async def assemble_augmented_context(
                 logger.warning("project_lookup_failed", exc_info=True)
 
         # ── Corpus turn retrieval ─────────────────────────────────
+        # ADR-008 Rev 3.1 Chunk 4: multi-corpus path when active_corpus_ids
+        # is in session_meta AND corpus_registry is wired. Falls back to
+        # legacy single-corpus path otherwise.
         corpus_turns_used = False
         source_dicts: list[dict] = []
-        if getattr(container, "corpus_turn_store", None) is not None:
+
+        active_corpus_ids = (session_meta or {}).get("active_corpus_ids")
+        registry = getattr(container, "corpus_registry", None)
+
+        if active_corpus_ids and registry is not None:
+            # Multi-corpus path (§4, §A12)
+            from aip.adapter.corpus_retrieval import gather_corpus_results
+
+            branham_allowlist = (session_meta or {}).get("branham_allowlist", False)
+            audit_fn = getattr(registry, "_write_audit", None)
+            multi_hits, _suppressed = await gather_corpus_results(
+                query=content,
+                active_corpus_ids=active_corpus_ids,
+                container=container,
+                session_branham_allowlist=branham_allowlist,
+                audit_fn=audit_fn,
+            )
+            source_dicts = multi_hits
+            if source_dicts:
+                corpus_turns_used = True
+        elif getattr(container, "corpus_turn_store", None) is not None:
+            # Legacy single-corpus path
             source_dicts = await _search_corpus_turns(
                 query=content,
                 corpus_turn_store=container.corpus_turn_store,
@@ -384,9 +410,7 @@ async def assemble_augmented_context(
             # ── Graph connections injection ────────────────────────
             try:
                 if query_domain:
-                    graph_neighbors = await _get_graph_neighbors(
-                        query_domain, container=container
-                    )
+                    graph_neighbors = await _get_graph_neighbors(query_domain, container=container)
                     if graph_neighbors:
                         neighbors_str = ", ".join(graph_neighbors[:5])
                         messages.append(
@@ -418,14 +442,10 @@ async def assemble_augmented_context(
                     for s in source_dicts
                 ]
                 # Capture turn_ids for the auto-save path (provenance → Vigil)
-                source_turn_ids = [
-                    s["turn_id"] for s in source_dicts if s.get("turn_id")
-                ]
+                source_turn_ids = [s["turn_id"] for s in source_dicts if s.get("turn_id")]
             else:
                 # Use SmartContextPacker output
-                context = (
-                    packed_ctx.context_text if packed_ctx else "No relevant sources found."
-                )
+                context = packed_ctx.context_text if packed_ctx else "No relevant sources found."
                 response_sources = [
                     {
                         "source_id": s.source_id,

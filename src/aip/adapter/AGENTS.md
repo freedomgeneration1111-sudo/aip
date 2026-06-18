@@ -394,7 +394,22 @@ config/aip.config.toml ([models] section)
   message without `turn_id`.
 
 ## Last Cycle
-- **ADR-008 Multi-Corpus Chunk 3** (this cycle): Call-site migration infrastructure.
+- **ADR-008 Multi-Corpus Chunk 4** (this cycle): Retrieval scoping. New
+  `corpus_retrieval.py` module with 4 helpers: `namespace_hit_id`/`parse_hit_id`
+  (§4 — `{corpus_id}:{hit_id}` format, colons in hit_id preserved), `corpus_aware_cache_key`
+  (§4 — SHA256 of query + sorted corpus_ids + model_id, order-independent),
+  `filter_excluded_states` (§A2 — fusion-layer ECS filter, batch `states_for()` lookup,
+  removes ARCHIVED/SUPERSEDED, fails open on error, passes through non-turn hits),
+  `gather_corpus_results` (§A12 — `asyncio.gather(return_exceptions=True)`, suppresses
+  BranhamIsolationViolation + audits, re-raises other exceptions). Extended
+  `assemble_augmented_context()` — when `session_meta["active_corpus_ids"]` is present
+  AND `container.corpus_registry` is wired, uses the multi-corpus path (fan-out +
+  fusion filter + namespacing); falls back to legacy single-corpus path otherwise.
+  Updated short-circuit to check registry presence. 21 new tests in
+  `tests/test_corpus_retrieval_scoping.py`. Fixed 2 existing tests in
+  `test_augmented_context_helper.py` to set `corpus_registry = None` (MagicMock
+  auto-creates truthy attributes).
+- **ADR-008 Multi-Corpus Chunk 3**: Call-site migration infrastructure.
   Added `corpus_registry` field + `definer_stores` sync property to AipContainer
   (§3a). Added `AskStores.from_corpus_stores()` classmethod (§A1) — event_store
   + project_store are required keyword-only args (global/definer-scoped). Rewrote
