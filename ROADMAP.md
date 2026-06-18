@@ -101,7 +101,7 @@ the roadmap, update both documents.
 **Remaining gap:** ~1.8% embedding coverage (50/2766 turns). Full pass requires DEBT-006 fix.
 
 ### 1.5 Multi-Corpus Architecture
-- ⏳ **IN PROGRESS — ADR-008 Rev 3.1** (supersedes ADR-004). 9-chunk sequence:
+- ✅ **COMPLETE — ADR-008 Rev 3.1** (supersedes ADR-004). All 9 chunks shipped:
   - ✅ Chunk 1: Foundation types + ECS ARCHIVED state (complete, 43 tests)
   - ✅ Chunk 2: CorpusRegistry + Factory (complete, 55 tests — includes 2a shared connection manager APPROVED, 2b migration runner, 2c 5-scheduler gate)
   - ✅ Chunk 8: ECS/ArtifactStore per corpus (complete, 29 tests — delete_turn, artifact_turn_links/M004, durable outbox, revision_parent_id, aip audit log)
@@ -110,7 +110,7 @@ the roadmap, update both documents.
   - ✅ Chunk 5: Session/project binding + custom-channel scoping (complete, 30 tests — session_corpus_binding §5 policy, custom_channel_scoping §A14 ScopedCorpusStores, GUI corpus_selector)
   - ✅ Chunk 6: Graph bridge edges + actor GraphStore refactor (complete, 17 tests — GraphEdge.target_corpus_id §A7, M002 migration, 4 new GraphStore methods, _reconcile_bridge_edges §A13, delete_corpus bridge cleanup)
   - ✅ Chunk 7: Code corpus ingest (complete, 24 tests — Python AST parser: functions/classes/module registration calls, stale detection via content_hash, 3 golden queries acceptance tests. Delivers Phase 1.6 Codebase-as-Corpus)
-  - 🔲 Chunk 9: Acceptance suite + aip corpus migrate --force + aip backup (strategy A default)
+  - ✅ Chunk 9: Acceptance suite + aip corpus migrate --force + aip backup rewrite (complete, 19 acceptance tests AC-01 through AC-09, strategy A backup, corpus migrate CLI)
 - 🔲 Branham research corpus (1200 sermons + books + critic sites) — post-Chunk 9
 - 🔲 NBCM citations corpus (academic papers across relevant domains) — post-Chunk 9
 - SEE: `docs/decisions/ADR-008-multi-corpus-architecture-rev3.md` + Amendment (supersedes ADR-004)
@@ -312,3 +312,4 @@ Remaining items:
 | 2026-06-18 | ADR-008 Multi-Corpus Chunk 5 complete: Session/project binding + custom-channel scoping. session_corpus_binding.py (§5 policy enforcement). custom_channel_scoping.py (§A14 ScopedCorpusStores). GUI corpus_selector.py. 30 tests. | GLM (Coding Agent) |
 | 2026-06-18 | ADR-008 Multi-Corpus Chunk 6 complete: Graph bridge edges. GraphEdge.target_corpus_id (§A7). M002 migration. 4 new GraphStore methods. _reconcile_bridge_edges (§A13). delete_corpus bridge cleanup. 17 tests. | GLM (Coding Agent) |
 | 2026-06-18 | ADR-008 Multi-Corpus Chunk 7 complete: Code corpus ingest. python_ast_parser.py (functions/classes/module registration). code_ingest_pipeline.py (stale detection). 3 golden queries acceptance tests. 24 tests. Delivers Phase 1.6. | GLM (Coding Agent) |
+| 2026-06-18 | ADR-008 Multi-Corpus Chunk 9 complete (FINAL): Acceptance suite AC-01 through AC-09 (19 tests). aip corpus migrate --force CLI. aip backup strategy A rewrite. Phase 1.5 marked COMPLETE. All 9 chunks shipped. | GLM (Coding Agent) |

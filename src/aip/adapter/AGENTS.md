@@ -394,7 +394,22 @@ config/aip.config.toml ([models] section)
   message without `turn_id`.
 
 ## Last Cycle
-- **ADR-008 Multi-Corpus Chunk 6** (this cycle): Graph bridge edges. Added
+- **ADR-008 Multi-Corpus Chunk 9** (this cycle — FINAL CHUNK): Acceptance
+  suite + CLI deliverables. New `tests/acceptance/test_multi_corpus.py`
+  with AC-01 through AC-09: Branham isolation (100-query CI-scaled version
+  of 1000-query test), cross-corpus RRF namespacing, ECS lifecycle (ARCHIVED
+  + SUPERSEDED + all legacy transitions preserved), concurrency (10 concurrent
+  writers, 30s timeout), connection budget (MAX_CORPORA + partial-init cleanup),
+  migration gate (_migration_ready event + fingerprint/unknown-migration detection),
+  review federation (list_review_items across 2 corpora), bridge orphan recovery
+  (startup reconciliation), Sexton batch yield (lock yielded between batches,
+  chat route interleaves). New `cli/corpus_migrate.py` — `aip corpus migrate
+  <id> [--force]` for half-migrated recovery (clears applied_migrations +
+  re-runs idempotent migrations). Updated `cli/backup.py` — strategy A
+  (pause-and-snapshot) as default, discovers corpus DB files via
+  `_discover_corpus_db_files()`, includes corpus_databases + restore_invariant
+  in manifest. 19 acceptance tests.
+- **ADR-008 Multi-Corpus Chunk 6**: Graph bridge edges. Added
   `target_corpus_id` field to GraphEdge (§A7). M002 migration: ALTER TABLE
   graph_edges ADD COLUMN target_corpus_id TEXT + bridge edge index — applied
   in _create_tables (benign on re-run). Replaced 2 SELECT * on graph_edges

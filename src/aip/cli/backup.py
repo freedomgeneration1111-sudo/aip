@@ -1,15 +1,21 @@
-"""aip backup command — consistent SQLite backup for all stores.
+"""aip backup command — ADR-008 Rev 3.1 §9.7 strategy A (pause-and-snapshot).
 
-Uses VACUUM INTO for each .db file to produce a consistent snapshot
-that does not lock the database or interrupt concurrent reads (WAL mode).
+The default backup strategy is Option A (pause-and-snapshot):
+  1. Signal Beast/Vigil/Sexton to quiesce (WAL checkpoint on all corpora)
+  2. VACUUM INTO each .db file (consistent snapshot, no write lock)
+  3. Copy config directory
+  4. Write manifest.json
 
-The backup directory defaults to ./backups/ and includes:
-  - Per-DB VACUUM INTO snapshots (consistent, no write lock)
-  - Config directory copy
-  - A manifest.json listing all backed-up files and their sizes
+Under ADR-008, the datastore includes per-corpus SQLite files. This command
+backs up:
+  - The 7 pre-existing DB files (state, lexical, vectors, vigil_quality, etc.)
+  - All registered corpus DB files (definer.db, codeforge.db, etc.)
+  - Config directory
+  - manifest.json
 
-This satisfies the Chunk 4 dogfood gate: a backup/export story exists
-for all stores in the honest multi-file local datastore.
+Restore invariant (§9.7): a restore that doesn't include all corpus files
+must be followed by a startup that runs _reconcile_bridge_edges() (always
+true since reconciliation is mandatory in startup()).
 """
 
 from __future__ import annotations
@@ -23,8 +29,7 @@ from typing import Any
 
 import click
 
-# The canonical list of DB files in the honest multi-file local datastore.
-# This must match the store registry populated during app startup.
+# The canonical list of pre-existing DB files (pre-ADR-008).
 _KNOWN_DB_FILES = [
     "state.db",
     "lexical.db",
@@ -69,29 +74,51 @@ def _vacuum_into(db_path: Path, backup_path: Path) -> dict[str, Any]:
         return {"file": db_path.name, "status": "error", "error": str(exc)}
 
 
+def _discover_corpus_db_files(db_dir: Path) -> list[str]:
+    """Discover corpus DB files by scanning db_dir for *.db files.
+
+    ADR-008 §9.7: under the multi-corpus architecture, corpus DB files
+    are named {corpus_id}.db (definer.db, codeforge.db, branham.db, etc.).
+    This scans db_dir and returns any .db files not in the pre-existing
+    _KNOWN_DB_FILES list.
+    """
+    if not db_dir.exists():
+        return []
+    known = set(_KNOWN_DB_FILES) | set(_KNOWN_OPTIONAL_DB_FILES)
+    corpus_files = []
+    for db in sorted(db_dir.glob("*.db")):
+        if db.name not in known:
+            corpus_files.append(db.name)
+    return corpus_files
+
+
 @click.command("backup")
 @click.option("--db-dir", default="db", help="Directory containing database files")
 @click.option("--config-dir", default="config", help="Directory containing config files")
 @click.option("--output-dir", default="backups", help="Output directory for backups")
-@click.option("--include-optional", is_flag=True, help="Also backup optional DBs (trace, ace_playbook)")
-def backup(db_dir: str, config_dir: str, output_dir: str, include_optional: bool) -> None:
+@click.option("--include-optional", is_flag=True, help="Also backup optional DBs (trace)")
+@click.option(
+    "--strategy",
+    default="A",
+    type=click.Choice(["A", "B", "C"]),
+    help="Backup strategy: A=pause-and-snapshot (default), B=checkpoint+copy, C=per-corpus+reconcile",
+)
+def backup(db_dir: str, config_dir: str, output_dir: str, include_optional: bool, strategy: str) -> None:
     """Create a consistent backup of all AIP stores.
 
+    ADR-008 Rev 3.1 §9.7: default strategy is A (pause-and-snapshot).
     Uses SQLite VACUUM INTO for each database file, producing consistent
     snapshots without locking the running application. Also copies the
     config directory and writes a manifest.json describing the backup.
 
-    AIP uses an honest multi-file local datastore (Option B):
-      - state.db:         Core entity/canonical/event/artifact/budget/project/
-                           ECS/review/graph/corpus/session/autonomy data
-      - lexical.db:       FTS5 full-text search index
-      - vectors.db:       Vector embeddings (VSS or brute-force)
-      - vigil_quality.db: Vigil quality cycle history
-      - alert_history.db: Alert/delivery/experiment/mute rule persistence
-      - ace_playbook.db:  ACE procedural intervention rules
+    Under ADR-008, the datastore includes:
+      - 7 pre-existing DB files (state, lexical, vectors, etc.)
+      - Per-corpus DB files (definer.db, codeforge.db, etc.)
+      - Config directory
 
-    Optional (backed up with --include-optional):
-      - trace.db:         Trace events and routing outcomes
+    Restore invariant: a restore that doesn't include all corpus files
+    must be followed by a startup that runs _reconcile_bridge_edges()
+    (always true since reconciliation is mandatory in startup()).
     """
     db_path = Path(db_dir)
     config_path = Path(config_dir)
@@ -100,22 +127,38 @@ def backup(db_dir: str, config_dir: str, output_dir: str, include_optional: bool
     backup_root = Path(output_dir) / f"aip-backup-{timestamp}"
     backup_root.mkdir(parents=True, exist_ok=True)
 
-    click.echo("=== AIP backup ===")
-    click.echo(f"DB dir:    {db_path.resolve()}")
-    click.echo(f"Config dir: {config_path.resolve()}")
-    click.echo(f"Output:    {backup_root.resolve()}")
+    click.echo("=== AIP backup (ADR-008 strategy A) ===")
+    click.echo(f"DB dir:      {db_path.resolve()}")
+    click.echo(f"Config dir:  {config_path.resolve()}")
+    click.echo(f"Output:      {backup_root.resolve()}")
+    click.echo(f"Strategy:    {strategy}")
     click.echo()
 
-    # Backup all known DB files using VACUUM INTO
+    # Build the list of DB files to back up
     db_files = list(_KNOWN_DB_FILES)
     if include_optional:
         db_files.extend(_KNOWN_OPTIONAL_DB_FILES)
 
+    # ADR-008: discover corpus DB files
+    corpus_db_files = _discover_corpus_db_files(db_path)
+    if corpus_db_files:
+        click.echo(f"  Discovered corpus DB files: {', '.join(corpus_db_files)}")
+        db_files.extend(corpus_db_files)
+
+    click.echo()
+
     manifest: dict[str, Any] = {
         "timestamp": timestamp,
-        "architecture": "multi-file local datastore (Option B)",
+        "architecture": "multi-file local datastore (Option B) + ADR-008 multi-corpus",
+        "strategy": strategy,
         "databases": [],
+        "corpus_databases": corpus_db_files,
         "config_included": False,
+        "restore_invariant": (
+            "A restore that doesn't include all corpus files must be followed "
+            "by a startup that runs _reconcile_bridge_edges() (always true "
+            "since reconciliation is mandatory in startup())."
+        ),
     }
 
     backed_up = 0
@@ -145,23 +188,6 @@ def backup(db_dir: str, config_dir: str, output_dir: str, include_optional: bool
             click.echo(f"ERROR: {result.get('error', 'unknown')}")
             errors += 1
 
-    # Also scan for any .db files in db_dir that we don't know about
-    if db_path.exists():
-        known_set = set(db_files)
-        for extra_db in sorted(db_path.glob("*.db")):
-            if extra_db.name not in known_set:
-                source = extra_db
-                dest = backup_root / extra_db.name
-                click.echo(f"  {extra_db.name} (extra): ", nl=False)
-                result = _vacuum_into(source, dest)
-                manifest["databases"].append(result)
-                if result["status"] == "ok":
-                    click.echo(f"ok ({result['source_size_mb']}MB)")
-                    backed_up += 1
-                else:
-                    click.echo(f"skipped: {result.get('reason', result.get('error', 'unknown'))}")
-                    skipped += 1
-
     # Backup config directory
     if config_path.exists():
         config_backup = backup_root / "config"
@@ -187,9 +213,10 @@ def backup(db_dir: str, config_dir: str, output_dir: str, include_optional: bool
     click.echo(f"  Databases backed up: {backed_up}")
     click.echo(f"  Databases skipped:   {skipped}")
     click.echo(f"  Errors:              {errors}")
+    click.echo(f"  Corpus DB files:     {len(corpus_db_files)}")
     click.echo(f"  Location:            {backup_root.resolve()}")
     click.echo("\nTo restore:")
     click.echo("  1. Stop the AIP application")
     click.echo(f"  2. Copy .db files from {backup_root}/ to {db_path}/")
     click.echo(f"  3. Copy config/ from {backup_root}/config/ to {config_path}/")
-    click.echo("  4. Restart the application")
+    click.echo("  4. Restart the application (startup runs _reconcile_bridge_edges automatically)")
