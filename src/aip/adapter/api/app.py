@@ -1215,6 +1215,16 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         log.warning("dogfood_readiness_check_failed", error=str(exc))
 
+    # --- ADR-008 Multi-Corpus: migration gate helper (§A5) ---
+    # Actors MUST await the registry's _migration_ready event before their
+    # first write, so they don't write during schema migration. This is
+    # defensive: if the registry isn't wired yet (pre-Chunk-3), the gate
+    # is a no-op and actors proceed (backward-compatible with single-corpus).
+    async def _await_corpus_migration_ready() -> None:
+        registry = getattr(container, "corpus_registry", None)
+        if registry is not None:
+            await registry.migration_ready.wait()
+
     # --- Beast background scheduler ---
     beast_task: asyncio.Task | None = None
     if container.beast is not None:
@@ -1225,6 +1235,7 @@ async def lifespan(app: FastAPI):
             Each cycle gets its own correlation ID so that all log messages
             within a single cycle can be traced back to that cycle.
             """
+            await _await_corpus_migration_ready()  # ADR-008 §A5
             interval = container.beast._config.health_check_interval_seconds
             # Enforce a reasonable minimum to avoid busy-looping
             if interval < 60:
@@ -1269,6 +1280,7 @@ async def lifespan(app: FastAPI):
             Vigil monitors canonical health and detects stale items.
             Runs on a configurable interval (default: 3600s = 1 hour).
             """
+            await _await_corpus_migration_ready()  # ADR-008 §A5
             interval = container.vigil.config.canonical_health_check_interval_seconds
             if interval < 60:
                 interval = 3600
@@ -1312,6 +1324,7 @@ async def lifespan(app: FastAPI):
 
             Runs on a 300s cadence per ADR-011.
             """
+            await _await_corpus_migration_ready()  # ADR-008 §A5
             interval = 300  # ADR-011: vigil cycle every 300s
             # Allow config override via sexton.classification_interval_seconds
             try:
@@ -1367,6 +1380,7 @@ async def lifespan(app: FastAPI):
     if container.sexton_actor is not None:
 
         async def _sexton_startup_run():
+            await _await_corpus_migration_ready()  # ADR-008 §A5
             try:
                 log.info("sexton_actor_startup_run_start")
                 await container.sexton_actor.run_cycle()
@@ -1381,6 +1395,7 @@ async def lifespan(app: FastAPI):
     if container.vigil is not None:
 
         async def _vigil_startup_run():
+            await _await_corpus_migration_ready()  # ADR-008 §A5
             try:
                 log.info("vigil_startup_run_start")
                 await container.vigil.run()

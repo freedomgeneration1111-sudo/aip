@@ -394,7 +394,26 @@ config/aip.config.toml ([models] section)
   message without `turn_id`.
 
 ## Last Cycle
-- **Phase 3 polish (this cycle)**: shipped all 4 Phase 3 deliverables.
+- **ADR-008 Multi-Corpus Chunk 2** (this cycle): CorpusRegistry + Factory +
+  shared connection manager + migration runner + scheduler gates. 5 new adapter
+  files: `corpus_connection.py` (CorpusConnectionManager — 1 write + N read
+  conns shared by all 6 stores per corpus, §A0), `corpus_stores.py` (CorpusStores
+  regular class with `__slots__`, async `close_all()`, `__aenter__/__aexit__`,
+  §5.3), `corpus_migration_runner.py` (dedicated runner OUTSIDE `_create_tables`,
+  fingerprint + sql_checksum verification, §A8), `corpus_store_factory.py`
+  (builds CorpusStores with shared manager, registers M001/M002/M003 migrations),
+  `corpus_registry.py` (concrete CorpusRegistry — register/get_stores/delete_corpus/
+  budget validation/Branham 4-layer Layer 3/deletion_state/§A13 two-phase delete
+  with WAL sidecar rename). `app.py` gained `_await_corpus_migration_ready()`
+  helper + gate on all 5 actor schedulers (_beast_scheduler, _vigil_scheduler,
+  _sexton_actor_scheduler, _sexton_startup_run, _vigil_startup_run — §A5).
+  The gate is defensive: if `container.corpus_registry` is None (pre-Chunk-3),
+  the gate is a no-op. 55 new tests in `tests/test_corpus_registry.py`.
+  Stubs: `transition_artifact()` raises NotImplementedError (Chunk 8),
+  `list_review_items()` returns [] (Chunk 8), `_reconcile_bridge_edges()` is
+  a no-op (Chunk 6), `_persist_deletion_state()`/`_write_audit()` log only
+  (Chunk 8). See ADR-008 Rev 3.1 Amendment §A0, §A5, §A8, §A13.
+- **Phase 3 polish**: shipped all 4 Phase 3 deliverables.
   Phase 3a: per-model attribution badges on `unique_insights[]` —
   added `_model_color()` helper + `_MODEL_COLOR_PALETTE` (8-color
   deterministic palette) to `model_council_panel.py`; the panel renders
@@ -651,9 +670,14 @@ The API owns its router definitions. The CLI owns its command structure.
 | Path | Role |
 |------|------|
 | `api/` | FastAPI app + 29 route files — HTTP interface to all AIP capabilities |
-| `api/app.py` | App factory, startup/scheduler coordination, Sexton startup task |
+| `api/app.py` | App factory, startup/scheduler coordination, Sexton startup task. ADR-008 §A5: 5 actor schedulers gated on `corpus_registry.migration_ready` |
 | `api/routes/corpus.py` | Corpus routes — enriches with Sexton state |
 | `cli/` | Supplementary CLI commands (collaborators, plugins) — main CLI is `aip.cli` |
+| `corpus_registry.py` | ADR-008: CorpusRegistry — concrete impl, register/get_stores/delete_corpus, budget validation, Branham Layer 3, §A13 two-phase delete |
+| `corpus_store_factory.py` | ADR-008: CorpusStoreFactory — builds CorpusStores with shared connection manager, registers M001/M002/M003 migrations |
+| `corpus_connection.py` | ADR-008 §A0: CorpusConnectionManager — 1 write + N read conns shared by all 6 stores per corpus (makes budget math work) |
+| `corpus_stores.py` | ADR-008 §5.3: CorpusStores — regular class with `__slots__`, async `close_all()`, `__aenter__/__aexit__`, write_lock, deletion_state |
+| `corpus_migration_runner.py` | ADR-008 §A8: CorpusMigrationRunner — dedicated runner outside `_create_tables`, fingerprint + sql_checksum verification, detects reordering/changed-body |
 | `artifact_store_versioned.py` | Version-preserved artifact storage (never overwrites) |
 | `ecs_store_persistent.py` | Persistent ECS state machine backed by SQLite |
 | `event_store_queryable.py` | Append-only event store with query capability |

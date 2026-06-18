@@ -93,11 +93,11 @@ is the implementation default.
 | Chunk | Name | Status |
 |-------|------|--------|
 | 1 | Foundation types + ECS graph extension (ARCHIVED state) | ✅ Complete — 43 tests, 10 ECS graph tests, backward-compatible |
-| 2 | CorpusRegistry + CorpusStoreFactory (adapter) | 🔲 Next |
-| 2a | Per-corpus shared connection manager (APPROVED) | 🔲 Part of Chunk 2 |
-| 2b | Migration runner outside `_create_tables` | 🔲 Part of Chunk 2 |
-| 2c | 5-scheduler migration gate in `app.py` | 🔲 Part of Chunk 2 |
-| 8 | ECS/ArtifactStore per corpus | 🔲 Pending |
+| 2 | CorpusRegistry + CorpusStoreFactory (adapter) | ✅ Complete — 55 tests, shared connection manager (§A0), migration runner (§A8), 5-scheduler gate (§A5) |
+| 2a | Per-corpus shared connection manager (APPROVED) | ✅ Complete — CorpusConnectionManager, 1 write + N read per corpus |
+| 2b | Migration runner outside `_create_tables` | ✅ Complete — CorpusMigrationRunner, fingerprint + sql_checksum |
+| 2c | 5-scheduler migration gate in `app.py` | ✅ Complete — defensive helper, 5 schedulers gated |
+| 8 | ECS/ArtifactStore per corpus | 🔲 Next |
 | 3 | Call-site migration (264 sites / 21 files) | 🔲 Pending |
 | 4 | Retrieval scoping (fusion-layer ECS filter) | 🔲 Pending |
 | 5 | Session/project binding + custom-channel scoping | 🔲 Pending |
@@ -161,6 +161,7 @@ be an enhancement over the current PersonalizedPageRank approach.
 | 2026-06-17 | Moved 3 Phase 4.1 features (provenance widget, context visualizer, consistency checker) from Near-Term to Already Built. | Super Z (main) |
 | 2026-06-17 | Global docs hardening pass — cross-referenced ROADMAP.md Phase 6 + Phase 1.6. Added DEBT-010 (TracePanel right_drawer) to TECH_DEBT.md. | Super Z (main) |
 | 2026-06-18 | ADR-008 Multi-Corpus Chunk 1 complete: added ARCHIVED terminal state to ECS graph, created 4 foundation files (corpus_types, corpus_exceptions, corpus_constants, protocols/corpus_registry), 43 new tests. Added "In Progress" section tracking the 9-chunk sequence. Updated Codebase-as-Corpus to reference ADR-008 (supersedes ADR-004). | GLM (Coding Agent) |
+| 2026-06-18 | ADR-008 Multi-Corpus Chunk 2 complete: CorpusRegistry + CorpusStoreFactory + CorpusConnectionManager (§A0 shared pool) + CorpusMigrationRunner (§A8 fingerprint+checksum) + 5-scheduler migration gate in app.py (§A5). 55 new tests. Stubs for transition_artifact/list_review_items/_reconcile_bridge_edges (Chunks 6/8). | GLM (Coding Agent) |
 
 ---
 
