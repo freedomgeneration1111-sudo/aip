@@ -185,7 +185,8 @@ CI runs on every push to main — failures block merge.
 ## Test File Map
 | File | Domain |
 |------|--------|
-| `test_extension_lifecycle.py` | ADR-014 Phase 0 extension platform — ExtensionHost lifecycle TDD contract (RED by design). 11 tests pinning discover/validate/migrate/register/mount/stop and failure isolation. Fails to collect until `aip.adapter.extensions` exists. |
+| `test_actor_protocol.py` | ADR-014 §5.2 — Actor Protocol contract (11 tests). Conforming actor passes isinstance; 4 non-conforming variants fail; runtime_checkable flag; ActorContext/ActorResult dataclass fields; barrel re-export; demo actor conformance. |
+| `test_extension_lifecycle.py` | ADR-014 Phase 0 extension platform — ExtensionHost lifecycle TDD contract. 11 tests pinning discover/validate/migrate/register/mount/stop and failure isolation. _DemoActor conforms to the Actor Protocol (returns ActorResult). |
 | `test_model_council_fusion.py` | Phase 1 Fusion pipeline — Judge+Synth two-stage Beast synthesis + per-call timeouts + Judge label contract + GUI judge_analysis rendering + Fix D engine fallback when panel models fail (31 tests) |
 | `test_model_council_cycle6.py` | UI Cycle 6 — Model Council schema, multi-model exec, partial failure, save-as-artifact |
 | `test_model_council_cycle6_1.py` | UI Cycle 6.1 — selected_model_slots honoring, embedding exclusion, text-generation-slots endpoint |

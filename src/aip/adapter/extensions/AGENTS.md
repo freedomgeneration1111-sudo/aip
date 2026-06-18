@@ -193,7 +193,35 @@ otherwise see "unknown migrations applied" and raise
   debuggable instead of invisible.
 
 ## Last Cycle
-- **ADR-014 step 2 — Lifespan wiring + WorkflowRegistry.add_path** (this cycle):
+- **ADR-014 step 3 — Actor Protocol formalization** (this cycle):
+  - Replaced the local `_ActorContext` dataclass in `host.py` with the
+    foundation `ActorContext` (ADR-014 §5.2). The host now imports
+    `Actor`, `ActorContext`, `ActorResult` from
+    `aip.foundation.protocols.actors`.
+  - The scheduler's `_actor_scheduler_loop` now validates actor conformance
+    via `isinstance(actor, Actor)` at start. A non-conforming actor is
+    logged as `actor_not_conforming` and the scheduler exits — the actor
+    name stays registered (so `registered_actors()` lists it) but no
+    cycles run.
+  - Added `_run_one_cycle()` helper that handles `ActorResult`: logs
+    non-ok results (`actor_cycle_not_ok`), honors `next_run_at` override
+    for the next cycle only (back-off / speed-up).
+  - The `ActorContext.logger` is a stdlib `LoggerAdapter` bound with ext +
+    actor names (foundation types it as `Any` — works with both stdlib
+    logging and structlog).
+  - Updated `tests/test_extension_lifecycle.py`'s `_DemoActor` to return
+    `ActorResult(ok=True)` instead of a bare dict — the demo actor now
+    conforms to the Protocol and is a correct example for extension authors.
+  - Added `tests/test_actor_protocol.py` (11 contract tests): conforming
+    actor passes `isinstance`; 4 non-conforming variants (missing name /
+    cadence / run_cycle / health) fail; `runtime_checkable` flag;
+    `ActorContext` + `ActorResult` dataclass fields; barrel re-export;
+    demo actor conformance belt-and-suspenders check.
+  - Verified: all 11 Actor Protocol tests pass; all 3 WorkflowRegistry
+    tests still pass; layer discipline tests pass (foundation doesn't
+    import from adapter/orchestration); host imports cleanly with the
+    new foundation import.
+- **ADR-014 step 2 — Lifespan wiring + WorkflowRegistry.add_path** (prior cycle):
   - Wired `ExtensionHost` into `app.py::lifespan`: `container.extensions =
     host` + `await host.start()` after CorpusRegistry (before actor
     schedulers), `await host.stop()` in shutdown. The host block is

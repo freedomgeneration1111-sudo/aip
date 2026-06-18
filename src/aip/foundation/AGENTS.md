@@ -113,7 +113,24 @@ foundation/schemas/ (14 domain schemas)
   in `corpus_types.py` ARE enums (they're new, no backward-compat constraint).
 
 ## Last Cycle
-- **ADR-008 Multi-Corpus Chunk 1** (this cycle): Added ARCHIVED terminal state to
+- **ADR-014 §5.2 — Actor Protocol** (this cycle): Added `Actor` Protocol +
+  `ActorContext` + `ActorResult` dataclasses to `protocols/actors.py` (was
+  `VigilStore` only). The Protocol is `@runtime_checkable` so the
+  ExtensionHost validates actor conformance at scheduler start via
+  `isinstance(actor, Actor)`. Extension-contributed actors (ARISTOTLE's
+  SOCRATES/EXAMINER/MENTOR, future LOOM/CodeForge actors) conform to this
+  Protocol. Core actors (Beast/Vigil/Sexton) do NOT conform — they keep
+  their existing 12-param constructors and hand-wired schedulers (ADR-014
+  §1: "Do not migrate — adapt at the boundary with a thin wrapper" is
+  future work). All fields on `ActorContext` (`container`, `config`,
+  `logger`, `cancel_event`) are typed as `Any` to preserve the foundation
+  → adapter/orchestration import boundary — the Protocol promises shape,
+  not concrete types. 11 contract tests in `tests/test_actor_protocol.py`
+  pin the Protocol shape (conforming actor passes isinstance; 4 non-
+  conforming variants fail; runtime_checkable flag; dataclass fields;
+  barrel re-export; demo actor conformance). Re-exported from
+  `foundation.protocols` barrel.
+- **ADR-008 Multi-Corpus Chunk 1** (prior cycle): Added ARCHIVED terminal state to
   `ecs_graph.py` (second terminal alongside SUPERSEDED). Added 4 new foundation
   files for the multi-corpus architecture: `corpus_types.py` (CorpusType,
   CorpusDeletionState enums, RETRIEVAL_EXCLUDED_STATES, MIGRATIONS_FOR_CORPUS_TYPE),
@@ -136,8 +153,9 @@ Changes here have system-wide blast radius. Review all Protocol consumers before
 | `corpus_types.py` | ADR-008: CorpusType, CorpusDeletionState enums, RETRIEVAL_EXCLUDED_STATES, MIGRATIONS_FOR_CORPUS_TYPE |
 | `corpus_exceptions.py` | ADR-008: 7 corpus-layer exceptions (CorpusError base + 6 subclasses) |
 | `corpus_constants.py` | ADR-008: connection budget constants (MAX_CONNECTIONS, MAX_CORPORA, pool sizes) + Sexton batch constants |
-| `protocols/` | 10 Protocol interfaces for dependency injection — the adapter/orchestration seam (now includes CorpusRegistryProtocol) |
+| `protocols/` | 10 Protocol interfaces for dependency injection — the adapter/orchestration seam (now includes CorpusRegistryProtocol + Actor Protocol) |
 | `protocols/corpus_registry.py` | ADR-008: CorpusRegistryProtocol + ReviewItem dataclass — multi-corpus store access interface |
+| `protocols/actors.py` | ADR-011: VigilStore Protocol (Vigil storage). ADR-014 §5.2: Actor Protocol + ActorContext + ActorResult — extension-contributed actors conform; Beast/Vigil/Sexton NOT migrated |
 | `schemas/` | Dataclass definitions: ingestion, ask, review, export, artifact, etc. (14 schemas) |
 | `validation.py` | Structural validation rules — used by orchestration before any pipeline step |
 | `source_types.py` | Source type definitions for ingestion pipeline |

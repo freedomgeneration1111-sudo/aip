@@ -1048,3 +1048,50 @@ Files changed:
 - PLANNED_FEATURES.md (step 2 status + Change Log)
 - worklog.md (this entry)
 
+
+---
+Task ID: 14
+Agent: Super Z (main)
+Task: ADR-014 step 3 — Actor Protocol formalization (foundation.protocols.actors)
+
+Work Log:
+- Oriented per Coding Cycle Protocol: read ADR-014 §5.2 Actor Protocol sketch (name/cadence/run_cycle/health; ActorContext with container/config/logger/cancel_event; ActorResult with ok/error/next_run_at), existing foundation/protocols/actors.py (VigilStore only), host._actor_scheduler_loop + _ActorContext, ADR-011 actor role boundaries, foundation AGENTS.md layer rules (foundation imports NOTHING from orchestration or adapter).
+- Contract check: confirmed the host's _actor_scheduler_loop calls actor.run_cycle(ctx) and needs a context with container/config/cancel_event. The ADR §5.2 sketch adds logger. Foundation can't import AipContainer (adapter) or BaseSettings (pydantic_settings) or structlog.BoundLogger or asyncio — so all ActorContext fields typed as Any. Protocol promises shape, not concrete types. Same pattern as existing VigilStore Protocol.
+- Concern 1: Added Actor Protocol + ActorContext + ActorResult to foundation/protocols/actors.py. Actor is @runtime_checkable (so isinstance(actor, Actor) works for host validation). ActorContext is a @dataclass with container/config/logger/cancel_event (all Any). ActorResult is a @dataclass with ok (required) + error (None default) + next_run_at (None default). Updated __init__.py barrel to re-export all three. Updated __all__.
+- Concern 2: Updated host.py to import Actor/ActorContext/ActorResult from foundation. Removed the local _ActorContext dataclass + the unused `from dataclasses import dataclass` import. The scheduler now: (a) validates actor conformance via isinstance(actor, Actor) at start — non-conforming actors are logged as actor_not_conforming and the scheduler exits (the name stays registered but no cycles run); (b) builds a foundation ActorContext with a stdlib LoggerAdapter bound with ext+actor names (foundation types logger as Any — works with both stdlib logging and structlog); (c) calls a new _run_one_cycle() helper that handles ActorResult — logs non-ok results (actor_cycle_not_ok), honors next_run_at override for the next cycle only (back-off/speed-up).
+- Concern 3: Updated tests/test_extension_lifecycle.py's _DemoActor to return ActorResult(ok=True) instead of a bare dict. The demo actor now conforms to the Protocol and is a correct example for extension authors. Added a docstring explaining cadence=0 = manual-only (the ARISTOTLE shape).
+- Concern 4: Added tests/test_actor_protocol.py (11 contract tests): conforming actor passes isinstance; 4 non-conforming variants (missing name/cadence/run_cycle/health) fail; runtime_checkable flag present; ActorContext dataclass fields; ActorResult defaults + with-error case; barrel re-export from foundation.protocols; demo actor conformance belt-and-suspenders check.
+- Verified:
+  - All 5 changed files pass ast.parse.
+  - All 11 Actor Protocol tests PASS.
+  - All 3 WorkflowRegistry tests still PASS (no regression).
+  - Layer discipline tests PASS (test_layering.py — foundation doesn't import from adapter/orchestration).
+  - Host imports cleanly with the new foundation import.
+  - Actor is runtime_checkable; ActorContext has 4 fields; ActorResult has 3 fields.
+- Updated docs per Coding Cycle Protocol §5:
+  - src/aip/foundation/AGENTS.md: prepended step 3 entry to Last Cycle; updated Key Files table (protocols/ now mentions Actor Protocol; added protocols/actors.py row).
+  - src/aip/adapter/extensions/AGENTS.md: prepended step 3 entry to Last Cycle.
+  - tests/AGENTS.md: added test_actor_protocol.py to Test File Map; updated test_extension_lifecycle.py description (no longer "RED by design"; _DemoActor conforms).
+  - PLANNED_FEATURES.md: step 3 → Complete. Added Change Log entry.
+- Committed per concern + pushed to feat/multi-corpus.
+
+Stage Summary:
+- The Actor Protocol is now a foundation-layer contract. Extension-contributed actors (ARISTOTLE's SOCRATES/EXAMINER/MENTOR, future LOOM/CodeForge actors) conform to it. The host validates conformance at scheduler start via isinstance(actor, Actor) — a non-conforming actor is logged and skipped, never crashes the host.
+- Core actors (Beast/Vigil/Sexton) are NOT migrated — they keep their existing 12-param constructors and hand-wired schedulers. ADR-014 §1: "adapt them at the boundary with a thin Actor-conforming wrapper" is future work, not required for v1.0.
+- The scheduler now handles ActorResult properly: logs non-ok results, honors next_run_at override for back-off/speed-up. A single failed cycle is a transient event (logged), not a lifecycle state change — repeated failures should surface via the actor's health() method.
+- The ActorContext.logger is a stdlib LoggerAdapter bound with ext+actor names for correlation. Foundation types it as Any so it works with both stdlib logging and structlog.
+- 11 contract tests pin the Protocol shape. The demo actor in the lifecycle test conforms. The belt-and-suspenders test catches regressions if someone changes _DemoActor to be non-conforming.
+- Next build unit: step 5 remainder (cross-stage coherence checks in the manifest validator — e.g. a corpora entry referencing a table no migration creates is a build-time error) OR step 6 (v1.1 GUI mount — register_gui_page + stage 4). After that, ARISTOTLE Phase A can start against a real contract.
+
+Files changed:
+- src/aip/foundation/protocols/actors.py (added Actor + ActorContext + ActorResult; updated docstring + __all__)
+- src/aip/foundation/protocols/__init__.py (re-export Actor/ActorContext/ActorResult from barrel)
+- src/aip/adapter/extensions/host.py (import from foundation; removed _ActorContext; isinstance validation; _run_one_cycle helper; ActorResult handling; LoggerAdapter)
+- tests/test_extension_lifecycle.py (updated _DemoActor to return ActorResult + docstring)
+- tests/test_actor_protocol.py (NEW — 11 contract tests)
+- src/aip/foundation/AGENTS.md (Last Cycle + Key Files)
+- src/aip/adapter/extensions/AGENTS.md (Last Cycle)
+- tests/AGENTS.md (Test File Map)
+- PLANNED_FEATURES.md (step 3 → Complete + Change Log)
+- worklog.md (this entry)
+
