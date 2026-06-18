@@ -185,7 +185,8 @@ CI runs on every push to main — failures block merge.
 ## Test File Map
 | File | Domain |
 |------|--------|
-| `test_aristotle_actors.py` | ARISTOTLE §2 — EXAMINER + MENTOR actor tests (10 tests: 5 conformance + 5 behavior with fakes). Conformance: isinstance + distinct names + health for all three actors. Behavior: EXAMINER degrades without model, fails without corpus; MENTOR initializes + reads struggle_pattern, fails without corpus. |
+| `test_workflow_engine_wiring.py` | ADR-014 §8 step 2 — WorkflowEngine wiring (9 tests). Container has workflow_engine/registry/extensions fields; lifespan wires WorkflowEngine; ARISTOTLE workflow YAML parses with 7 nodes + engine-compatible node types; /health/extensions route exists. |
+| `test_aristotle_actors.py` | ARISTOTLE §2 — EXAMINER + MENTOR actor tests (10 tests: 5 conformance + 5 behavior with fakes). |
 | `test_aristotle_extension.py` | ARISTOTLE Phase A dogfood — integration tests against the real `extensions/aristotle/` (7 tests: manifest validates, migrations create tables, SOCRATES registers, Actor Protocol conformance, config.schema loads, health surfaces, stop cancels). |
 | `test_actor_protocol.py` | ADR-014 §5.2 — Actor Protocol contract (11 tests). Conforming actor passes isinstance; 4 non-conforming variants fail; runtime_checkable flag; ActorContext/ActorResult dataclass fields; barrel re-export; demo actor conformance. |
 | `test_extension_lifecycle.py` | ADR-014 Phase 0 extension platform — ExtensionHost lifecycle TDD contract. 11 tests pinning discover/validate/migrate/register/mount/stop and failure isolation. _DemoActor conforms to the Actor Protocol (returns ActorResult). |

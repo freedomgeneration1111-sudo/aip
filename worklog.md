@@ -1206,3 +1206,48 @@ Files changed:
 - PLANNED_FEATURES.md (MODIFIED — Change Log)
 - worklog.md (this entry)
 
+
+---
+Task ID: 17
+Agent: Super Z (main)
+Task: ADR-014 §8 step 2 remainder — wire WorkflowEngine + /health/extensions endpoint
+
+Work Log:
+- Oriented per Coding Cycle Protocol: read orchestration/workflow/engine.py (WorkflowEngine class, run_workflow API), workflow/loader.py (node types: script/agent/condition/dialog/parallel/review/re_synthesize), workflow/node.py (NodeType enum), existing synthesis_session_v1.yaml (reference workflow structure), test_workflow_engine.py (usage patterns). Confirmed WorkflowEngine is NOT wired into the adapter/container (only used in tests + orchestration internals).
+- Contract check: identified a CRITICAL contract mismatch. The prior tutoring_session_v1.yaml used node types `synthesize`, `review`, `decision`, `commit`. The L5 loader only accepts `script, agent, condition, dialog, parallel, review, re_synthesize`. `synthesize`/`decision`/`commit` would raise ValueError in the loader. Only `review` matched. The workflow needed a rewrite to use engine-compatible types before it could be executable.
+- Concern 1 (workflow rewrite): Rewrote extensions/aristotle/workflows/tutoring_session_v1.yaml to use engine-compatible node types. 7 nodes: teach (agent, model_slot=beast) → probe (agent, model_slot=evaluation) → quiz (agent, model_slot=evaluation) → evaluate (script, run=aristotle_evaluate) → check_mastery (condition, next_on_true=next_concept, next_on_false=remediate) → remediate (agent, model_slot=beast) → next_concept (script, run=aristotle_next_concept). Added inputs section (concept_id, student_id, mastery_threshold). Added metadata (single_voice, bilingual flags per ADR-ARISTOTLE §1/§7). The script nodes reference `run: aristotle_evaluate` and `run: aristotle_next_concept` — these are script handlers that need registration with the engine (future work; engine currently runs them in fixture/no-op mode).
+- Concern 2 (container field): Added `workflow_engine` field to AipContainer (dependencies.py). Typed as Any, default None, with comment referencing ADR-014 §8 step 2. Extensions access it via `ctx.container.workflow_engine.run_workflow(path, variables)`.
+- Concern 3 (lifespan wiring): Wired WorkflowEngine instantiation into the lifespan's host block (app.py). The engine is constructed with the container's stores (vector_store, trace_store, artifact_store, ecs_store, event_store, budget_store, autonomy_gate) alongside the WorkflowRegistry + ExtensionHost. Stored on container.workflow_engine. Logs workflow_engine_wired=True on success. The engine is available to extensions via ctx.container.workflow_engine — they can call run_workflow(yaml_path, variables) to execute their contributed workflows.
+- Concern 4 (/health/extensions endpoint): Added GET /health/extensions to src/aip/adapter/api/routes/health.py (ADR-014 §7). Returns {host_running: bool, extensions: [{id, version, state, failures: [{stage, contribution, reason}]}]}. Handles the case where container.extensions is None (host not wired) by returning host_running=False + empty extensions list + error message. Catches exceptions in host.health() and returns them as error strings. Backs the operator/teacher "extension health" tab.
+- Concern 5 (tests): Added tests/test_workflow_engine_wiring.py (9 tests). Source-level tests (avoid importing the full adapter chain which needs aiosqlite): container has workflow_engine/workflow_registry/extensions fields; lifespan wires WorkflowEngine (imports it, assigns to container, logs wired=True). YAML structure tests: ARISTOTLE workflow parses with 7 nodes in the right order; all node types are engine-compatible (catches regressions if someone rewrites with synthesize/decision/commit); agent nodes have model_slot (loader requirement); condition node has next_on_true/next_on_false (loader requirement). Route existence test: /health/extensions route declared in health.py. All 9 pass locally.
+- Verified:
+  - All changed files pass ast.parse (dependencies.py, app.py, health.py, test_workflow_engine_wiring.py; workflow YAML verified via yaml.safe_load).
+  - All 9 new tests PASS locally.
+  - All 33 local-runnable tests PASS (11 Actor Protocol + 3 WorkflowRegistry + 10 ARISTOTLE actors + 9 workflow engine wiring). No regression.
+  - ARISTOTLE workflow YAML has 7 nodes with engine-compatible types (agent/script/condition).
+  - /health/extensions endpoint declared in health.py.
+- Updated docs per Coding Cycle Protocol §5:
+  - src/aip/adapter/AGENTS.md: prepended step 2 remainder entry to Last Cycle.
+  - extensions/aristotle/AGENTS.md: updated Known Gotcha from "declared but not executable" to "engine-compatible and executable" (with note about script handler registration as future work).
+  - tests/AGENTS.md: added test_workflow_engine_wiring.py to Test File Map.
+  - PLANNED_FEATURES.md: step 2 → Complete. Change Log entry.
+- Committed per concern + pushed to feat/multi-corpus.
+
+Stage Summary:
+- The WorkflowEngine is now wired into the container. Extensions can execute their contributed YAML workflows via `ctx.container.workflow_engine.run_workflow(yaml_path, variables)`. The ARISTOTLE tutoring_session_v1.yaml is engine-compatible — the L5 loader can parse it without ValueError.
+- The /health/extensions endpoint surfaces per-extension state (id/version/state/failures) to operators + the teacher dashboard. ARISTOTLE's "session opens itself" promise is gated on REGISTERED (backend live); the GUI learning view is gated on MOUNTED (v1.1).
+- The tutoring workflow's script nodes (evaluate, next_concept) reference `run: aristotle_evaluate` and `run: aristotle_next_concept` — these are script handlers that need registration with the engine's script registry. The engine currently runs them in fixture/no-op mode. Registering real handlers (that update mastery, consult the prerequisite DAG, update struggle_pattern) is the next ARISTOTLE Phase A unit.
+- ADR-014 build order step 2 is now Complete (WorkflowRegistry + WorkflowEngine + /health/extensions all wired; PluginManager + McpToolRegistry deferred as orthogonal). Steps 0–5 are done; step 6 (v1.1 GUI mount) + step 7 (v1.2 MCP tools) remain.
+
+Files changed:
+- src/aip/adapter/api/dependencies.py (added workflow_engine field to AipContainer)
+- src/aip/adapter/api/app.py (instantiate WorkflowEngine in lifespan host block)
+- src/aip/adapter/api/routes/health.py (added GET /health/extensions endpoint)
+- extensions/aristotle/workflows/tutoring_session_v1.yaml (rewrote with engine-compatible node types)
+- tests/test_workflow_engine_wiring.py (NEW — 9 tests)
+- src/aip/adapter/AGENTS.md (Last Cycle)
+- extensions/aristotle/AGENTS.md (Known Gotcha updated)
+- tests/AGENTS.md (Test File Map)
+- PLANNED_FEATURES.md (step 2 → Complete + Change Log)
+- worklog.md (this entry)
+

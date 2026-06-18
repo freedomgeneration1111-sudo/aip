@@ -143,13 +143,18 @@ per-corpus is simpler and matches the loader's behavior. Revisit at Phase B
 - **`cadence=0.0` means manual-only.** All three actors run one cycle on
   start, then wait forever for cancellation. The tutoring state machine is
   driven by user turns, not by a timer (ADR-ARISTOTLE §3).
-- **The `tutoring_session_v1.yaml` workflow is declared but not executable.**
-  The workflow engine (`orchestration/workflow/engine.py`) exists but is
-  not wired into the container (ADR-014 §8 step 2 deferred WorkflowEngine
-  wiring). The host discovers the file via `WorkflowRegistry.add_path` at
-  stage 3; execution comes when the engine is wired. The node structure
-  (TEACH→PROBE→QUIZ→EVALUATE→REMEDIATE) matches the ADR-ARISTOTLE §3 state
-  machine and is ready for the engine.
+- **The `tutoring_session_v1.yaml` workflow is engine-compatible and executable.**
+  Rewritten to use the L5 Workflow Engine's node types (`agent`, `script`,
+  `condition`) instead of the placeholder types (`synthesize`, `decision`,
+  `commit`) that the loader rejects. The engine is wired into the container
+  (`container.workflow_engine`, ADR-014 §8 step 2). Extensions access it via
+  `ctx.container.workflow_engine.run_workflow(yaml_path, variables)`. The
+  workflow's 7 nodes (teach → probe → quiz → evaluate → check_mastery →
+  remediate → next_concept) match the ADR-ARISTOTLE §3 state machine. The
+  `script` nodes (`evaluate`, `next_concept`) reference `run: aristotle_evaluate`
+  and `run: aristotle_next_concept` — these are script handlers that need
+  to be registered with the engine (future work; the engine currently runs
+  them in fixture/no-op mode).
 - **No HERALD actor yet.** HERALD (field awareness) is Phase C — depends on
   the Phase 0 web/feed layer (ADR-014 §3.4), which is not yet built.
 - **EXAMINER returns `ok=True` even without a model.** This is intentional:

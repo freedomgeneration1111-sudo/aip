@@ -404,7 +404,35 @@ config/aip.config.toml ([models] section)
   the `{EXT_ID Upper}_...` namespace convention (ADR-014 §10).
 
 ## Last Cycle
-- **ADR-014 step 1 — ExtensionHost skeleton + TDD contract GREEN** (this cycle):
+- **ADR-014 §8 step 2 remainder — WorkflowEngine wired + /health/extensions** (this cycle):
+  - Wired `WorkflowEngine` into `AipContainer` + lifespan. Added
+    `workflow_engine` field to `AipContainer`. The lifespan constructs the
+    engine with the container's stores (vector_store, trace_store,
+    artifact_store, ecs_store, event_store, budget_store, autonomy_gate)
+    alongside the `WorkflowRegistry` + `ExtensionHost`. Extensions access
+    it via `ctx.container.workflow_engine.run_workflow(path, variables)`.
+  - Rewrote `extensions/aristotle/workflows/tutoring_session_v1.yaml` to
+    use engine-compatible node types. The L5 loader
+    (`orchestration/workflow/loader.py`) accepts: `script, agent, condition,
+    dialog, parallel, review, re_synthesize`. The prior YAML used
+    `synthesize, decision, commit` which the loader rejects. Now uses
+    `agent` (teach/probe/quiz/remediate), `script` (evaluate/next_concept),
+    `condition` (check_mastery with next_on_true/next_on_false). 7 nodes
+    total, matching the ADR-ARISTOTLE §3 state machine.
+  - Added `GET /health/extensions` endpoint (ADR-014 §7). Returns
+    `{host_running, extensions: [{id, version, state, failures}]}`. Backs
+    the operator/teacher "extension health" tab. ARISTOTLE's "session opens
+    itself" promise is gated on `REGISTERED`; the GUI learning view is
+    gated on `MOUNTED` (v1.1).
+  - Added `tests/test_workflow_engine_wiring.py` (9 tests): container has
+    workflow_engine + workflow_registry + extensions fields (source-level);
+    lifespan wires WorkflowEngine (source-level); ARISTOTLE workflow YAML
+    parses with 7 nodes; all node types are engine-compatible; agent nodes
+    have model_slot; condition node has next_on_true/next_on_false;
+    /health/extensions route exists. All 9 pass locally.
+  - Verified: 33 tests pass locally (11 Actor Protocol + 3 WorkflowRegistry
+    + 10 ARISTOTLE actors + 9 workflow engine wiring). No regression.
+- **ADR-014 step 1 — ExtensionHost skeleton + TDD contract GREEN** (prior cycle):
   - Built `src/aip/adapter/extensions/` package (8 files): `state.py`,
     `supervision.py`, `manifest.py`, `registry.py`, `host.py`,
     `loaders/migration_loader.py`, plus `__init__.py` files. See
