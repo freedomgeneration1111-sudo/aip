@@ -15,11 +15,9 @@ from typing import Any
 from fastapi import Request
 
 from aip.foundation.protocols import (
-    ArtifactStore,
     AutonomyGate,
     BudgetStore,
     CanonicalStore,
-    EcsStore,
     EmbeddingProvider,
     EntityStore,
     EventStore,
@@ -47,8 +45,12 @@ class AipContainer:
         self.config = config
         # Will be populated by lifespan / factory
         self.vector_store: VectorStore | None = None
-        self.ecs_store: EcsStore | None = None
-        self.artifact_store: ArtifactStore | None = None
+        # ADR-008 Chunk 3: ecs_store, artifact_store, corpus_turn_store are
+        # now PROPERTIES that delegate to definer_stores when the registry
+        # is wired. The _legacy_* attributes hold the pre-registry values
+        # for backward compat (tests, pre-wiring lifespan).
+        self._legacy_ecs_store: Any = None
+        self._legacy_artifact_store: Any = None
         self.event_store: EventStore | None = None
         self.trace_store: TraceStore | None = None
         self.budget_store: BudgetStore | None = None
@@ -81,8 +83,8 @@ class AipContainer:
         self.review_queue_store: Any = None
         # SessionStore — None when not initialized (degrades to in-memory)
         self.session_store: Any = None
-        # CorpusTurnStore — None when not initialized (degrades to no corpus search in augmented chat)
-        self.corpus_turn_store: Any = None
+        # CorpusTurnStore — now a property delegating to definer_stores.
+        self._legacy_corpus_turn_store: Any = None
         # GraphStore — knowledge graph nodes and edges (degrades to no graph retrieval)
         self.graph_store: GraphStore | None = None
         # Sprint 5.27: Operational components wired into the running application
@@ -128,6 +130,40 @@ class AipContainer:
         # routes/actors access per-corpus stores via get_stores(corpus_id)
         # or the definer_stores convenience property.
         self.corpus_registry: Any = None
+
+    # ADR-008 Chunk 3: per-corpus store properties that delegate to the
+    # registry's definer_stores when wired, falling back to legacy
+    # singletons otherwise. This makes all 264 call sites automatically
+    # use the registry without mechanical rewriting.
+    @property
+    def corpus_turn_store(self) -> Any:
+        """CorpusTurnStore — delegates to definer_stores when registry is wired."""
+        ds = self.definer_stores
+        return ds.turn_store if ds is not None else self._legacy_corpus_turn_store
+
+    @corpus_turn_store.setter
+    def corpus_turn_store(self, value: Any) -> None:
+        self._legacy_corpus_turn_store = value
+
+    @property
+    def artifact_store(self) -> Any:
+        """ArtifactStore — delegates to definer_stores when registry is wired."""
+        ds = self.definer_stores
+        return ds.artifact_store if ds is not None else self._legacy_artifact_store
+
+    @artifact_store.setter
+    def artifact_store(self, value: Any) -> None:
+        self._legacy_artifact_store = value
+
+    @property
+    def ecs_store(self) -> Any:
+        """EcsStore — delegates to definer_stores when registry is wired."""
+        ds = self.definer_stores
+        return ds.ecs_store if ds is not None else self._legacy_ecs_store
+
+    @ecs_store.setter
+    def ecs_store(self, value: Any) -> None:
+        self._legacy_ecs_store = value
 
     @property
     def definer_stores(self) -> Any:

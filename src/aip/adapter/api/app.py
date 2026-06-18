@@ -465,6 +465,53 @@ async def lifespan(app: FastAPI):
             error=str(exc),
         )
 
+    # --- ADR-008 Multi-Corpus: wire the CorpusRegistry ---
+    # The registry is the primary store-access interface. It creates per-corpus
+    # stores (turn_store, ecs_store, artifact_store) for the definer corpus
+    # pointing at the same db_path as the legacy stores. After the registry is
+    # wired, the legacy container attributes (corpus_turn_store, artifact_store,
+    # ecs_store) are overwritten to point to the registry's stores — so all
+    # existing call sites automatically use the registry without code changes.
+    try:
+        from pathlib import Path as _Path
+
+        from aip.adapter.corpus_registry import CorpusRegistry
+        from aip.foundation.corpus_types import CorpusType
+
+        _registry = CorpusRegistry(max_corpora=4)
+        await _registry.startup(
+            corpora_to_register=[
+                ("definer", CorpusType.CONVERSATION, _Path(db_path)),
+            ],
+        )
+        container.corpus_registry = _registry
+
+        # Fix contract gaps: the factory's ECS store doesn't have event_store
+        # set (the legacy code passed event_store=container.event_store).
+        # Fix it here so ECS transitions write events.
+        if container.definer_stores is not None and container.definer_stores.ecs_store is not None:
+            container.definer_stores.ecs_store._event_store = container.event_store
+
+        # Overwrite legacy attributes with the registry's stores.
+        # This makes all 264 call sites automatically use the registry.
+        if container.definer_stores is not None:
+            container.corpus_turn_store = container.definer_stores.turn_store
+            container.artifact_store = container.definer_stores.artifact_store
+            container.ecs_store = container.definer_stores.ecs_store
+
+        log.info(
+            "component_initialized",
+            component="corpus_registry",
+            definer_wired=container.definer_stores is not None,
+        )
+    except Exception as exc:
+        log.warning(
+            "component_failed",
+            component="corpus_registry",
+            degradation="legacy_singletons_only",
+            error=str(exc),
+        )
+
     # --- Wire orchestration components (lazy import to preserve layer discipline) ---
     # Beast actor — requires vector_store + embedding_provider at minimum
     if container.vector_store is not None and container.embedding_provider is not None:

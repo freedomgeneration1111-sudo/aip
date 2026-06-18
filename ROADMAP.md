@@ -105,7 +105,7 @@ the roadmap, update both documents.
   - ✅ Chunk 1: Foundation types + ECS ARCHIVED state (complete, 43 tests)
   - ✅ Chunk 2: CorpusRegistry + Factory (complete, 55 tests — includes 2a shared connection manager APPROVED, 2b migration runner, 2c 5-scheduler gate)
   - ✅ Chunk 8: ECS/ArtifactStore per corpus (complete, 29 tests — delete_turn, artifact_turn_links/M004, durable outbox, revision_parent_id, aip audit log)
-  - ⏳ Chunk 3: Call-site migration (partial — infrastructure complete, mechanical rewrite deferred)
+  - ✅ Chunk 3: Call-site migration (complete — registry wired into lifespan, legacy singletons are delegating properties, 302 tests pass)
   - ✅ Chunk 4: Retrieval scoping (complete, 21 tests — fusion-layer ECS filter §A2, hit ID namespacing, cache key, Branham graceful degrade §A12, assemble_augmented_context multi-corpus path)
   - ✅ Chunk 5: Session/project binding + custom-channel scoping (complete, 30 tests — session_corpus_binding §5 policy, custom_channel_scoping §A14 ScopedCorpusStores, GUI corpus_selector)
   - ✅ Chunk 6: Graph bridge edges + actor GraphStore refactor (complete, 17 tests — GraphEdge.target_corpus_id §A7, M002 migration, 4 new GraphStore methods, _reconcile_bridge_edges §A13, delete_corpus bridge cleanup)

@@ -27,7 +27,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from aip.orchestration.ingestion.parsers.python_ast_parser import (
+from aip.adapter.python_ast_parser import (
     make_code_corpus_turn,
     parse_python_file,
     should_skip_file,

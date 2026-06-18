@@ -20,7 +20,7 @@ from aip.adapter.code_ingest_pipeline import (
     ingest_python_file,
 )
 from aip.adapter.corpus_turn_store import CorpusTurnStore
-from aip.orchestration.ingestion.parsers.python_ast_parser import (
+from aip.adapter.python_ast_parser import (
     CodeTurnSpec,
     make_code_corpus_turn,
     parse_python_file,
