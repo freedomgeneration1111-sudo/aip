@@ -524,6 +524,7 @@ async def lifespan(app: FastAPI):
         from pathlib import Path as _Path
 
         from aip.adapter.extensions import ExtensionHost
+        from aip.orchestration.workflow.engine import WorkflowEngine
         from aip.orchestration.workflow_registry import WorkflowRegistry
 
         _extensions_dir = _Path(
@@ -540,6 +541,23 @@ async def lifespan(app: FastAPI):
         )
         container.workflow_registry = _workflow_registry
 
+        # ADR-014 §8 step 2: WorkflowEngine is host-owned. Construct it with
+        # the container's stores so workflows can retrieve/synthesize/review.
+        # The engine executes YAML workflows (including extension-contributed
+        # ones discovered via WorkflowRegistry.add_path). Extensions access it
+        # via ctx.container.workflow_engine.run_workflow(path, variables).
+        _workflow_engine = WorkflowEngine(
+            vector_store=container.vector_store,
+            trace_store=container.trace_store,
+            artifact_store=getattr(container, "artifact_store", None),
+            ecs_store=getattr(container, "ecs_store", None),
+            event_store=container.event_store,
+            config=config,
+            budget_store=container.budget_store,
+            autonomy_gate=container.autonomy_gate,
+        )
+        container.workflow_engine = _workflow_engine
+
         extensions_host = ExtensionHost(
             extensions_dir=_extensions_dir,
             container=container,
@@ -554,6 +572,7 @@ async def lifespan(app: FastAPI):
             extensions_dir=str(_extensions_dir),
             extension_count=len(extensions_host.health()),
             workflow_templates=len(_workflow_registry.list_templates()),
+            workflow_engine_wired=True,
         )
     except Exception as exc:
         log.warning(

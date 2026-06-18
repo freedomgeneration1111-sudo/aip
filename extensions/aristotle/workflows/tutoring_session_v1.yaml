@@ -19,12 +19,16 @@
 # Branching is invisible. The student never sees the mode names (ADR-ARISTOTLE §1:
 # single-voice principle — Aristotle is the only character the learner meets).
 #
-# This workflow is DECLARED but not yet EXECUTABLE — the workflow engine
-# (orchestration/workflow/engine.py) exists but is not wired into the container
-# (ADR-014 §8 step 2 deferred WorkflowEngine wiring). The host discovers this
-# file via WorkflowRegistry.add_path at stage 3; execution comes when the
-# engine is wired. The node structure below matches the existing workflow YAML
-# convention (workflows/synthesis_session_v1.yaml).
+# Node types use the L5 Workflow Engine's vocabulary (loader.py):
+#   - agent: calls a model slot (synthesis, evaluation, sexton, beast)
+#   - script: deterministic step (validation, commit, state update)
+#   - condition: branches on a variable
+#   - review: ECS review gate (automated + DEFINER)
+#
+# The engine (orchestration/workflow/engine.py) is wired into the container
+# via container.workflow_engine (ADR-014 §8 step 2). The host discovers this
+# file via WorkflowRegistry.add_path at stage 3; execution is via
+# container.workflow_engine.run_workflow(yaml_path, variables).
 template_id: tutoring_session_v1
 name: "Tutoring Session v1"
 description: >
@@ -38,69 +42,100 @@ model_gen_assumption: >
   EXAMINER uses the evaluation slot for question generation + scoring.
   MENTOR uses the sexton slot for struggle_pattern diagnostic sentence generation.
 
+inputs:
+  - concept_id: str           # the current concept from the prerequisite DAG
+  - student_id: str           # pre-alpha: 'definer'
+  - mastery_threshold: float  # default 0.7
+
 nodes:
   - id: teach
-    type: synthesize
+    type: agent
+    model_slot: beast
     description: >
       SOCRATES: explain the current concept. Pull the passage + alternate
       framings from the textbook corpus. If this is a retry (after REMEDIATE),
       use a different framing. Bilingual: content_primary + content_alt.
-    actor: socrates
-    next: probe
+    prompt: >
+      Explain concept {{ inputs.concept_id }} for student {{ inputs.student_id }}.
+      Pull the passage from the aristotle:textbook corpus. If this is a retry,
+      use an alternate framing informed by the struggle_pattern.
+    output: teach_result
 
   - id: probe
-    type: synthesize
+    type: agent
+    model_slot: evaluation
     description: >
       EXAMINER: low-stakes "tell me in your own words." Not graded — just
       checks the explanation landed. If the probe reveals confusion, branch
       to REMEDIATE early (skip QUIZ).
-    actor: examiner
-    next: quiz
+    prompt: >
+      Ask student {{ inputs.student_id }} to explain concept {{ inputs.concept_id }}
+      in their own words. This is a low-stakes probe, not a graded quiz.
+    output: probe_result
 
   - id: quiz
-    type: synthesize
+    type: agent
+    model_slot: evaluation
     description: >
       EXAMINER: a real question. Generated from the concept's bloom_target.
       The student's answer is recorded for EVALUATE.
-    actor: examiner
-    next: evaluate
+    prompt: >
+      Generate a quiz question for concept {{ inputs.concept_id }} at the
+      concept's bloom_target level. Record the student's answer for scoring.
+    output: quiz_result
 
   - id: evaluate
-    type: review
+    type: script
     description: >
       EXAMINER + MENTOR: score the quiz answer. Update mastery for the
       concept. MENTOR updates struggle_pattern (one persistent AI-written
-      diagnostic sentence per student). If mastery < threshold, branch to
-      REMEDIATE; else branch to next_concept.
-    actor: examiner
-    next: remediate_on_struggle
+      diagnostic sentence per student). Sets mastery_score variable for
+      the condition check.
+    run: aristotle_evaluate
+    context:
+      concept_id: "{{ inputs.concept_id }}"
+      student_id: "{{ inputs.student_id }}"
+      quiz_answer: "{{ quiz.quiz_result }}"
+    output: evaluate_result
 
-  - id: remediate_on_struggle
-    type: decision
+  - id: check_mastery
+    type: condition
     description: >
       Branch: if mastery >= threshold, go to next_concept. Else go to
       REMEDIATE. This node is invisible to the learner — it's internal
       orchestration (ADR-ARISTOTLE §1: single-voice principle).
-    branches:
-      - condition: "mastery >= threshold"
-        next: next_concept
-      - condition: "mastery < threshold"
-        next: remediate
+    condition: "evaluate.mastery_score >= inputs.mastery_threshold"
+    next_on_true: next_concept
+    next_on_false: remediate
 
   - id: remediate
-    type: synthesize
+    type: agent
+    model_slot: beast
     description: >
       SOCRATES: re-teach from a new angle, informed by struggle_pattern.
       Pull an alternate framing from the textbook corpus. The struggle_pattern
       sentence feeds the prompt so the re-teaching addresses the specific gap.
-    actor: socrates
-    next: probe  # re-probe after remediation
+    prompt: >
+      Re-teach concept {{ inputs.concept_id }} for student {{ inputs.student_id }}
+      using an alternate framing. The struggle_pattern is: {{ evaluate.struggle_pattern }}.
+      Address the specific gap the pattern describes.
+    output: remediate_result
 
   - id: next_concept
-    type: commit
+    type: script
     description: >
       Concept mastered. Consult the prerequisite DAG for the next concept
       whose foundations are now met. The session continues — the learner
       only feels rhythm (ADR-ARISTOTLE §3).
-    actor: socrates
-    next: teach
+    run: aristotle_next_concept
+    context:
+      student_id: "{{ inputs.student_id }}"
+      mastered_concept_id: "{{ inputs.concept_id }}"
+    output: next_concept_result
+
+metadata:
+  version: "0.1"
+  target: "Aristotle Phase A"
+  phase: "Phase A (tutoring loop)"
+  single_voice: true  # ADR-ARISTOTLE §1
+  bilingual: true     # ADR-ARISTOTLE §7

@@ -1207,3 +1207,52 @@ async def status_summary(container: AipContainer = Depends(get_container)):
         "warnings": warnings,
         "recent_activity": recent_activity,
     }
+
+
+# ---------------------------------------------------------------------------
+# ADR-014 §7 — Extension health surface
+# ---------------------------------------------------------------------------
+
+
+@router.get("/health/extensions")
+async def extensions_health(container: AipContainer = Depends(get_container)):
+    """Per-extension health snapshot (ADR-014 §7).
+
+    Returns the state of every discovered extension plus its failures.
+    Backs the operator/teacher "extension health" tab. ARISTOTLE's
+    "session opens itself" promise is gated on REGISTERED (backend live);
+    the GUI learning view is gated on MOUNTED (v1.1, stage 4).
+
+    Returns:
+        {
+            "host_running": bool,
+            "extensions": [
+                {
+                    "id": "aristotle",
+                    "version": "0.1.0",
+                    "state": "REGISTERED",
+                    "failures": [{"stage": "...", "contribution": "...", "reason": "..."}]
+                }
+            ]
+        }
+    """
+    host = getattr(container, "extensions", None)
+    if host is None:
+        return {
+            "host_running": False,
+            "extensions": [],
+            "error": "ExtensionHost not wired (container.extensions is None)",
+        }
+
+    try:
+        return {
+            "host_running": host.is_running(),
+            "extensions": host.health(),
+        }
+    except Exception as exc:
+        logger.warning("extensions_health_failed error=%s", exc, exc_info=True)
+        return {
+            "host_running": False,
+            "extensions": [],
+            "error": f"health() raised: {type(exc).__name__}: {exc}",
+        }

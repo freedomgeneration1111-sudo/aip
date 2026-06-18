@@ -139,6 +139,11 @@ class AipContainer:
         # add_path() for each extension's workflows_dir at stage 3. None until
         # lifespan constructs it (alongside the ExtensionHost).
         self.workflow_registry: Any = None
+        # ADR-014 §8 step 2: WorkflowEngine is host-owned. The engine executes
+        # YAML workflows (including extension-contributed ones discovered via
+        # WorkflowRegistry.add_path). None until lifespan constructs it.
+        # Extensions access it via ctx.container.workflow_engine.run_workflow(path, vars).
+        self.workflow_engine: Any = None
 
     # ADR-008 Chunk 3: per-corpus store properties that delegate to the
     # registry's definer_stores when wired, falling back to legacy
