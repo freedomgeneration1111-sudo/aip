@@ -62,6 +62,28 @@ without env-var dependencies. Defaults:
   call a model + persist the result — that's Phase A follow-up.
 - `health()`: returns `{"state": "active", "name": "socrates", ...}`
 
+### EXAMINER actor (actors/examiner.py)
+- `name = "examiner"`, `cadence = 0.0` (manual-only)
+- `run_cycle(ctx)`: verifies the corpus is reachable + checks whether
+  `container.model_provider` is configured. Returns `ok=True` in both cases
+  (the actor is healthy; it just can't generate questions without a model).
+  The tutoring loop checks model availability before attempting a quiz —
+  governance invariant: "No silent model calls" (AGENTS.md §1.7).
+- `health()`: returns `{"state": "active", "name": "examiner", ...}`
+- Role in state machine: PROBE → QUIZ → EVALUATE (ADR-ARISTOTLE §3)
+
+### MENTOR actor (actors/mentor.py)
+- `name = "mentor"`, `cadence = 0.0` (manual-only)
+- `run_cycle(ctx)`: reads `aristotle_struggle_pattern` for the default
+  student (`'definer'` — pre-alpha single-tenant). If absent, initializes
+  with a placeholder. If present, logs it. This proves the actor can
+  execute SQL against the extension's own corpus via
+  `stores.connection_manager.write_conn`.
+- `health()`: returns `{"state": "active", "name": "mentor", ...}`
+- Role in state machine: EVALUATE (updates struggle_pattern after scoring) +
+  feeds REMEDIATE (the struggle_pattern sentence is injected into the
+  re-teaching prompt, ADR-ARISTOTLE §2).
+
 ### Migration (M001_aristotle.sql)
 Creates two tables in the `aristotle:textbook` corpus:
 - `aristotle_concept`: concept-aware chunks (ADR-ARISTOTLE §4) with bilingual
@@ -113,22 +135,59 @@ per-corpus is simpler and matches the loader's behavior. Revisit at Phase B
   says progress tables go in the definer corpus, but the migration_loader
   applies to the extension's own corpus. Pre-alpha pragmatism; revisit at
   Phase B. The `aristotle_*` naming convention is preserved either way.
-- **SOCRATES is a placeholder.** The dogfood SOCRATES only verifies the
-  corpus is reachable. The full tutoring loop (query concept graph, call
-  model, persist result) is Phase A follow-up work.
-- **`cadence=0.0` means manual-only.** The host runs one cycle on start,
-  then waits forever for cancellation. The tutoring state machine is
+- **All three actors are placeholders.** The dogfood SOCRATES/EXAMINER/MENTOR
+  verify platform reachability (corpus, model provider, struggle_pattern
+  table) but don't do real teaching/probing/mentoring. The full tutoring
+  loop (concept graph query, model call, persistence, state machine
+  execution) is Phase A follow-up work.
+- **`cadence=0.0` means manual-only.** All three actors run one cycle on
+  start, then wait forever for cancellation. The tutoring state machine is
   driven by user turns, not by a timer (ADR-ARISTOTLE §3).
-- **The `tutoring_session_v1.yaml` workflow is a placeholder.** It declares
-  frontmatter only (no `nodes:`). The workflow engine will discover it via
-  `WorkflowRegistry.add_path` but it can't be executed yet. The full state
-  machine (TEACH→PROBE→QUIZ→EVALUATE→REMEDIATE) is Phase A follow-up.
-- **No EXAMINER/MENTOR actors yet.** Phase A ships SOCRATES only. EXAMINER
-  (probe/quiz/evaluate) + MENTOR (struggle_pattern tracking) are Phase A
-  follow-ups. HERALD (field awareness) is Phase C.
+- **The `tutoring_session_v1.yaml` workflow is declared but not executable.**
+  The workflow engine (`orchestration/workflow/engine.py`) exists but is
+  not wired into the container (ADR-014 §8 step 2 deferred WorkflowEngine
+  wiring). The host discovers the file via `WorkflowRegistry.add_path` at
+  stage 3; execution comes when the engine is wired. The node structure
+  (TEACH→PROBE→QUIZ→EVALUATE→REMEDIATE) matches the ADR-ARISTOTLE §3 state
+  machine and is ready for the engine.
+- **No HERALD actor yet.** HERALD (field awareness) is Phase C — depends on
+  the Phase 0 web/feed layer (ADR-014 §3.4), which is not yet built.
+- **EXAMINER returns `ok=True` even without a model.** This is intentional:
+  the actor is healthy, it just can't generate questions. The tutoring loop
+  checks model availability before attempting a quiz (governance: "No silent
+  model calls"). A future EXAMINER will return NEEDS_CONFIGURATION when
+  asked to generate a question without a model.
 
 ## Last Cycle
-- **Phase A dogfood drop** (this cycle):
+- **ARISTOTLE Phase A — multi-actor + state machine** (this cycle):
+  - Built EXAMINER actor (`actors/examiner.py`): probe/quiz/evaluate mode.
+    Conforms to Actor Protocol. Verifies corpus reachability + checks model
+    availability. Returns `ok=True` in both cases (healthy actor; the
+    tutoring loop checks model before quiz). Governance: no silent model calls.
+  - Built MENTOR actor (`actors/mentor.py`): long-arc tracking. Conforms to
+    Actor Protocol. Reads `aristotle_struggle_pattern` table via
+    `stores.connection_manager.write_conn`; initializes with a placeholder
+    if absent. Proves per-student state read/write against the extension's
+    own corpus.
+  - Updated `actors/__init__.py` to re-export all three actors.
+  - Updated `hooks.py` to register SOCRATES + EXAMINER + MENTOR (all
+    cadence=0.0, manual-only).
+  - Updated `extension.yaml` advisory actors list: `[socrates, examiner, mentor]`.
+  - Replaced the placeholder `tutoring_session_v1.yaml` with a real state
+    machine workflow: 7 nodes (teach → probe → quiz → evaluate →
+    remediate_on_struggle [decision] → remediate → next_concept). Declared
+    but not executable — the workflow engine isn't wired into the container
+    yet (ADR-014 §8 step 2 deferred).
+  - Added `tests/test_aristotle_actors.py` (10 tests): 5 conformance
+    (isinstance + distinct names + health for all three) + 5 behavior
+    (EXAMINER degrades gracefully without model; EXAMINER fails without
+    corpus_registry; MENTOR initializes struggle_pattern when absent;
+    MENTOR reads existing without INSERTing; MENTOR fails without
+    corpus_registry). All 10 pass locally (fakes, no aiosqlite needed).
+  - Verified: manifest validates with 3 actors; all three conform to Actor
+    Protocol; workflow YAML parses with 7 nodes; all 14 existing Actor
+    Protocol + WorkflowRegistry tests still pass (no regression).
+- **Phase A dogfood drop** (prior cycle):
   - Built `extensions/aristotle/` (7 files): `extension.yaml` manifest,
     `config.py` (AristotleSettings dataclass), `migrations/M001_aristotle.sql`
     (aristotle_concept + aristotle_struggle_pattern tables with bilingual
@@ -155,13 +214,15 @@ per-corpus is simpler and matches the loader's behavior. Revisit at Phase B
 ## Key Files
 | File | Role |
 |------|------|
-| `extension.yaml` | Manifest v1 — declares textbook corpus, socrates actor, migrations, config.schema |
+| `extension.yaml` | Manifest v1 — declares textbook corpus, 3 actors (socrates/examiner/mentor), migrations, config.schema |
 | `config.py` | AristotleSettings dataclass (bilingual defaults: en primary, ur alt) |
 | `migrations/M001_aristotle.sql` | Creates aristotle_concept (bilingual schema) + aristotle_struggle_pattern |
-| `actors/__init__.py` | Re-exports SocratesActor |
-| `actors/socrates.py` | Minimal SOCRATES actor — conforms to Actor Protocol, verifies corpus reachability |
-| `hooks.py` | on_load registers SOCRATES; on_unload is a no-op |
-| `workflows/tutoring_session_v1.yaml` | Placeholder workflow (frontmatter only; full state machine is Phase A follow-up) |
+| `actors/__init__.py` | Re-exports SocratesActor, ExaminerActor, MentorActor |
+| `actors/socrates.py` | SOCRATES — teach mode. Verifies corpus reachability. Conforms to Actor Protocol. |
+| `actors/examiner.py` | EXAMINER — probe/quiz/evaluate. Verifies corpus + checks model availability. Conforms to Actor Protocol. |
+| `actors/mentor.py` | MENTOR — long-arc tracking. Reads/writes aristotle_struggle_pattern. Conforms to Actor Protocol. |
+| `hooks.py` | on_load registers all 3 actors; on_unload is a no-op |
+| `workflows/tutoring_session_v1.yaml` | TEACH→PROBE→QUIZ→EVALUATE→REMEDIATE state machine (7 nodes; declared, not yet executable) |
 | `__init__.py` | Package marker + docstring |
 
 ## Work Guidance

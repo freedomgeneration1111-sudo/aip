@@ -1155,3 +1155,54 @@ Files changed:
 - PLANNED_FEATURES.md (Change Log)
 - worklog.md (this entry)
 
+
+---
+Task ID: 16
+Agent: Super Z (main)
+Task: ARISTOTLE Phase A — EXAMINER + MENTOR actors + tutoring state machine workflow
+
+Work Log:
+- Oriented per Coding Cycle Protocol: re-read ADR-ARISTOTLE §2 (five modes: SOCRATES/EXAMINER/VIGIL/MENTOR/HERALD), §3 (state machine: TEACH→PROBE→QUIZ→EVALUATE→REMEDIATE), existing SocratesActor pattern (cadence=0.0, verifies corpus reachability), aristotle_struggle_pattern schema (student_id + pattern_text + updated_at), host.register_actor contract (name + factory + cadence), hooks.py on_load pattern.
+- Contract check: verified EXAMINER can reach corpus_registry + model_provider via ctx.container (duck-typed). Verified MENTOR can reach aristotle_struggle_pattern via stores.connection_manager.write_conn (the same path the migration_loader uses). Verified hooks.py can register multiple actors (host.register_actor is called once per actor). Confirmed all three actors need distinct names (host registry enforces uniqueness).
+- Concern 1: Built extensions/aristotle/actors/examiner.py. EXAMINER = probe/quiz/evaluate. Conforms to foundation Actor Protocol (name=examiner, cadence=0.0, run_cycle, health). run_cycle verifies corpus reachability + checks container.model_provider. Returns ok=True in both cases (healthy actor; can't generate questions without model but that's not a failure — governance: no silent model calls). The tutoring loop checks model availability before attempting a quiz.
+- Concern 2: Built extensions/aristotle/actors/mentor.py. MENTOR = long-arc tracking. Conforms to Actor Protocol (name=mentor, cadence=0.0). run_cycle reads aristotle_struggle_pattern for student_id='definer' (pre-alpha single-tenant). If absent, INSERTs a placeholder. If present, logs it. Proves per-student state read/write via stores.connection_manager.write_conn.execute().
+- Concern 3: Updated actors/__init__.py to re-export all three actors (SocratesActor, ExaminerActor, MentorActor). Updated docstring to describe all three + note HERALD is Phase C.
+- Concern 4: Updated hooks.py to register all three actors: host.register_actor("socrates", SocratesActor, cadence=0.0), same for examiner + mentor. Updated on_load docstring to describe all three + the manual-only cadence rationale.
+- Concern 5: Updated extension.yaml advisory actors list from [socrates] to [socrates, examiner, mentor].
+- Concern 6: Replaced the placeholder tutoring_session_v1.yaml with a real state machine workflow. 7 nodes: teach (SOCRATES) → probe (EXAMINER) → quiz (EXAMINER) → evaluate (EXAMINER+MENTOR) → remediate_on_struggle (decision: mastery >= threshold → next_concept, else → remediate) → remediate (SOCRATES, informed by struggle_pattern) → next_concept (consult prerequisite DAG, loop back to teach). Each node has id/type/description/actor/next. The workflow is DECLARED but not EXECUTABLE — the workflow engine (orchestration/workflow/engine.py) exists but isn't wired into the container (ADR-014 §8 step 2 deferred WorkflowEngine wiring). The host discovers the file via WorkflowRegistry.add_path at stage 3.
+- Concern 7: Added tests/test_aristotle_actors.py (10 tests). 5 conformance (no aiosqlite needed): examiner conforms, mentor conforms, socrates still conforms, all three distinct names, all three have health(). 5 behavior (with fakes — no aiosqlite needed): examiner degrades gracefully without model (ok=True), examiner fails without corpus_registry (ok=False), mentor initializes struggle_pattern when absent (INSERT executed), mentor reads existing without INSERTing, mentor fails without corpus_registry. The fakes mock the container + corpus_registry + stores + connection_manager + write_conn, so the tests run without aiosqlite.
+- Verified:
+  - All new/changed files pass ast.parse (examiner.py, mentor.py, __init__.py, hooks.py, test_aristotle_actors.py; extension.yaml + workflow YAML verified via yaml.safe_load).
+  - Manifest validates with 3 actors (pydantic Manifest.model_validate).
+  - All three actors conform to foundation Actor Protocol (isinstance(actor, Actor) = True for all three).
+  - All three have distinct names ({socrates, examiner, mentor}).
+  - Workflow YAML parses with 7 nodes (teach, probe, quiz, evaluate, remediate_on_struggle, remediate, next_concept).
+  - All 10 new actor tests PASS locally (5 conformance + 5 behavior with fakes).
+  - All 14 existing Actor Protocol + WorkflowRegistry tests still PASS (no regression).
+- Updated docs per Coding Cycle Protocol §5:
+  - extensions/aristotle/AGENTS.md: added EXAMINER + MENTOR actor contracts; updated Known Gotchas (all three are placeholders; workflow declared not executable; EXAMINER returns ok=True without model); prepended multi-actor entry to Last Cycle; updated Key Files table.
+  - tests/AGENTS.md: added test_aristotle_actors.py to Test File Map.
+  - PLANNED_FEATURES.md: added Change Log entry.
+- Committed per concern + pushed to feat/multi-corpus.
+
+Stage Summary:
+- ARISTOTLE Phase A now has all three tutoring actors: SOCRATES (teach), EXAMINER (probe/quiz/evaluate), MENTOR (long-arc + struggle_pattern). All conform to the foundation Actor Protocol. All are manual-only (cadence=0.0 — the tutoring state machine is driven by user turns, not by a timer).
+- The tutoring state machine workflow is declared: TEACH→PROBE→QUIZ→EVALUATE→REMEDIATE with a decision node for mastery threshold. 7 nodes, each with actor assignment + next transition. Declared but not executable — the workflow engine isn't wired into the container yet (ADR-014 §8 step 2 deferred).
+- MENTOR proves per-student state: it reads/writes aristotle_struggle_pattern via the corpus's write connection. This is the first real SQL execution by an extension actor against its own contributed corpus.
+- EXAMINER proves graceful degradation: it returns ok=True even without a model configured, because the actor itself is healthy — it just can't generate questions. The tutoring loop checks model availability before attempting a quiz (governance: no silent model calls).
+- 10 new tests pass locally (5 conformance + 5 behavior with fakes). The fakes mock the container/registry/stores/connection chain, so the tests run without aiosqlite — a clean test design that proves the actors work correctly in isolation.
+- Next steps for ARISTOTLE Phase A: (1) ingestor — content ingestion into aristotle:textbook with concept-chunking; (2) wire the workflow engine into the container so tutoring_session_v1.yaml is executable; (3) SM-2 via core VIGIL; (4) real model calls in SOCRATES/EXAMINER/MENTOR (currently they verify reachability but don't generate/teach/score).
+
+Files changed:
+- extensions/aristotle/actors/examiner.py (NEW)
+- extensions/aristotle/actors/mentor.py (NEW)
+- extensions/aristotle/actors/__init__.py (MODIFIED — re-exports 3 actors)
+- extensions/aristotle/hooks.py (MODIFIED — registers 3 actors)
+- extensions/aristotle/extension.yaml (MODIFIED — advisory actors list)
+- extensions/aristotle/workflows/tutoring_session_v1.yaml (MODIFIED — real state machine)
+- tests/test_aristotle_actors.py (NEW — 10 tests)
+- extensions/aristotle/AGENTS.md (MODIFIED — contracts + gotchas + Last Cycle + Key Files)
+- tests/AGENTS.md (MODIFIED — Test File Map)
+- PLANNED_FEATURES.md (MODIFIED — Change Log)
+- worklog.md (this entry)
+
