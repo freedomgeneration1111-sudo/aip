@@ -241,7 +241,7 @@ async def gather_corpus_results(
             if audit_fn is not None:
                 try:
                     await audit_fn(
-                        action="BRANHAM_POLICY_TRIGGERED",
+                        action="RESTRICTED_CORPUS_ACCESS_DENIED",
                         corpus_id=cid,
                         outcome="DENIED",
                     )

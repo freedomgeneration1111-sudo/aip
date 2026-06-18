@@ -322,7 +322,7 @@ class CorpusStoreFactory:
 
         # corpus_audit_log: lifecycle events (§9.6)
         # id = uuid4().hex (§A16 C-3). Records CORPUS_REGISTERED, CORPUS_DELETED,
-        # BRIDGE_ORPHAN_CLEANED, BRANHAM_POLICY_TRIGGERED, MIGRATION_APPLIED,
+        # BRIDGE_ORPHAN_CLEANED, RESTRICTED_CORPUS_ACCESS_DENIED, MIGRATION_APPLIED,
         # ARTIFACT_ARCHIVED, ARTIFACT_SUPERSEDED.
         await conn.execute(
             """
