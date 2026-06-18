@@ -130,6 +130,15 @@ class AipContainer:
         # routes/actors access per-corpus stores via get_stores(corpus_id)
         # or the definer_stores convenience property.
         self.corpus_registry: Any = None
+        # ADR-014 Phase 0 Extension Platform: the ExtensionHost that drives
+        # discover → validate → migrate → register → ready for every installed
+        # extension. None until lifespan constructs it (after CorpusRegistry).
+        # Routes/health endpoints access extension state via container.extensions.
+        self.extensions: Any = None
+        # ADR-014 §5.4: WorkflowRegistry is host-owned. The host calls
+        # add_path() for each extension's workflows_dir at stage 3. None until
+        # lifespan constructs it (alongside the ExtensionHost).
+        self.workflow_registry: Any = None
 
     # ADR-008 Chunk 3: per-corpus store properties that delegate to the
     # registry's definer_stores when wired, falling back to legacy

@@ -214,10 +214,12 @@ class ExtensionHost:
         extensions_dir: Path,
         container: Any,
         manifest_version_range: tuple[int, int] = (1, 1),
+        workflow_registry: Any = None,
     ) -> None:
         self._extensions_dir = Path(extensions_dir)
         self._container = container
         self._manifest_version_range = manifest_version_range
+        self._workflow_registry = workflow_registry
         self._registry = ExtensionRegistry()
         # Per-actor cancel events (set by stop() to unblock scheduler loops).
         self._cancel_events: dict[str, asyncio.Event] = {}
@@ -588,6 +590,8 @@ class ExtensionHost:
         """Register contributed channels + workflows.
 
         Actors are registered from on_load (ADR-014 §5.3) — not here.
+        Workflows are re-globbed onto the WorkflowRegistry via add_path()
+        (ADR-014 §5.4) when the host was constructed with one.
         """
         # Channels: the manifest's `channels` list is advisory. Actual
         # registration happens from on_load via host.register_channel().
@@ -596,16 +600,37 @@ class ExtensionHost:
             self._registry.register_channel(ext_id=manifest.id, name=ch_name)
 
         # Workflows: re-glob the extension's workflows_dir onto the
-        # WorkflowRegistry. For v1.0, we DON'T have WorkflowRegistry.add_path
-        # yet (that's step 2 of the build order). We record the path on the
-        # extension record and log that workflows are deferred.
+        # WorkflowRegistry via add_path() (ADR-014 §5.4). Also record each
+        # workflow path on the extension record for the health surface.
         workflows_path = manifest.workflows_path(self._extensions_dir)
         if workflows_path.exists():
+            # Call add_path on the host-owned WorkflowRegistry (if wired).
+            if self._workflow_registry is not None:
+                try:
+                    self._workflow_registry.add_path(workflows_path)
+                except Exception as exc:
+                    # add_path is sandboxed internally (parse failures are
+                    # logged as warnings, not raised). If it raises anyway,
+                    # record a workflow-tagged failure but don't fail the
+                    # whole register stage — workflows are best-effort.
+                    rec.add_failure(
+                        stage="register", contribution="workflows_dir",
+                        reason=f"workflow_registry.add_path raised: {type(exc).__name__}: {exc}",
+                    )
+            # Record each workflow on the extension record (for health surface).
             for wf in sorted(workflows_path.glob("*.yaml")):
                 self._registry.register_workflow(ext_id=manifest.id, path=str(wf))
             logger.info(
-                "extension_workflows_recorded id=%s count=%d (mounting deferred to step 2)",
-                manifest.id, len(list(workflows_path.glob("*.yaml"))),
+                "extension_workflows_registered id=%s dir=%s count=%d",
+                manifest.id,
+                workflows_path,
+                len(list(workflows_path.glob("*.yaml"))),
+            )
+        else:
+            logger.debug(
+                "extension_no_workflows_dir id=%s path=%s (skipping)",
+                manifest.id,
+                workflows_path,
             )
 
     # ------------------------------------------------------------------

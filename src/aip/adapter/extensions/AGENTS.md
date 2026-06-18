@@ -181,14 +181,46 @@ otherwise see "unknown migrations applied" and raise
   `aristotle.config:AristotleSettings` imports the extension's config module.
   Only install extensions from trusted sources. The host validates the
   imported class is a dataclass/BaseModel/BaseSettings subclass.
-- **WorkflowRegistry.add_path is not yet wired.** The host records workflow
-  paths on the extension record but does NOT call
-  `WorkflowRegistry.add_path()` — that's ADR-014 §8 step 2. Extensions
-  declaring `workflows_dir` will see their workflows recorded but not
-  discoverable via `WorkflowRegistry.list_templates()` until step 2 lands.
+- **WorkflowRegistry is host-owned (ADR-014 §5.4).** The host is constructed
+  with a `workflow_registry` param (passed by lifespan). At stage 3 register,
+  `_register_one` calls `workflow_registry.add_path(workflows_path)` for each
+  extension's `workflows_dir`. If the param is None (tests, or pre-wiring),
+  workflows are recorded on the extension record but not discoverable via
+  `WorkflowRegistry.list_templates()`.
+- **WorkflowRegistry no longer silently swallows parse failures.** ADR-014
+  replaced `except Exception: continue` with a logged WARNING that includes
+  the file path and exception. A malformed contributed workflow is now
+  debuggable instead of invisible.
 
 ## Last Cycle
-- **ADR-014 step 1 — ExtensionHost skeleton + TDD contract GREEN** (this cycle):
+- **ADR-014 step 2 — Lifespan wiring + WorkflowRegistry.add_path** (this cycle):
+  - Wired `ExtensionHost` into `app.py::lifespan`: `container.extensions =
+    host` + `await host.start()` after CorpusRegistry (before actor
+    schedulers), `await host.stop()` in shutdown. The host block is
+    sandboxed — a failure logs a warning and continues (host stays None,
+    degraded mode).
+  - Added `extensions` and `workflow_registry` fields to `AipContainer`.
+  - Constructed `WorkflowRegistry` in lifespan with the default `workflows/`
+    dir (backward compat), stored on `container.workflow_registry`, passed
+    to `ExtensionHost(workflow_registry=...)`.
+  - Added `WorkflowRegistry.add_path(dir)` (ADR-014 §5.4): re-globs a
+    per-extension workflows dir and merges templates into the registry.
+    Tracks per-template source dirs so `load_workflow()` resolves paths
+    correctly (absolute for extension templates, relative for default).
+  - Replaced `except Exception: continue` in `_load_templates` with a
+    logged WARNING — malformed YAMLs are now debuggable, not silent.
+  - Wired `host._register_one` to call `workflow_registry.add_path()` for
+    each extension's `workflows_dir`. If add_path raises (it shouldn't —
+    it's sandboxed internally), records a workflow-tagged failure without
+    failing the whole register stage.
+  - Verified: all 3 existing `test_extended_workflows.py` tests pass
+    (backward compat preserved); 6 new WorkflowRegistry behavior tests
+    pass (default discovery, add_path, load_workflow for extension
+    templates, malformed YAML logged + skipped, missing dir no-op,
+    absolute path resolution); `ExtensionHost` accepts `workflow_registry`
+    param (defaults None for backward compat with tests); app.py imports
+    well-formed (no circular imports).
+- **ADR-014 step 1 — ExtensionHost skeleton + TDD contract GREEN** (prior cycle):
   - Built `src/aip/adapter/extensions/` package: `state.py` (ExtensionState
     enum + Failure dataclass), `supervision.py` (supervised_task helper),
     `manifest.py` (pydantic v2 Manifest model with v1 schema),
