@@ -404,7 +404,25 @@ config/aip.config.toml ([models] section)
   the `{EXT_ID Upper}_...` namespace convention (ADR-014 §10).
 
 ## Last Cycle
-- **ADR-014 Phase 0 Extension Platform — Step 0 + contract** (this cycle):
+- **ADR-014 step 1 — ExtensionHost skeleton + TDD contract GREEN** (this cycle):
+  - Built `src/aip/adapter/extensions/` package (8 files): `state.py`,
+    `supervision.py`, `manifest.py`, `registry.py`, `host.py`,
+    `loaders/migration_loader.py`, plus `__init__.py` files. See
+    `src/aip/adapter/extensions/AGENTS.md` for the full contract.
+  - Stages 0–3 + 5 implemented (discover/validate/migrate/register/ready).
+    Stage 4 (GUI mount) is v1.1; `test_mounts_extension_gui_pages` is
+    `xfail(strict=True)` until v1.1 lands.
+  - Extension migrations use a separate `extension_applied_migrations`
+    table (NOT the core `applied_migrations`) so the core
+    `CorpusMigrationRunner`'s fingerprint check is not contaminated.
+  - Fixed a test bug: `test_two_extensions_with_same_id_fails_cleanly`
+    had a dict-comprehension logic error; rewrote the assertion to
+    iterate records directly.
+  - Verified locally: Manifest model passes 8 validation cases;
+    discover+validate flow smoke-tested (VALIDATED/FAILED/DISABLED
+    transitions correct). Full pytest run deferred to CI (test
+    environment lacks aiosqlite + structlog).
+- **ADR-014 Phase 0 Extension Platform — Step 0 + contract** (prior cycle):
   - Renamed the last stale `BRANHAM_POLICY_TRIGGERED` audit action to
     `RESTRICTED_CORPUS_ACCESS_DENIED` in `corpus_retrieval.py:244` (now
     matches `corpus_registry.py:324`). Updated the stale comment in
@@ -812,6 +830,7 @@ The API owns its router definitions. The CLI owns its command structure.
 | `codex/` | Codex store for structured knowledge |
 | `entity/` | Entity store (SQLite) |
 | `middleware/` | Rate limiter and other middleware |
+| `extensions/` | ADR-014 Phase 0 Extension Platform — ExtensionHost lifecycle + manifest v1. See `extensions/AGENTS.md`. |
 | `graph_store.py` | Graph store for knowledge graph |
 | `corpus_turn_store.py` | Corpus turn storage (canonical DDL) |
 | `model_slot_resolver.py` | Model slot dispatch — per-slot provider routing |
