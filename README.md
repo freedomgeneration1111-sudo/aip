@@ -56,6 +56,34 @@ The bootstrap seeds AIP with its own self-knowledge (51 entities, 23 Q&A turns a
 
 **Full first-run guide:** [`DOGFOOD_READY.md`](DOGFOOD_READY.md)
 
+### Installing Extensions
+
+AIP Brain is a platform; extensions (like ARISTOTLE, the adaptive tutor) are
+separate packages. The platform is pip-installable:
+
+```bash
+pip install git+https://github.com/freedomgeneration1111-sudo/AIP_Brain.git
+```
+
+Each extension is installed the same way. For ARISTOTLE:
+
+```bash
+pip install git+https://github.com/freedomgeneration1111-sudo/AIP_Aristotle.git
+```
+
+The platform discovers installed extensions automatically at startup via the
+`aip.extensions` entry-point group (ADR-014). Extensions can also be dropped
+into an `extensions/` directory for development (clone + `pip install -e`).
+
+For development, install both in editable mode from local clones:
+
+```bash
+git clone https://github.com/freedomgeneration1111-sudo/AIP_Brain.git
+git clone https://github.com/freedomgeneration1111-sudo/AIP_Aristotle.git
+cd AIP_Brain && pip install -e .
+cd ../AIP_Aristotle && pip install -e .
+```
+
 ## CLI Usage
 
 ```bash

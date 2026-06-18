@@ -301,35 +301,131 @@ class ExtensionHost:
     # ------------------------------------------------------------------
 
     async def discover(self) -> list[ExtensionRecord]:
-        """Stage 0: find extension.yaml files under the operator-owned dir.
+        """Stage 0: discover extensions via two paths (ADR-014 §6.4).
 
-        Records are keyed by **directory name** (the unique physical key). The
-        manifest's `id` field is checked for collisions at stage 1 validate.
+        Path 1 — filesystem: find `extension.yaml` files under the operator-
+        owned `extensions/` dir. This is the dev-clone / drop-in-folder path.
+        Records are keyed by directory name.
 
-        Returns the list of discovered records (state=DISCOVERED). Idempotent —
-        re-running after start() returns the same records without re-parsing.
+        Path 2 — entry points: scan `importlib.metadata.entry_points(group=
+        "aip.extensions")` for pip-installed extensions. Each entry point
+        is a callable `get_manifest()` that returns a `Manifest` instance.
+        The extension's files (migrations, workflows, hooks) are resolved
+        via `importlib.resources.files(package)`. This is the production /
+        downloadability path — replaces the sys.path hack.
+
+        Both paths populate the same registry. The manifest's `id` field is
+        checked for collisions at stage 1 validate.
+
+        Returns the list of discovered records (state=DISCOVERED). Idempotent.
         """
-        if not self._extensions_dir.exists():
+        out: list[ExtensionRecord] = []
+
+        # --- Path 1: filesystem discovery ---
+        if self._extensions_dir.exists():
+            # Sort subdirs by name for stable discovery order.
+            subdirs = sorted(
+                p for p in self._extensions_dir.iterdir()
+                if p.is_dir() and (p / "extension.yaml").exists()
+            )
+            for d in subdirs:
+                # Key by directory name — the directory is the unique physical key.
+                # The manifest's `id` is checked for collisions at validate().
+                rec = self._registry.upsert_record(d.name)
+                rec.ext_dir = d
+                rec.state = ExtensionState.DISCOVERED
+                out.append(rec)
+                logger.debug("extension_discovered_filesystem dir=%s", d.name)
+        else:
             logger.info(
-                "extension_discover_dir_missing path=%s — no extensions will load",
+                "extension_discover_dir_missing path=%s — filesystem discovery skipped",
                 self._extensions_dir,
             )
-            return []
 
-        # Sort subdirs by name for stable discovery order.
-        subdirs = sorted(
-            p for p in self._extensions_dir.iterdir()
-            if p.is_dir() and (p / "extension.yaml").exists()
-        )
+        # --- Path 2: entry-point discovery (pip-installed extensions) ---
+        out.extend(self._discover_entry_points())
+
+        return out
+
+    def _discover_entry_points(self) -> list[ExtensionRecord]:
+        """Discover pip-installed extensions via importlib.metadata entry points.
+
+        Each entry point in the `aip.extensions` group is a callable
+        `get_manifest()` that returns a `Manifest` instance. The extension's
+        on-disk files (migrations, workflows, hooks) are resolved via
+        `importlib.resources.files(package)`.
+
+        This path replaces the sys.path hack: pip-installed packages are
+        already on sys.path via the install, so `importlib.import_module`
+        works without host-side sys.path manipulation.
+
+        Returns discovered records (state=DISCOVERED). Failures are logged
+        and skipped — a broken entry point never blocks other extensions.
+        """
         out: list[ExtensionRecord] = []
-        for d in subdirs:
-            # Key by directory name — the directory is the unique physical key.
-            # The manifest's `id` is checked for collisions at validate().
-            rec = self._registry.upsert_record(d.name)
-            rec.ext_dir = d
-            rec.state = ExtensionState.DISCOVERED
-            out.append(rec)
-            logger.debug("extension_discovered dir=%s", d.name)
+        try:
+            from importlib.metadata import entry_points
+            # Python 3.12+ returns a SelectableGroups; .select(group=...) works
+            # on all versions 3.9+.
+            try:
+                eps = entry_points(group="aip.extensions")
+            except TypeError:
+                # Python 3.9-3.11 fallback (older API)
+                eps = entry_points().get("aip.extensions", [])
+        except Exception as exc:
+            logger.warning(
+                "extension_entry_points_scan_failed error=%s:%s",
+                type(exc).__name__, exc,
+            )
+            return out
+
+        for ep in eps:
+            try:
+                get_manifest = ep.load()
+                manifest = get_manifest()  # returns a Manifest instance
+                if not isinstance(manifest, Manifest):
+                    logger.warning(
+                        "extension_entry_point_not_manifest name=%s got=%s",
+                        ep.name, type(manifest).__name__,
+                    )
+                    continue
+
+                # Resolve the extension's on-disk root via importlib.resources.
+                # ep.value is the package name (e.g. "aristotle" or "aristotle.entrypoint").
+                # We resolve the top-level package.
+                import importlib.resources
+                pkg_name = ep.value.split(".")[0]
+                try:
+                    pkg_files = importlib.resources.files(pkg_name)
+                    ext_dir = Path(str(pkg_files))
+                except Exception as exc:
+                    logger.warning(
+                        "extension_entry_point_resolve_failed name=%s pkg=%s error=%s:%s",
+                        ep.name, pkg_name, type(exc).__name__, exc,
+                    )
+                    continue
+
+                # Key by manifest id (entry-point extensions don't have a
+                # directory name — the manifest id IS the key). Mark the
+                # record as entry-point-sourced so validate() knows to skip
+                # YAML parsing and use the already-constructed Manifest.
+                rec = self._registry.upsert_record(manifest.id)
+                rec.ext_dir = ext_dir
+                rec.manifest = manifest  # already constructed — skip YAML parse
+                rec.state = ExtensionState.DISCOVERED
+                # Mark as entry-point-sourced so validate() knows the manifest
+                # is already loaded + sys.path doesn't need manipulation.
+                rec._entry_point_sourced = True  # type: ignore[attr-defined]
+                out.append(rec)
+                logger.info(
+                    "extension_discovered_entry_point name=%s id=%s pkg=%s",
+                    ep.name, manifest.id, pkg_name,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "extension_entry_point_load_failed name=%s error=%s:%s",
+                    ep.name, type(exc).__name__, exc,
+                )
         return out
 
     async def validate(self) -> None:
@@ -351,10 +447,27 @@ class ExtensionHost:
     async def _validate_one(self, rec: ExtensionRecord, seen_manifest_ids: set[str]) -> None:
         """Validate a single extension's manifest + config. Transitions state.
 
-        The record stays keyed by its directory name (rec.id is the dir name).
-        The manifest's `id` is stored on rec.manifest and checked for collisions.
+        For filesystem-sourced extensions: parses extension.yaml, adds
+        extensions/ to sys.path (ADR-014 §6.4), loads config.schema.
+
+        For entry-point-sourced extensions: skips YAML parse (manifest is
+        already constructed by get_manifest()), skips sys.path (package is
+        already installed via pip), loads config.schema from the installed
+        package.
         """
         assert rec.ext_dir is not None
+
+        # Entry-point-sourced extensions arrive with rec.manifest already set
+        # by _discover_entry_points(). Skip the YAML parse + sys.path hack.
+        if getattr(rec, "_entry_point_sourced", False):
+            manifest = rec.manifest
+            assert manifest is not None, "entry-point record missing manifest"
+            # Jump to the post-parse checks (manifest_version range + collision
+            # + config.schema). The sys.path manipulation is NOT needed — the
+            # package is pip-installed and already importable.
+            return await self._validate_post_parse(rec, manifest, seen_manifest_ids)
+
+        # --- Filesystem path: parse extension.yaml ---
         manifest_path = rec.ext_dir / "extension.yaml"
 
         # Parse the manifest.
@@ -395,6 +508,20 @@ class ExtensionHost:
             )
             rec.state = ExtensionState.FAILED
             return
+
+        return await self._validate_post_parse(rec, manifest, seen_manifest_ids)
+
+    async def _validate_post_parse(
+        self,
+        rec: ExtensionRecord,
+        manifest: Manifest,
+        seen_manifest_ids: set[str],
+    ) -> None:
+        """Post-parse validation shared by filesystem + entry-point paths.
+
+        Runs: manifest_version range check, id collision check, sys.path
+        addition (filesystem only), config.schema load, state transition.
+        """
 
         # Manifest_version range check (catches out-of-range even if pydantic
         # accepted it as an int).
@@ -441,23 +568,29 @@ class ExtensionHost:
         # gui.pages entry-points) are importable. Without this, `importlib.
         # import_module("aristotle.config")` fails with ModuleNotFoundError.
         #
+        # FILESYSTEM PATH ONLY: entry-point-sourced (pip-installed) extensions
+        # skip this — the package is already on sys.path via the install.
+        # This is the legacy dev-clone path; the entry-point path is the
+        # production replacement (Claude's Option B).
+        #
         # The extensions/ dir (the PARENT of the extension dir) is added, so
         # the extension's package name (e.g. `aristotle`) becomes a top-level
         # import. This is the operator-owned dir — the operator chooses
         # extension names and is responsible for avoiding collisions with
         # installed packages. Documented risk; pip-installed extensions
-        # (importlib.resources) are a v2 concern.
+        # (importlib.resources) are the production path.
         #
         # Idempotent: only adds if not already present. Uses str comparison
         # because sys.path entries are strings.
-        assert rec.ext_dir is not None
-        extensions_root = str(rec.ext_dir.parent)
-        if extensions_root not in sys.path:
-            sys.path.insert(0, extensions_root)
-            logger.debug(
-                "extension_syspath_added root=%s (for extension %s)",
-                extensions_root, manifest.id,
-            )
+        if not getattr(rec, "_entry_point_sourced", False):
+            assert rec.ext_dir is not None
+            extensions_root = str(rec.ext_dir.parent)
+            if extensions_root not in sys.path:
+                sys.path.insert(0, extensions_root)
+                logger.debug(
+                    "extension_syspath_added root=%s (for extension %s)",
+                    extensions_root, manifest.id,
+                )
 
         # Load + validate config.schema if declared.
         if manifest.config.schema_ is not None:
