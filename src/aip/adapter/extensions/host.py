@@ -436,6 +436,29 @@ class ExtensionHost:
                         manifest.id, rec.id)
             return
 
+        # ADR-014 §6.4: add the extensions/ dir to sys.path so the extension's
+        # Python modules (config.schema, hooks.py sibling imports, future
+        # gui.pages entry-points) are importable. Without this, `importlib.
+        # import_module("aristotle.config")` fails with ModuleNotFoundError.
+        #
+        # The extensions/ dir (the PARENT of the extension dir) is added, so
+        # the extension's package name (e.g. `aristotle`) becomes a top-level
+        # import. This is the operator-owned dir — the operator chooses
+        # extension names and is responsible for avoiding collisions with
+        # installed packages. Documented risk; pip-installed extensions
+        # (importlib.resources) are a v2 concern.
+        #
+        # Idempotent: only adds if not already present. Uses str comparison
+        # because sys.path entries are strings.
+        assert rec.ext_dir is not None
+        extensions_root = str(rec.ext_dir.parent)
+        if extensions_root not in sys.path:
+            sys.path.insert(0, extensions_root)
+            logger.debug(
+                "extension_syspath_added root=%s (for extension %s)",
+                extensions_root, manifest.id,
+            )
+
         # Load + validate config.schema if declared.
         if manifest.config.schema_ is not None:
             try:
