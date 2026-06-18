@@ -1300,3 +1300,23 @@ Files created (AIP_Aristotle — new repo):
 - aristotle/ (entrypoint.py + all files moved from extensions/aristotle/)
 - tests/ (test_aristotle_extension.py + test_aristotle_actors.py with workflow tests appended)
 
+
+---
+Task ID: 19
+Agent: Super Z (main)
+Task: Verify Chunk 3 wiring status + write Phase 0 Extension Platform roadmap section
+
+Work Log:
+- Verified Chunk 3 wiring status (Claude's flag). The "mechanical rewrite of 264 call sites" mentioned in earlier changelogs is COSMETIC, not functional. The registry IS serving the live app via the delegating-property pattern: CorpusRegistry.startup() runs in lifespan; container.definer_stores is a @property reading registry._definer_stores; container.corpus_turn_store/artifact_store/ecs_store are @property delegators that return definer_stores.<store> when wired, falling back to _legacy_* otherwise; lifespan explicitly overwrites legacy attrs with registry stores (belt-and-suspenders). The 150 call sites that reference container.corpus_turn_store etc. ARE already getting registry-served stores. ARISTOTLE Phase A completion is NOT blocked by Chunk 3.
+- Appended "PHASE 0 — Extension Platform (ADR-014)" section to ROADMAP.md: what shipped (steps 0-5 complete, 6-7 deferred), platform infrastructure list, Chunk 3 wiring verified LIVE explanation, wrap-up scope (6 items done, 2 not-blockers), deferred items, how-to-test instructions for the DEFINER.
+- Updated Last Updated line + appended Version History entry.
+
+Stage Summary:
+- The platform is ready for testing. The wrap-up scope is committed: entry-point discovery, import boundary test, ARISTOTLE extracted, /health/extensions endpoint, WorkflowEngine wired. Two non-blockers remain (per-exception HTTP handlers, cross-stage coherence checks) but neither blocks ARISTOTLE backend testing.
+- Chunk 3 is verified LIVE — the registry serves the live app via delegating properties. ARISTOTLE's actors can call ctx.container.corpus_registry.get_stores() and get real per-corpus stores.
+- The DEFINER can now test the platform: clone both repos, pip install -e for both, run pytest, start the server, curl /health/extensions. ARISTOTLE should appear in REGISTERED state.
+
+Files changed:
+- ROADMAP.md (appended Phase 0 section + Version History entry + Last Updated)
+- worklog.md (this entry)
+

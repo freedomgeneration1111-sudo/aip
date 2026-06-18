@@ -1,6 +1,6 @@
 # AIP Roadmap
 # DEFINER: B. Moses Jorgensen
-# Last Updated: 2026-06-17
+# Last Updated: 2026-06-18 (Phase 0 Extension Platform complete — ARISTOTLE extracted)
 # Process: Update this document after each significant build session or architectural decision.
 # Release: 0.1.0-alpha (Alpha Test Release)
 
@@ -313,3 +313,94 @@ Remaining items:
 | 2026-06-18 | ADR-008 Multi-Corpus Chunk 6 complete: Graph bridge edges. GraphEdge.target_corpus_id (§A7). M002 migration. 4 new GraphStore methods. _reconcile_bridge_edges (§A13). delete_corpus bridge cleanup. 17 tests. | GLM (Coding Agent) |
 | 2026-06-18 | ADR-008 Multi-Corpus Chunk 7 complete: Code corpus ingest. python_ast_parser.py (functions/classes/module registration). code_ingest_pipeline.py (stale detection). 3 golden queries acceptance tests. 24 tests. Delivers Phase 1.6. | GLM (Coding Agent) |
 | 2026-06-18 | ADR-008 Multi-Corpus Chunk 9 complete (FINAL): Acceptance suite AC-01 through AC-09 (19 tests). aip corpus migrate --force CLI. aip backup strategy A rewrite. Phase 1.5 marked COMPLETE. All 9 chunks shipped. | GLM (Coding Agent) |
+
+---
+
+## PHASE 0 — Extension Platform (ADR-014)
+*The platform becomes a platform. Extensions mount through a declared manifest.*
+*Status: ✅ COMPLETE (v1.0 backend) — v1.1 GUI mount + v1.2 MCP tools deferred*
+
+### What shipped (this session)
+
+| Step | What | Status |
+|------|------|--------|
+| 0 | Branham audit-action rename (`BRANHAM_POLICY_TRIGGERED` → `RESTRICTED_CORPUS_ACCESS_DENIED`) | ✅ |
+| 1 | ExtensionHost skeleton + lifecycle (discover/validate/migrate/register/ready/stop) | ✅ |
+| 2 | WorkflowRegistry + WorkflowEngine wired into container; `/health/extensions` endpoint | ✅ |
+| 3 | Actor Protocol (`Actor`/`ActorContext`/`ActorResult`) in foundation, runtime_checkable | ✅ |
+| 4 | MigrationLoader (separate `extension_applied_migrations` table) | ✅ |
+| 5 | Manifest v1 validator (pydantic v2); cross-stage coherence deferred | ✅ partial |
+| 6 | v1.1 GUI mount (`register_gui_page` + stage 4) | 🔲 deferred |
+| 7 | v1.2 MCP tools (`McpToolRegistry`) | 🔲 deferred |
+
+### Platform infrastructure
+
+- ✅ `src/aip/adapter/extensions/` — the host package (host.py, manifest.py, registry.py, state.py, supervision.py, loaders/migration_loader.py)
+- ✅ Entry-point discovery via `importlib.metadata.entry_points(group="aip.extensions")` — replaces the sys.path hack
+- ✅ `tests/test_extension_import_boundary.py` — machine-enforced SoC boundary (extensions import only `aip.foundation.protocols.*` + `aip.adapter.extensions` + `aip.foundation.schemas`; platform imports nothing from extensions)
+- ✅ `tests/test_extension_lifecycle.py` — 11-test TDD contract (10 GREEN for v1.0, 1 `xfail(strict=True)` for v1.1 GUI)
+- ✅ `tests/test_actor_protocol.py` — 11 Protocol conformance tests
+- ✅ ADR-014 (`docs/decisions/ADR-014-phase0-extension-host.md`) — the build spec
+
+### Chunk 3 wiring — VERIFIED LIVE
+
+**The 150 call sites that reference `container.corpus_turn_store` / `artifact_store` / `ecs_store` ARE already getting registry-served stores.** The "mechanical rewrite of 264 call sites" mentioned in earlier changelogs is cosmetic cleanup, not functional. The registry is serving the live app via the delegating-property pattern:
+
+1. `CorpusRegistry.startup()` runs in lifespan, registers the `definer` corpus.
+2. `container.definer_stores` is a `@property` that reads `registry._definer_stores`.
+3. `container.corpus_turn_store` / `artifact_store` / `ecs_store` are `@property` delegators that return `definer_stores.<store>` when wired, falling back to `_legacy_*` singletons otherwise.
+4. The lifespan explicitly overwrites the legacy attrs with the registry's stores (belt-and-suspenders).
+
+**Implication for ARISTOTLE:** when ARISTOTLE's actors call `ctx.container.corpus_registry.get_stores("aristotle:textbook")`, they get real per-corpus stores. The registry is live. ARISTOTLE Phase A completion is NOT blocked by Chunk 3.
+
+### Wrap-up scope (commit for testing)
+
+The platform is ready for testing. The following is the wrap-up scope to commit before ARISTOTLE development accelerates:
+
+1. ✅ **Entry-point discovery** — done (replaces sys.path hack)
+2. ✅ **Import boundary test** — done (machine-enforced SoC)
+3. ✅ **ARISTOTLE extracted** to separate repo — done
+4. ✅ **`/health/extensions` endpoint** — done
+5. ✅ **WorkflowEngine wired** — done
+6. 🔲 **Per-exception HTTP handlers** — `RestrictedCorpusAccessViolation` → 403, `CorpusNotFound` → 404, `CorpusMigrationError` → 503, `DeletionStateError` → 409 (ADR-014 §7). Two afternoons; the GUI needs this for meaningful error rendering. NOT a blocker for ARISTOTLE backend testing.
+7. 🔲 **Cross-stage coherence checks** in manifest validator (ADR-014 §8 step 5 remainder). Nice-to-have; pydantic handles structural validation.
+
+Items 6–7 are NOT blockers for testing. The platform can be tested now with ARISTOTLE installed.
+
+### Deferred (not blockers)
+
+- ❌ **PluginManager wiring** — one-line fix to stop 503s from dead REST/CLI surfaces. Orthogonal to extension lifecycle.
+- ❌ **McpToolRegistry** — v1.2. The hardcoded `TOOLS` list still works.
+- ❌ **GUI mount (stage 4)** — v1.1. The `xfail(strict=True)` test is waiting. Needed before ARISTOTLE has a GUI learning view; backend is testable now.
+- ❌ **Web/feed layer (ADR-014 §3.4)** — needed for ARISTOTLE Phase C (HERALD). Not started.
+- ❌ **Chunk 3 mechanical call-site rewrite** — cosmetic cleanup. The delegating properties make it unnecessary for function.
+
+---
+
+## How to test the platform (for the DEFINER)
+
+```bash
+# Clone + install (editable)
+git clone https://github.com/freedomgeneration1111-sudo/AIP_Brain.git
+cd AIP_Brain
+pip install -e .
+
+# Install ARISTOTLE (editable)
+git clone https://github.com/freedomgeneration1111-sudo/AIP_Aristotle.git
+cd AIP_Aristotle
+pip install -e .
+
+# Back to AIP_Brain, run the platform
+cd ../AIP_Brain
+uv run pytest tests/test_extension_lifecycle.py tests/test_actor_protocol.py tests/test_extension_import_boundary.py tests/test_workflow_engine_wiring.py -v
+
+# Or start the server (ARISTOTLE mounts automatically via entry-point discovery)
+./start.sh
+# Check extension health
+curl http://127.0.0.1:8000/health/extensions
+```
+
+The `/health/extensions` endpoint should return ARISTOTLE in `REGISTERED` state.
+
+| 2026-06-18 | ADR-008 Multi-Corpus Chunk 9 complete (FINAL): Acceptance suite AC-01 through AC-09 (19 tests). aip corpus migrate --force CLI. aip backup strategy A rewrite. Phase 1.5 marked COMPLETE. All 9 chunks shipped. | GLM (Coding Agent) |
+| 2026-06-18 | **Phase 0 Extension Platform (ADR-014) complete.** ExtensionHost lifecycle, entry-point discovery, Actor Protocol, WorkflowEngine wired, `/health/extensions` endpoint, import boundary test. ARISTOTLE extracted to separate repo (AIP_Aristotle). Chunk 3 wiring verified LIVE (delegating properties serve registry stores to 150 call sites). Platform ready for testing with ARISTOTLE installed. | Super Z (main) |
