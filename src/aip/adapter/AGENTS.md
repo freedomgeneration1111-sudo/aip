@@ -394,7 +394,20 @@ config/aip.config.toml ([models] section)
   message without `turn_id`.
 
 ## Last Cycle
-- **ADR-008 Multi-Corpus Chunk 8** (this cycle): ECS/ArtifactStore per corpus +
+- **ADR-008 Multi-Corpus Chunk 3** (this cycle): Call-site migration infrastructure.
+  Added `corpus_registry` field + `definer_stores` sync property to AipContainer
+  (§3a). Added `AskStores.from_corpus_stores()` classmethod (§A1) — event_store
+  + project_store are required keyword-only args (global/definer-scoped). Rewrote
+  `set_embedding_provider()` (§A6) — when `corpus_registry` is wired, iterates
+  all registered corpora and updates each corpus's `vector_store._embedding_provider`
+  + `turn_store.mark_all_for_reembed()`; falls back to legacy singleton poking
+  when registry is None (pre-wiring backward compat). 12 new tests in
+  `tests/test_corpus_call_site_migration.py`. NOTE: the mechanical rewrite of
+  264 call sites across 21 files (replacing `container.corpus_turn_store` →
+  `container.definer_stores.turn_store` etc.) and legacy singleton removal are
+  deferred to a follow-up pass — this chunk ships the infrastructure that makes
+  the rewrite possible without breaking existing code.
+- **ADR-008 Multi-Corpus Chunk 8**: ECS/ArtifactStore per corpus +
   durable fan-in outbox + audit log CLI. Key additions: CorpusTurnStore gained
   `delete_turn()` (§A4), `states_for()` (§A2 batch lookup), `search(include_archived=)`
   (§6 ECS filter), `revision_parent_id` field round-trip (§A12). CorpusStoreFactory

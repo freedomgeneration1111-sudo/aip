@@ -343,6 +343,38 @@ class AskStores:
                 except Exception as close_exc:
                     logger.debug("Failed to close store: %s", close_exc)
 
+    @classmethod
+    def from_corpus_stores(
+        cls,
+        cs: Any,
+        *,
+        event_store: Any,
+        project_store: Any,
+        model_provider: Any = None,
+        embedding_provider: Any = None,
+    ) -> "AskStores":
+        """Build AskStores from a CorpusStores bundle (ADR-008 Rev 3.1 §A1).
+
+        event_store and project_store are REQUIRED keyword args — they're
+        global/definer-scoped, not per-corpus, so the caller must pass them
+        from container.definer_stores (or the container's surviving globals).
+
+        The CorpusStores bundle provides: artifact_store, lexical_store,
+        vector_store, ecs_store, turn_store (→ corpus_turn_store), graph_store.
+        """
+        return cls(
+            artifact_store=cs.artifact_store,
+            lexical_store=cs.lexical_store,
+            vector_store=cs.vector_store,
+            event_store=event_store,
+            project_store=project_store,
+            ecs_store=cs.ecs_store,
+            corpus_turn_store=cs.turn_store,
+            graph_store=cs.graph_store,
+            model_provider=model_provider,
+            embedding_provider=embedding_provider,
+        )
+
 
 async def create_ask_stores(db_path: str) -> AskStores:
     """Factory: create and initialize all stores needed for the ask pipeline.
