@@ -107,7 +107,7 @@ the roadmap, update both documents.
   - ✅ Chunk 8: ECS/ArtifactStore per corpus (complete, 29 tests — delete_turn, artifact_turn_links/M004, durable outbox, revision_parent_id, aip audit log)
   - ⏳ Chunk 3: Call-site migration (partial — infrastructure complete, mechanical rewrite deferred)
   - ✅ Chunk 4: Retrieval scoping (complete, 21 tests — fusion-layer ECS filter §A2, hit ID namespacing, cache key, Branham graceful degrade §A12, assemble_augmented_context multi-corpus path)
-  - 🔲 Chunk 5: Session/project binding + custom-channel scoping
+  - ✅ Chunk 5: Session/project binding + custom-channel scoping (complete, 30 tests — session_corpus_binding §5 policy, custom_channel_scoping §A14 ScopedCorpusStores, GUI corpus_selector)
   - 🔲 Chunk 6: Graph bridge edges + actor GraphStore refactor
   - 🔲 Chunk 7: Code corpus ingest (AST parser — delivers Phase 1.6)
   - 🔲 Chunk 9: Acceptance suite + aip corpus migrate --force + aip backup (strategy A default)
@@ -309,3 +309,4 @@ Remaining items:
 | 2026-06-18 | ADR-008 Multi-Corpus Chunk 8 complete: ECS/ArtifactStore per corpus. delete_turn, states_for, revision_parent_id, M004/M005, durable outbox, transition_artifact, list_review_items, backfill, aip audit log CLI. 29 tests. | GLM (Coding Agent) |
 | 2026-06-18 | ADR-008 Multi-Corpus Chunk 3 partial: call-site migration infrastructure. corpus_registry field + definer_stores property on AipContainer. AskStores.from_corpus_stores (§A1). set_embedding_provider registry-aware (§A6). 12 tests. Mechanical rewrite of 264 sites deferred. | GLM (Coding Agent) |
 | 2026-06-18 | ADR-008 Multi-Corpus Chunk 4 complete: Retrieval scoping. corpus_retrieval.py: namespace_hit_id, corpus_aware_cache_key, filter_excluded_states (§A2), gather_corpus_results (§A12). assemble_augmented_context multi-corpus path. 21 tests. | GLM (Coding Agent) |
+| 2026-06-18 | ADR-008 Multi-Corpus Chunk 5 complete: Session/project binding + custom-channel scoping. session_corpus_binding.py (§5 policy enforcement). custom_channel_scoping.py (§A14 ScopedCorpusStores). GUI corpus_selector.py. 30 tests. | GLM (Coding Agent) |

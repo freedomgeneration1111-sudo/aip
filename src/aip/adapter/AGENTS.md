@@ -394,7 +394,23 @@ config/aip.config.toml ([models] section)
   message without `turn_id`.
 
 ## Last Cycle
-- **ADR-008 Multi-Corpus Chunk 4** (this cycle): Retrieval scoping. New
+- **ADR-008 Multi-Corpus Chunk 5** (this cycle): Session/project binding +
+  custom-channel scoping. New `session_corpus_binding.py` — helpers for
+  reading/writing active_corpus_ids + branham_allowlist in session metadata_json.
+  Enforces §5 policy: branham_allowlist is NEVER persisted when
+  branham_policy_enabled=False (prevents allowlist escalation via session replay).
+  Definer is always added to active_corpus_ids (it's the bridge-edge anchor).
+  New `custom_channel_scoping.py` (§A14) — `ScopedCorpusStores` read-only view
+  that only exposes session-resolved corpora; `resolve_scoped_stores()` resolves
+  active_corpus_ids through the registry (Branham suppressed without allowlist);
+  `wrap_custom_channel_register()` wraps custom channel register_fns so they
+  only see the ScopedCorpusStores, not raw db_path or the container. New GUI
+  component `gui/components/corpus_selector.py` — multi-select checkboxes for
+  non-sensitive corpora, ⚠ marker for sensitive, "always active" label for
+  definer. 30 new tests in `tests/test_corpus_session_binding.py`. The session
+  store needs no changes — `update_session()` already puts unknown keys in
+  metadata_json.
+- **ADR-008 Multi-Corpus Chunk 4**: Retrieval scoping. New
   `corpus_retrieval.py` module with 4 helpers: `namespace_hit_id`/`parse_hit_id`
   (§4 — `{corpus_id}:{hit_id}` format, colons in hit_id preserved), `corpus_aware_cache_key`
   (§4 — SHA256 of query + sorted corpus_ids + model_id, order-independent),
