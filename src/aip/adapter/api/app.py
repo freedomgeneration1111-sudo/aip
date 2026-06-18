@@ -512,6 +512,57 @@ async def lifespan(app: FastAPI):
             error=str(exc),
         )
 
+    # --- ADR-014 Phase 0: wire the ExtensionHost ---
+    # The host discovers, validates, migrates, registers, and (v1.1) mounts
+    # every extension under the operator-owned extensions/ dir. It runs AFTER
+    # CorpusRegistry.startup (so contributed corpora can register) and BEFORE
+    # the actor schedulers (so extension actors are registered before the first
+    # Beast/Vigil/Sexton cycle). A broken extension never takes down the host —
+    # per-stage sandbox transitions the extension to DEGRADED/FAILED.
+    extensions_host: Any = None
+    try:
+        from pathlib import Path as _Path
+
+        from aip.adapter.extensions import ExtensionHost
+        from aip.orchestration.workflow_registry import WorkflowRegistry
+
+        _extensions_dir = _Path(
+            config.get("extensions", {}).get("dir", "extensions")
+        )
+        _manifest_range = tuple(
+            config.get("extensions", {}).get("manifest_version_range", (1, 1))
+        )
+        # ADR-014 §5.4: WorkflowRegistry is host-owned. Construct it with the
+        # default workflows/ dir (backward compat), then let the host call
+        # add_path() for each extension's workflows_dir at stage 3.
+        _workflow_registry = WorkflowRegistry(
+            workflows_dir=config.get("workflows", {}).get("dir", "workflows")
+        )
+        container.workflow_registry = _workflow_registry
+
+        extensions_host = ExtensionHost(
+            extensions_dir=_extensions_dir,
+            container=container,
+            manifest_version_range=_manifest_range,  # type: ignore[arg-type]
+            workflow_registry=_workflow_registry,
+        )
+        container.extensions = extensions_host
+        await extensions_host.start()
+        log.info(
+            "component_initialized",
+            component="extension_host",
+            extensions_dir=str(_extensions_dir),
+            extension_count=len(extensions_host.health()),
+            workflow_templates=len(_workflow_registry.list_templates()),
+        )
+    except Exception as exc:
+        log.warning(
+            "component_failed",
+            component="extension_host",
+            degradation="no_extensions_loaded",
+            error=str(exc),
+        )
+
     # --- Wire orchestration components (lazy import to preserve layer discipline) ---
     # Beast actor — requires vector_store + embedding_provider at minimum
     if container.vector_store is not None and container.embedding_provider is not None:
@@ -1677,6 +1728,18 @@ async def lifespan(app: FastAPI):
                 await task
             except asyncio.CancelledError:
                 pass
+
+    # ADR-014: stop the ExtensionHost (cancels extension actor schedulers,
+    # calls on_unload hooks sandboxed, marks every extension DISABLED).
+    # The host manages its own task lifecycle internally — this is a single
+    # await, not a loop. Errors are logged but never propagated (the host's
+    # own stop() is already sandboxed per extension).
+    if extensions_host is not None:
+        try:
+            await extensions_host.stop()
+            log.info("extension_host_stopped")
+        except Exception as exc:
+            log.warning("extension_host_stop_failed", error=str(exc))
 
     # Sprint 5.46: Graceful shutdown persistence — persist all A/B experiments and stop checkers
     # Sprint 5.48: Also persist statistical test results and accuracy timeseries

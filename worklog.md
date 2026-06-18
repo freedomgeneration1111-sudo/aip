@@ -1004,3 +1004,47 @@ Files changed:
 - PLANNED_FEATURES.md (step 1 → complete; step 4 → complete; step 5 → partial; description + changelog)
 - worklog.md (this entry)
 
+
+---
+Task ID: 13
+Agent: Super Z (main)
+Task: ADR-014 step 2 — wire ExtensionHost into lifespan + WorkflowRegistry.add_path
+
+Work Log:
+- Oriented per Coding Cycle Protocol: read app.py lifespan structure (lines 126-1951), AipContainer fields (dependencies.py), WorkflowRegistry current API (91 lines, silent except:continue at line 65), ADR-014 §2 lifespan integration sketch, ADR-014 §5.4 WorkflowRegistry.add_path spec.
+- Contract check: identified exact insertion points — host.start() goes after CorpusRegistry block (line 513) and before orchestration wiring (line 515); host.stop() goes in shutdown after one-shot task cancellation (line 1719) and before persistence block (line 1721). Verified AipContainer had no `extensions` or `workflow_registry` fields (both needed). Confirmed WorkflowRegistry._load_templates was hardcoded to self.workflows_dir (needed refactor to take source_dir param).
+- Concern 1: Added `extensions` and `workflow_registry` fields to AipContainer (dependencies.py). Both typed as Any, default None, with comments referencing ADR-014.
+- Concern 2: Wired ExtensionHost into app.py lifespan. Added a sandboxed try/except block after CorpusRegistry that: constructs WorkflowRegistry with the default workflows/ dir (backward compat), stores it on container.workflow_registry, constructs ExtensionHost with extensions_dir + container + manifest_version_range + workflow_registry, stores it on container.extensions, calls await host.start(). Logs component_initialized on success or component_failed with degradation="no_extensions_loaded" on failure. Added host.stop() call in shutdown section (after one-shot task cancellation, before persistence block) — sandboxed, logs extension_host_stopped or extension_host_stop_failed.
+- Concern 3: Added WorkflowRegistry.add_path(dir) method (ADR-014 §5.4). Refactored _load_templates to take a source_dir param (was hardcoded to self.workflows_dir). __init__ calls it once for the default dir; add_path calls it for each extension dir. Added _template_source_dirs dict to track per-template source dirs so load_workflow resolves paths correctly (absolute for extension templates, relative for default). Replaced silent `except Exception: continue` with logged WARNING (workflow_template_parse_failed with file path + exception). The default synthesis_session_v1 template is only auto-injected when loading the default dir (not extension dirs). load_workflow now handles both absolute and relative yaml_path.
+- Concern 4: Wired host._register_one to call workflow_registry.add_path(). Updated ExtensionHost.__init__ to accept a workflow_registry param (defaults None for backward compat with tests). _register_one now calls self._workflow_registry.add_path(workflows_path) when the param is wired AND the workflows dir exists. If add_path raises (it shouldn't — it's sandboxed internally), records a workflow-tagged failure without failing the whole register stage. Updated the log message from "extension_workflows_recorded (mounting deferred to step 2)" to "extension_workflows_registered".
+- Verified locally:
+  - All 4 changed files pass ast.parse (dependencies.py, app.py, workflow_registry.py, host.py).
+  - All 3 existing test_extended_workflows.py tests PASS (backward compat preserved).
+  - 6 new WorkflowRegistry behavior tests pass: default discovery (4 templates), load_workflow for default, add_path discovers extension workflows, load_workflow for extension templates (absolute path resolution), malformed YAML logged + skipped (no longer silent), missing dir is no-op.
+  - ExtensionHost accepts workflow_registry param (defaults None); constructed successfully with None.
+  - app.py imports well-formed — ast.walk confirms both `aip.adapter.extensions` and `aip.orchestration.workflow_registry` imports are present; no circular imports introduced (lazy imports inside the try block, same pattern as existing CorpusRegistry import).
+- Full lifecycle test run deferred to CI (test environment venv lacks aiosqlite + structlog; pip install timed out due to network). The WorkflowRegistry tests pass because they don't touch aiosqlite. The lifespan wiring is verified by ast.parse + import-structure check; the actual await host.start() path needs the full dependency set to run.
+- Updated docs per Coding Cycle Protocol §5:
+  - src/aip/adapter/extensions/AGENTS.md: replaced stale "WorkflowRegistry.add_path is not yet wired" gotcha with two new gotchas (host-owned WorkflowRegistry + no more silent parse failures). Prepended step 2 entry to Last Cycle.
+  - src/aip/orchestration/AGENTS.md: prepended step 2 entry to Last Cycle (WorkflowRegistry.add_path + silent-failure fix + _load_templates refactor).
+  - PLANNED_FEATURES.md: step 2 → 🔄 Partial (WorkflowRegistry wired; PluginManager + McpToolRegistry deferred). Added Change Log entry.
+- Committed per concern (3 commits) + pushed to feat/multi-corpus.
+
+Stage Summary:
+- The ExtensionHost is now wired into the lifespan. At startup, after CorpusRegistry, the host discovers, validates, migrates, registers, and runs on_load for every extension under extensions/. At shutdown, host.stop() cancels extension actor schedulers and calls on_unload hooks.
+- WorkflowRegistry is host-owned. container.workflow_registry is constructed in lifespan with the default workflows/ dir, then the host calls add_path() for each extension's workflows_dir at stage 3. Extension-contributed workflows are now discoverable via WorkflowRegistry.list_templates().
+- The silent `except Exception: continue` in WorkflowRegistry is gone. Malformed YAMLs are logged as WARNINGs with the file path — debuggable instead of invisible.
+- PluginManager and McpToolRegistry are deferred. PluginManager is orthogonal to the extension lifecycle (model-provider plugins are a separate concern from extension contributions). McpToolRegistry is step 7 (v1.2). Neither blocks ARISTOTLE Phase A.
+- The host is backward compatible: the workflow_registry param defaults to None, so existing tests that construct ExtensionHost without it still work.
+- Next build unit: step 3 (formalize the Actor Protocol in foundation/protocols/actors.py — the host's _actor_scheduler_loop already calls actor.run_cycle(ctx); make the Protocol match) + step 5 remainder (cross-stage coherence checks in the manifest validator). After that, ARISTOTLE Phase A can start against a real contract.
+
+Files changed:
+- src/aip/adapter/api/dependencies.py (added extensions + workflow_registry fields to AipContainer)
+- src/aip/adapter/api/app.py (host.start() block in lifespan startup + host.stop() in shutdown)
+- src/aip/orchestration/workflow_registry.py (add_path method + _load_templates refactor + silent-failure fix + per-template source dir tracking + load_workflow path resolution)
+- src/aip/adapter/extensions/host.py (workflow_registry param + _register_one calls add_path)
+- src/aip/adapter/extensions/AGENTS.md (updated gotchas + Last Cycle)
+- src/aip/orchestration/AGENTS.md (Last Cycle)
+- PLANNED_FEATURES.md (step 2 status + Change Log)
+- worklog.md (this entry)
+
