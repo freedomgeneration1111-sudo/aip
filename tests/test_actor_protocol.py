@@ -151,11 +151,12 @@ def test_actor_context_is_dataclass():
 
 
 def test_actor_result_defaults():
-    """ActorResult defaults: ok required, error=None, next_run_at=None."""
+    """ActorResult defaults: ok required, error=None, next_run_at=None, data=None."""
     result = ActorResult(ok=True)
     assert result.ok is True
     assert result.error is None
     assert result.next_run_at is None
+    assert result.data is None
 
 
 def test_actor_result_with_error():
@@ -164,6 +165,35 @@ def test_actor_result_with_error():
     assert result.ok is False
     assert result.error == "model timeout"
     assert result.next_run_at == 12345.0
+    # data defaults to None even when other fields are set
+    assert result.data is None
+
+
+def test_actor_result_data_field_round_trips_dict():
+    """ActorResult.data carries a structured payload + round-trips correctly.
+
+    DEFINER decision 2026-06-19 (ADR-002 §16 #4): the `data` field is the
+    proper structured return channel for actors. The error-as-payload pattern
+    (using `error` to carry a success payload) was a pre-v1.1 workaround
+    that doesn't scale past one extension. This test pins the new contract.
+    """
+    payload = {"score": 0.9, "mastery_achieved": True, "feedback": "good"}
+    result = ActorResult(ok=True, data=payload)
+    assert result.ok is True
+    assert result.data == payload
+    # Round-trip: data survives access + is the same object
+    assert result.data is payload
+    assert result.data["score"] == 0.9
+    assert result.data["mastery_achieved"] is True
+    # error + next_run_at still default to None when only data is provided
+    assert result.error is None
+    assert result.next_run_at is None
+
+
+def test_actor_result_data_field_with_none_explicit():
+    """ActorResult.data can be explicitly set to None (e.g. to clear a prior value)."""
+    result = ActorResult(ok=True, data=None)
+    assert result.data is None
 
 
 # --------------------------------------------------------------------------

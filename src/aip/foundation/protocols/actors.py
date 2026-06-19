@@ -99,11 +99,21 @@ class ActorResult:
     `next_run_at` overrides the actor's configured cadence for the next cycle
     only (epoch seconds). Use this for actors that need to back off after an
     error or speed up after a burst. None means "use the configured cadence".
+
+    `data` is the structured return channel for actors that need to pass
+    results back to their caller (not just a success/failure signal).
+    Backwards-compatible: defaults to None, so every existing ActorResult
+    construction continues to work unchanged. The error-as-payload pattern
+    (using `error` to carry a success payload) was a pre-v1.1 workaround
+    that doesn't scale past one extension — `data` is the proper channel
+    for structured results. DEFINER decision 2026-06-19 (ADR-002 §16 #4,
+    resolved): add `data: Any = None` rather than keeping error-as-payload.
     """
 
     ok: bool
     error: str | None = None
     next_run_at: float | None = None
+    data: Any = None
 
 
 @runtime_checkable

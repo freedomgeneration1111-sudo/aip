@@ -573,3 +573,61 @@ factory time.
 
 ---
 
+## DEBT-015 — ActorResult gains `data: Any = None` field (DEFINER decision ADR-002 §16 #4, resolved)
+
+**Status:** Resolved — shipped 2026-06-19
+**Phase:** Foundation Protocol (ADR-014 §5.2)
+**Filed:** 2026-06-19
+
+**DEFINER decision (ADR-002 §16 #4, resolved 2026-06-19):**
+Add `data: Any = None` to the `ActorResult` dataclass in
+`src/aip/foundation/protocols/actors.py`. Rationale: backwards-compatible
+(defaults to None), every future extension will need a structured return
+channel, and the error-as-payload pattern (using `error` to carry a
+success payload) doesn't scale past one extension.
+
+**What was the tension:**
+The ARISTOTLE extension's SOCRATES/EXAMINER/MENTOR actors use the
+`error` field to carry success payloads (e.g. EXAMINER.evaluate() returns
+`ActorResult(ok=True, error=evaluation_text)` where `error` is the
+evaluation JSON, not an error message). This works for one extension but
+is semantically wrong and will collide as more extensions ship. The
+proper channel for structured results is a dedicated `data` field.
+
+**Resolution:**
+Added `data: Any = None` as the last field on `ActorResult` (after `ok`,
+`error`, `next_run_at`). Backwards-compatible:
+- Every existing `ActorResult(ok=...)` construction continues to work
+  (data defaults to None).
+- Positional construction `ActorResult(True, "err", 1.5)` still works
+  (data is 4th, defaults to None).
+- Keyword construction `ActorResult(ok=True, error="msg")` still works.
+
+ARISTOTLE's actors can now migrate from `error=<payload>` to
+`data=<payload>` incrementally — the old pattern still works, the new
+pattern is available. No actor is forced to migrate immediately; the
+error-as-payload pattern is now soft-deprecated, not broken.
+
+**Tests added** (`tests/test_actor_protocol.py`):
+- `test_actor_result_defaults` updated to also assert `data is None`.
+- `test_actor_result_with_error` updated to also assert `data is None`
+  (data defaults to None even when other fields are set).
+- `test_actor_result_data_field_round_trips_dict` — new test confirming
+  `data` carries a dict payload and round-trips correctly (same object,
+  fields accessible).
+- `test_actor_result_data_field_with_none_explicit` — new test
+  confirming `data=None` can be passed explicitly (e.g. to clear a
+  prior value).
+
+**Related work:**
+- `src/aip/foundation/protocols/actors.py` (the field addition, ~line 116)
+- `tests/test_actor_protocol.py` (4 tests pinning the new contract)
+- `AIP_Aristotle/docs/decisions/ADR-002-intake-placement-learning-plan.md`
+  §16 #4 (the DEFINER decision — lives in Aristotle because the ADR is
+  about Aristotle's Phase B.5/D roadmap, but the Protocol change ships
+  in AIP_Brain foundation)
+- ARISTOTLE actor migration (soft-deprecated error-as-payload → data):
+  follow-up, not blocking. Each actor can migrate when next touched.
+
+---
+
