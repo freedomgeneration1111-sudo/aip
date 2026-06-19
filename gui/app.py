@@ -36,6 +36,18 @@ import gui.pages.retrieval_lab  # noqa: F401, E402 — registers "/retrieval"
 import gui.pages.settings  # noqa: F401, E402 — registers "/settings"
 import gui.pages.wiki  # noqa: F401, E402 — registers "/wiki"
 
+# ADR-014 v1.1: dynamically import extension GUI pages.
+# Extensions that are pip-installed and declare a `gui` module get their
+# page builder called here. The import is wrapped in try/except so a
+# missing or broken extension doesn't crash the GUI.
+try:
+    import aristotle.gui as _aristotle_gui  # noqa: F401, E402 — registers "/learn"
+    log.info("aristotle GUI page mounted at /learn")
+except ImportError:
+    log.debug("aristotle.gui not available — extension not installed")
+except Exception as exc:
+    log.warning("aristotle GUI page failed to mount: %s", exc)
+
 GUI_PORT = int(os.getenv("AIP_GUI_PORT", "8080"))
 GUI_RELOAD = os.getenv("AIP_GUI_RELOAD", "false").lower() in ("true", "1", "yes")
 

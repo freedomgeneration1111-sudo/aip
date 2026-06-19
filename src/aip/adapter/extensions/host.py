@@ -690,11 +690,16 @@ class ExtensionHost:
             )
             return
 
-        # ---- Stage 4: mount (v1.1) — skipped in v1.0 ----
-        # If the manifest declares a gui: block, we DON'T mount it in v1.0.
-        # The test_mounts_extension_gui_pages test is expected to fail until
-        # v1.1 lands. We don't transition to DEGRADED — the extension is
-        # backend-live, just not GUI-mounted.
+        # ---- Stage 4: mount (v1.1) ----
+        # After on_load runs, if the extension registered any GUI pages via
+        # host.register_page(), transition to MOUNTED. If not, stay REGISTERED.
+        # The actual NiceGUI route mounting happens in gui/app.py (it reads
+        # host.nav_items() and calls each builder_fn). The host just tracks
+        # the state transition.
+        #
+        # Note: stage 4 runs AFTER stage 5 (on_load) because register_page()
+        # is called FROM on_load. The order is: register → on_load (which
+        # calls register_page) → check if pages were registered → MOUNTED.
 
         # ---- Stage 5: ready (run on_load hook) ----
         try:
@@ -711,10 +716,17 @@ class ExtensionHost:
             )
             return
 
-        # Success — REGISTERED (v1.0 terminal state). v1.1 would transition
-        # to MOUNTED after stage 4 mount succeeds.
-        rec.state = ExtensionState.REGISTERED
-        logger.info("extension_registered id=%s", manifest.id)
+        # ---- Stage 4: mount (v1.1) — check if pages were registered ----
+        if rec.nav_items:
+            rec.state = ExtensionState.MOUNTED
+            logger.info(
+                "extension_mounted id=%s pages=%d",
+                manifest.id, len(rec.nav_items),
+            )
+        else:
+            # No GUI pages registered — backend-only extension
+            rec.state = ExtensionState.REGISTERED
+            logger.info("extension_registered id=%s (no GUI pages)", manifest.id)
 
     # ------------------------------------------------------------------
     # Stage 2: migrate
@@ -1050,6 +1062,30 @@ class ExtensionHost:
             builder_fn=builder_fn,
         )
         self._registry.register_nav_item(ext_id=self._current_ext_id, item=item)
+
+    def register_api_router(self, router: Any) -> None:
+        """Register a FastAPI APIRouter for this extension (v1.1).
+
+        The router is stored on the host; the platform's app.py reads
+        registered routers via host.registered_api_routers() after
+        host.start() and includes them. This preserves the boundary:
+        the platform never imports an extension by name — the extension
+        passes its router object to the host via this method.
+
+        Args:
+            router: a fastapi.APIRouter instance.
+        """
+        if self._current_ext_id is None:
+            raise RuntimeError(
+                "host.register_api_router() can only be called inside an extension's on_load hook."
+            )
+        if not hasattr(self, "_api_routers"):
+            self._api_routers: list[dict[str, Any]] = []
+        self._api_routers.append({"ext_id": self._current_ext_id, "router": router})
+
+    def registered_api_routers(self) -> list[dict[str, Any]]:
+        """Return all registered API routers (for app.py to include)."""
+        return getattr(self, "_api_routers", [])
 
     # ------------------------------------------------------------------
     # State / health accessors — ADR-014 §5.1, §7

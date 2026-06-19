@@ -282,14 +282,23 @@ async def test_registers_extension_actors(tmp_path: Path, host: ExtensionHost):
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(
-    reason="ADR-014 v1.1: register_gui_page + stage 4 mount not yet implemented",
-    strict=True,
-)
 async def test_mounts_extension_gui_pages(tmp_path: Path, host: ExtensionHost):
-    # v1.1 contribution. Until register_page lands this test is expected to
-    # xfail; once it lands, a mounted extension exposes a nav entry + route.
-    _write_extension(tmp_path, "demo", with_gui=True, with_hooks=False)
+    # v1.1: a mounted extension exposes a nav entry + route.
+    # The test extension's hooks.py calls host.register_page() which
+    # records a NavItem. After start(), the extension transitions to
+    # MOUNTED and host.nav_items() includes the registered route.
+    _write_extension(tmp_path, "demo", with_gui=False, with_hooks=True)
+    # The standard _HOOKS_PY registers an actor, not a page.
+    # For this test we need hooks.py to call host.register_page().
+    # We'll write a custom hooks.py that registers a page.
+    hooks_path = tmp_path / "extensions" / "demo" / "hooks.py"
+    hooks_path.write_text(
+        "def on_load(host):\n"
+        "    host.register_page('/demo', 'Demo', 'school', lambda: None, order=30)\n"
+        "\n"
+        "def on_unload(host):\n"
+        "    pass\n"
+    )
     await host.start()
     nav = host.nav_items()
     assert any(item.route.endswith("/demo") for item in nav)

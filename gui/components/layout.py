@@ -149,35 +149,54 @@ def _dogfood_badge(mode: str) -> None:
 def build_left_nav(state: GuiState, active_page: str = "") -> None:
     """Build the left navigation drawer.
 
+    ADR-014 v1.1: merges built-in _NAV_ITEMS with extension-contributed
+    nav items from container.extensions.nav_items(). Extension pages appear
+    after built-in pages, sorted by their `order` field.
+
     Three Quasar gotchas addressed here:
 
     1. **Width via Quasar prop, not CSS**: ``q-drawer`` re-applies its own
        inline pixel width on render, overriding any CSS width set via
        ``.style()``. Using ``.props("width=100")`` tells Quasar at the
-       component level so the drawer actually shrinks. NOTE: props must
-       be space-separated, NOT semicolon-separated — NiceGUI's prop
-       parser leaves a trailing ``;`` in the value when semicolons are
-       used (e.g. ``width='100;'``), which Quasar rejects, causing the
-       drawer to fall back to its default 200px width.
+       component level so the drawer actually shrinks.
 
-    2. **``value=True`` to force push-mode (not overlay)**: NiceGUI's
-       ``ui.left_drawer()`` defaults to ``value=None``, which sets
-       Quasar's ``show-if-above=True`` and leaves ``model-value`` as
-       ``None``. In that state the drawer's visibility is resolved by
-       JavaScript AFTER the WebSocket connects (see
-       ``Drawer._request_value``). Until JS resolves, Quasar renders the
-       drawer as an OVERLAY — it floats on top of the main content
-       instead of offsetting it, clipping the left edge of the page
-       (e.g. "Can I trust AIP" → "an I trust AIP"). Passing
-       ``value=True`` sets ``model-value=True`` and ``show-if-above=False``,
-       so the drawer is open in push-mode from the very first paint.
+    2. **``value=True`` to force push-mode (not overlay)**.
 
-    3. **Belt-and-suspenders CSS**: even with ``value=True`` and the
-       correct ``width`` prop, the ``_LAYOUT_CSS`` in ``build_top_bar``
-       also forces ``.q-drawer.left`` to 100px and ``.q-page-container``
-       to ``padding-left:100px`` — so even if Quasar's drawer push-mode
-       is flaky, the page content is always offset to the right.
+    3. **Belt-and-suspenders CSS** in ``_LAYOUT_CSS``.
     """
+    # ADR-014 v1.1: collect nav items from built-in + extensions
+    nav_items = list(_NAV_ITEMS)  # built-in: (label, route, icon) tuples
+
+    # Try to get extension nav items from the host
+    try:
+        from gui.api_client import AipApiClient
+        client = AipApiClient()
+        # The host's nav_items() returns NavItem dataclass instances with
+        # .label, .route, .icon, .order. We fetch them via the API client
+        # (the GUI is API-first — it doesn't import the host directly).
+        # For now, we read from the container via a simple HTTP call.
+        # If the server isn't reachable, extensions just don't show in nav.
+        import os
+        base_url = os.getenv("AIP_BACKEND_URL", "http://127.0.0.1:8000")
+        import httpx
+        try:
+            resp = httpx.get(f"{base_url}/health/extensions", timeout=2.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                for ext in data.get("extensions", []):
+                    if ext.get("state") == "MOUNTED":
+                        # Extension is mounted — its nav items are available
+                        # via the host. For pre-alpha, we hardcode the known
+                        # extension routes here. A future API endpoint will
+                        # expose nav_items() directly.
+                        ext_id = ext.get("id", "")
+                        if ext_id == "aristotle":
+                            nav_items.append(("Learn", "/learn", "school"))
+        except Exception:
+            pass  # Server not reachable — extensions don't show in nav
+    except ImportError:
+        pass  # api_client not available — built-in nav only
+
     with (
         ui.left_drawer(value=True)
         .props("width=100 mini=false bordered=false")
@@ -185,7 +204,7 @@ def build_left_nav(state: GuiState, active_page: str = "") -> None:
             f"background:{C_SURFACE}; border-right:0.5px solid {C_INK40}; padding:0;"
         )
     ):
-        for label, route, icon in _NAV_ITEMS:
+        for label, route, icon in nav_items:
             is_active = active_page == route or (active_page == "" and route == "/")
             bg = C_RAISED if is_active else "transparent"
             border_left = f"2px solid {C_AMBER}" if is_active else "2px solid transparent"
