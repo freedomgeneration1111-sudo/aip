@@ -165,10 +165,14 @@ async def container(tmp_path: Path):
 def host(tmp_path: Path, container) -> ExtensionHost:
     # The host discovers only under the operator-owned extensions dir.
     # It RECEIVES the container (does not create one).
+    # discover_installed_packages=False prevents picking up the real
+    # ARISTOTLE package (installed via pip install -e) so tests only
+    # see the synthetic demo extensions written to tmp_path.
     return ExtensionHost(
         extensions_dir=tmp_path / "extensions",
         container=container,
         manifest_version_range=(1, 1),
+        discover_installed_packages=False,
     )
 
 

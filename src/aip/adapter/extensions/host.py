@@ -244,11 +244,13 @@ class ExtensionHost:
         container: Any,
         manifest_version_range: tuple[int, int] = (1, 1),
         workflow_registry: Any = None,
+        discover_installed_packages: bool = True,
     ) -> None:
         self._extensions_dir = Path(extensions_dir)
         self._container = container
         self._manifest_version_range = manifest_version_range
         self._workflow_registry = workflow_registry
+        self._discover_installed_packages = discover_installed_packages
         self._registry = ExtensionRegistry()
         # Per-actor cancel events (set by stop() to unblock scheduler loops).
         self._cancel_events: dict[str, asyncio.Event] = {}
@@ -343,7 +345,8 @@ class ExtensionHost:
             )
 
         # --- Path 2: entry-point discovery (pip-installed extensions) ---
-        out.extend(self._discover_entry_points())
+        if self._discover_installed_packages:
+            out.extend(self._discover_entry_points())
 
         return out
 
