@@ -574,6 +574,23 @@ async def lifespan(app: FastAPI):
             workflow_templates=len(_workflow_registry.list_templates()),
             workflow_engine_wired=True,
         )
+
+        # ADR-014 v1.1: include extension API routers.
+        # Extensions register their API routers via host.register_api_router()
+        # in their on_load hook (called inside start()). The host stores them;
+        # the platform includes them here. This must happen inside lifespan
+        # (NOT in create_app) because `container.extensions` is only populated
+        # after host.start() runs — create_app returns before lifespan starts.
+        # Per-router try/except: a bad router never blocks the host.
+        for router_info in extensions_host.registered_api_routers():
+            try:
+                app.include_router(router_info["router"], tags=[router_info["ext_id"]])
+                log.info("extension_api_router_mounted ext=%s", router_info["ext_id"])
+            except Exception as exc:
+                log.warning(
+                    "extension_api_router_mount_failed ext=%s error=%s",
+                    router_info["ext_id"], exc,
+                )
     except Exception as exc:
         log.warning(
             "component_failed",
@@ -1968,20 +1985,13 @@ def create_app(config: dict | None = None) -> "FastAPI":
 
     app.include_router(vigil_quality.router, prefix="/api/v1", tags=["vigil"])
 
-    # ADR-014 v1.1: include extension API routers.
-    # Extensions register their API routers via host.register_api_router()
-    # in their on_load hook. The host stores them; app.py reads them after
-    # host.start() and includes them. This preserves the boundary: the
-    # platform never imports an extension by name.
-    extensions_host = getattr(container, "extensions", None)
-    if extensions_host is not None:
-        for router_info in extensions_host.registered_api_routers():
-            try:
-                app.include_router(router_info["router"], tags=[router_info["ext_id"]])
-                log.info("extension_api_router_mounted ext=%s", router_info["ext_id"])
-            except Exception as exc:
-                log.warning("extension_api_router_mount_failed ext=%s error=%s", router_info["ext_id"], exc)
-
+    # ADR-014 v1.1: extension API routers are mounted INSIDE the lifespan
+    # function (after host.start()) — see the lifespan block above. They
+    # cannot be mounted here in create_app because container.extensions is
+    # only populated when the lifespan runs, which happens AFTER create_app
+    # returns. Earlier code attempted `getattr(container, "extensions", None)`
+    # here, but `container` is a lifespan-local — referencing it here raised
+    # NameError and crashed backend startup.
     # Web UI static (HTMX dashboard)
     import pathlib
 

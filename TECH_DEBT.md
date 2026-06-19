@@ -501,3 +501,44 @@ python -m pytest -q
 
 ---
 
+## DEBT-014 — Extension API routers never mounted (NameError in create_app)
+
+**Status:** Resolved — fixed 2026-06-19 during ARISTOTLE dogfood
+**Phase:** ADR-014 Phase 0 Extension Platform
+**Filed:** 2026-06-19
+
+**What was broken:**
+`src/aip/adapter/api/app.py:1976` (in `create_app`) attempted:
+```python
+extensions_host = getattr(container, "extensions", None)
+if extensions_host is not None:
+    for router_info in extensions_host.registered_api_routers():
+        app.include_router(router_info["router"], tags=[router_info["ext_id"]])
+```
+But `container` is a **local variable inside the `lifespan` async function**
+— it does not exist in `create_app`'s scope. Result: `NameError` at backend
+startup, the entire lifespan aborted, and Aristotle's `/aristotle/*` routes
+were never mounted. The CLI's `aristotle health` would still succeed (it
+hits `/api/v1/health/extensions`, which is platform-owned and routed
+separately), masking the bug — but `aristotle ingest`, `list-concepts`,
+and `session` all 404'd.
+
+The 33-test extension suite (`tests/test_extension_lifecycle.py` etc.)
+passed because those tests construct `ExtensionHost` directly and never
+exercise `create_app()`'s router-mounting path.
+
+**Resolution:**
+Moved the router-mounting block into the `lifespan` function, immediately
+after `await extensions_host.start()` succeeds (where `app` and
+`container.extensions` are both in scope). Per-router `try/except` is
+preserved so a bad router never blocks the host. `create_app` now carries
+a comment explaining why this logic lives in lifespan, not at module
+factory time.
+
+**Related work:**
+- `src/aip/adapter/api/app.py` (lifespan block, ~line 578; create_app comment, ~line 1988)
+- `tests/test_extension_lifecycle.py` — does NOT cover this path; an
+  end-to-end `create_app` + real HTTP request test should be added.
+
+---
+
