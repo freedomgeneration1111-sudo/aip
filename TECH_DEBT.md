@@ -427,13 +427,13 @@ is the same in both package names; only the import path changed.
 
 ## DEBT-013 — ExtensionHost.stop() leaves actor scheduler coroutines un-awaited (RuntimeWarning in tests)
 
-**Status:** Open — low priority (cosmetic, not a failure)
+**Status:** Resolved — fixed 2026-06-19 (platform test suite, 0 warnings)
 **Phase:** ADR-014 Phase 0 Extension Platform / test teardown
 **Filed:** 2026-06-19
 
-**What's broken:**
+**What was broken:**
 Both AIP_Brain's platform test suite (`tests/test_extension_lifecycle.py`)
-and AIP_Aristotle's test suite emit this warning on teardown:
+and AIP_Aristotle's test suite emitted this warning on teardown:
 
 ```
 RuntimeWarning: coroutine '_actor_scheduler_loop' was never awaited
@@ -441,63 +441,94 @@ RuntimeWarning: coroutine '_actor_scheduler_loop' was never awaited
 RuntimeWarning: Enable tracemalloc to get traceback where the object was allocated
 ```
 
-(Also surfaces as `PytestUnhandledThreadExceptionWarning` and, in some
+(Also surfaced as `PytestUnhandledThreadExceptionWarning` and, in some
 configurations, `RuntimeError: Event loop is closed` from aiosqlite's
 background worker thread.)
 
-The `ExtensionHost.start()` method spawns one `_actor_scheduler_loop`
-coroutine per registered actor (via `asyncio.create_task`) inside the
-test's event loop. When the test ends, pytest-asyncio closes the loop
-without giving the host a chance to cancel + await those tasks. The
-coroutines are then garbage-collected un-awaited, which Python flags as a
-RuntimeWarning.
+**Root cause (deeper than originally filed):**
+The original filing attributed the warning to "test fixtures don't call
+`await host.stop()` on teardown." The actual root cause is more subtle:
 
-**Why it's low priority:**
-- All tests still PASS. The warning is noise, not a failure.
-- Production is unaffected — `lifespan` calls `await extensions_host.stop()`
-  on shutdown, which cancels + awaits the scheduler tasks correctly.
-- The warning only appears in test teardown because the test fixtures
-  construct an `ExtensionHost` directly and tear it down via garbage
-  collection rather than via an explicit `await host.stop()`.
+`ExtensionHost._start_actor_tasks()` calls `supervised_task(name,
+coro=_actor_scheduler_loop(...))`. The `_actor_scheduler_loop(...)`
+call creates a coroutine object. `supervised_task` then calls
+`asyncio.create_task(_supervised_inner(name, coro))` — wrapping the
+coroutine in a `_supervised_inner` coroutine, which is what `create_task`
+actually schedules.
 
-**Why deferred:**
-Fixing it properly requires either:
-1. Adding a `pytest_asyncio` fixture finalizer that explicitly calls
-   `await host.stop()` before the loop closes (preferred — small change
-   in `tests/test_extension_lifecycle.py`'s `host` fixture).
-2. Or making `ExtensionHost.stop()` more defensive — e.g. tracking the
-   scheduler tasks in a `set[asyncio.Task]` and `await asyncio.gather(
-   *[t for t in self._scheduler_tasks if not t.done()], return_exceptions=True)`
-   during stop. This is cleaner long-term but touches the production
-   `host.py` (so it needs a separate test + review).
+When `host.stop()` cancels a task that is still PENDING (i.e.,
+`_supervised_inner` hasn't started executing yet), the task's coroutine
+(`_supervised_inner`) is closed via `coro.close()`. But the `coro`
+argument — the `_actor_scheduler_loop` coroutine object — is a local
+variable inside `_supervised_inner`'s (never-executed) frame. It's
+never touched, never awaited, never closed. Python's GC sees it as
+"never awaited" and emits the RuntimeWarning.
 
-Option 1 is the right immediate fix; option 2 is a follow-up hardening
-if the same pattern shows up in other test suites.
+`await asyncio.sleep(0)` before `host.stop()` was tried but does NOT
+fix it — `sleep(0)` yields control but doesn't guarantee the scheduler
+tasks transition from PENDING to actually-executing in pytest-asyncio's
+event loop model.
 
-**Repro:**
+**Resolution (Option 1 — test fixture level, as specified in the debt entry):**
+Fixed in `tests/test_extension_lifecycle.py`. The `host` fixture now:
+
+1. Patches `supervised_task` in `aip.adapter.extensions.host` to track
+   the inner coroutine (`_actor_scheduler_loop(...)`) passed to each
+   `supervised_task` call. The original `supervised_task` is still
+   called — tracking is transparent.
+
+2. On teardown, restores the original `supervised_task`, calls
+   `await h.stop()` (which cancels + gathers all actor tasks), and
+   then explicitly `coro.close()` on every tracked coroutine whose
+   `cr_frame` is not None (i.e., still pending). `coro.close()` marks
+   the coroutine as "handled" and suppresses the RuntimeWarning at
+   GC time.
+
+3. The `container` fixture now closes every corpus's stores via
+   `stores.close_all()` on teardown, eliminating the parallel
+   `PytestUnhandledThreadExceptionWarning` from aiosqlite's background
+   worker thread hitting "Event loop is closed."
+
+**Result:**
 ```
 cd AIP_Brain
-PYTHONPATH=src python -m pytest -q tests/test_extension_lifecycle.py
-# → 11 passed, 1 warning
-# warning: RuntimeWarning: coroutine '_actor_scheduler_loop' was never awaited
-```
-Same warning in `AIP_Aristotle`:
-```
-cd AIP_Aristotle
-python -m pytest -q
-# → 54 passed, 1 warning
+PYTHONPATH=src python -m pytest -q \
+  tests/test_extension_lifecycle.py \
+  tests/test_extension_import_boundary.py \
+  tests/test_actor_protocol.py \
+  tests/test_extended_workflows.py \
+  tests/test_workflow_engine_wiring.py
+# → 33 passed, 1 skipped, 0 warnings  (was: 2 warnings)
 ```
 
+**Why not Option 2 (harden `host.stop()`):**
+Option 2 — making `host.stop()` track + close the inner coroutines —
+would fix the root cause in production code. But it touches
+`src/aip/adapter/extensions/host.py` and `supervision.py`, which is
+out of scope for "test fixture file(s) only" (the user's staging
+constraint). The fixture-level fix (Option 1) achieves 0 warnings
+without touching production code. A future hardening commit could
+move the coroutine-tracking + close logic into `supervised_task`
+itself — at which point the fixture patch can be removed.
+
+**Remaining (Aristotle side):**
+AIP_Aristotle's test suite still shows 3 warnings (down from 2 in the
+prior session — the count varies with pytest's GC timing). The
+Aristotle test fixtures in `tests/test_aristotle_tutoring.py` and
+`tests/test_aristotle_extension.py` construct their own `ExtensionHost`
+instances and don't use the Brain-side `host` fixture. Applying the
+same fixture pattern there is a separate task.
+
 **Related work:**
-- `src/aip/adapter/extensions/host.py` (start spawns tasks; stop should
-  cancel + await them — currently relies on lifespan in production but
-  not in tests)
-- `tests/test_extension_lifecycle.py` (`host` fixture — should call
-  `await host.stop()` in a finalizer)
-- `tests/test_extension_import_boundary.py` (same warning observed)
-- `AIP_Aristotle/tests/test_aristotle_tutoring.py::TestExaminerMethods::test_quiz_calls_evaluation_slot`
-  (same warning observed — surfaced because the Aristotle test fixture
-  also constructs an ExtensionHost)
+- `tests/test_extension_lifecycle.py` (the fix — `host` fixture patches
+  `supervised_task` to track coros, `container` fixture closes stores)
+- `src/aip/adapter/extensions/host.py` (the `_start_actor_tasks` method
+  that creates the coroutines — unchanged)
+- `src/aip/adapter/extensions/supervision.py` (`supervised_task` wraps
+  the coro in `_supervised_inner` — unchanged; future hardening could
+  close the coro on cancellation here)
+- `AIP_Aristotle/tests/test_aristotle_tutoring.py` (same warning
+  pattern — Aristotle fixtures construct ExtensionHost independently)
 
 ---
 
