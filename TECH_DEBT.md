@@ -399,3 +399,28 @@ Phase A is dogfoodable), in a single dedicated commit:
   slot + health output alias
 
 ---
+
+## DEBT-012 — PyPDF2 → pypdf Package Rename (Resolved)
+
+**Status:** Resolved — import fixed 2026-06-18
+**Phase:** Ingestion
+**Filed:** 2026-06-18
+
+**What was deferred:**
+`src/aip/orchestration/ingestion/parsers/document_parser.py:254` imported
+`from PyPDF2 import PdfReader` — the old package name. The `pypdf` package
+(5.x+) renamed from `PyPDF2` to `pypdf`, and the installed version
+(pypdf 5.9.0) exports `from pypdf import PdfReader`. The old import
+silently failed (caught by the `try/except` that falls through to
+pdfplumber or returns empty), so PDF ingestion was broken without any
+visible error — the function just returned an empty list.
+
+**Resolution:**
+Changed the import to `from pypdf import PdfReader`. The `PdfReader` API
+is the same in both package names; only the import path changed.
+
+**Related work:**
+- `src/aip/orchestration/ingestion/parsers/document_parser.py:254` (the import)
+- `pypdf` 5.9.0 (installed, exports `from pypdf import PdfReader`)
+
+---

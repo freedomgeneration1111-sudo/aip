@@ -249,9 +249,9 @@ def _try_parse_pdf(
     if not export_date:
         export_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-    # Try PyPDF2 first (lighter dependency)
+    # Try pypdf first (lighter dependency)
     try:
-        from PyPDF2 import PdfReader  # type: ignore
+        from pypdf import PdfReader  # type: ignore
 
         reader = PdfReader(file_path)
         conversation_id = make_document_conversation_id(file_path)
