@@ -91,12 +91,12 @@ def _write_extension(
         if with_gui
         else ""
     )
-    disabled_line = "enabled: false\n" if disabled else ""
+    disabled_line = "enabled: false\n            " if disabled else ""
     # config is a TOP-LEVEL key per ADR-014 §6 (not under `contributes:`).
     if with_invalid_config_schema:
         config_line = (
             "config:\n"
-            "  schema: nonexistent_pkg.missing_mod:MissingClass\n"
+            "              schema: nonexistent_pkg.missing_mod:MissingClass\n"
         )
     else:
         config_line = "config: {}\n"
@@ -247,8 +247,10 @@ async def test_two_extensions_with_same_id_fails_cleanly(
     await host.validate()
     # Both records survive (keyed by directory name). Exactly one is VALIDATED
     # and the other is FAILED with an id-collision failure reason.
-    found = await host.discover()
-    states_by_dir = {rec.id: host.state(rec.id) for rec in found}
+    # NOTE: do NOT call discover() again — it resets states to DISCOVERED.
+    # Read from the registry directly.
+    records = host.registry.records()
+    states_by_dir = {rec.id: host.state(rec.id) for rec in records}
     assert ExtensionState.VALIDATED in states_by_dir.values()
     assert ExtensionState.FAILED in states_by_dir.values()
     # The FAILED record's failure reason mentions the id collision.
