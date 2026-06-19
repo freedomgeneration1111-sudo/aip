@@ -326,9 +326,29 @@ class ModelSlotResolver(ModelProvider):
         base_url = resolved["base_url"]
 
         if self._ci_mode:
-            # Deterministic fixture — content is a hash of the input for reproducibility
+            # Deterministic fixture — content is a hash of the input for reproducibility.
+            # Slot-specific fixtures: some slots have a documented JSON output contract
+            # that callers parse with json.loads(). Returning plain text for those slots
+            # breaks the contract and forces the caller into a fallback path.
+            # Currently slot-specific: "evaluation" → Aristotle EXAMINER's evaluate()
+            # expects {"score": float, "mastery_achieved": bool, "feedback": str}.
+            # The high score + mastery_achieved=True lets CI-mode dogfood runs exercise
+            # the mastered=True branch (without this, ARISTOTLE-DEBT-010 — the learner
+            # can never master anything in CI mode). Other slots keep the plain-text
+            # fixture (their callers don't parse JSON, or they have robust extraction
+            # like Sexton/Beast's find-first-bracket logic).
             prompt = messages[-1]["content"] if messages else ""
-            content = f"[CI-FIXTURE for {slot_name}] {prompt[:80]}..."
+            if slot_name == "evaluation":
+                import json as _json
+                content = _json.dumps({
+                    "score": 0.9,
+                    "mastery_achieved": True,
+                    "feedback": (
+                        f"[CI-FIXTURE for {slot_name}] {prompt[:60]}..."
+                    ),
+                })
+            else:
+                content = f"[CI-FIXTURE for {slot_name}] {prompt[:80]}..."
             log.debug("ci_fixture_response", slot=slot_name)
             return {
                 "content": content,
