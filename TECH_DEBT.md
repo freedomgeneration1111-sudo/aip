@@ -424,3 +424,80 @@ is the same in both package names; only the import path changed.
 - `pypdf` 5.9.0 (installed, exports `from pypdf import PdfReader`)
 
 ---
+
+## DEBT-013 — ExtensionHost.stop() leaves actor scheduler coroutines un-awaited (RuntimeWarning in tests)
+
+**Status:** Open — low priority (cosmetic, not a failure)
+**Phase:** ADR-014 Phase 0 Extension Platform / test teardown
+**Filed:** 2026-06-19
+
+**What's broken:**
+Both AIP_Brain's platform test suite (`tests/test_extension_lifecycle.py`)
+and AIP_Aristotle's test suite emit this warning on teardown:
+
+```
+RuntimeWarning: coroutine '_actor_scheduler_loop' was never awaited
+  gc.collect()
+RuntimeWarning: Enable tracemalloc to get traceback where the object was allocated
+```
+
+(Also surfaces as `PytestUnhandledThreadExceptionWarning` and, in some
+configurations, `RuntimeError: Event loop is closed` from aiosqlite's
+background worker thread.)
+
+The `ExtensionHost.start()` method spawns one `_actor_scheduler_loop`
+coroutine per registered actor (via `asyncio.create_task`) inside the
+test's event loop. When the test ends, pytest-asyncio closes the loop
+without giving the host a chance to cancel + await those tasks. The
+coroutines are then garbage-collected un-awaited, which Python flags as a
+RuntimeWarning.
+
+**Why it's low priority:**
+- All tests still PASS. The warning is noise, not a failure.
+- Production is unaffected — `lifespan` calls `await extensions_host.stop()`
+  on shutdown, which cancels + awaits the scheduler tasks correctly.
+- The warning only appears in test teardown because the test fixtures
+  construct an `ExtensionHost` directly and tear it down via garbage
+  collection rather than via an explicit `await host.stop()`.
+
+**Why deferred:**
+Fixing it properly requires either:
+1. Adding a `pytest_asyncio` fixture finalizer that explicitly calls
+   `await host.stop()` before the loop closes (preferred — small change
+   in `tests/test_extension_lifecycle.py`'s `host` fixture).
+2. Or making `ExtensionHost.stop()` more defensive — e.g. tracking the
+   scheduler tasks in a `set[asyncio.Task]` and `await asyncio.gather(
+   *[t for t in self._scheduler_tasks if not t.done()], return_exceptions=True)`
+   during stop. This is cleaner long-term but touches the production
+   `host.py` (so it needs a separate test + review).
+
+Option 1 is the right immediate fix; option 2 is a follow-up hardening
+if the same pattern shows up in other test suites.
+
+**Repro:**
+```
+cd AIP_Brain
+PYTHONPATH=src python -m pytest -q tests/test_extension_lifecycle.py
+# → 11 passed, 1 warning
+# warning: RuntimeWarning: coroutine '_actor_scheduler_loop' was never awaited
+```
+Same warning in `AIP_Aristotle`:
+```
+cd AIP_Aristotle
+python -m pytest -q
+# → 54 passed, 1 warning
+```
+
+**Related work:**
+- `src/aip/adapter/extensions/host.py` (start spawns tasks; stop should
+  cancel + await them — currently relies on lifespan in production but
+  not in tests)
+- `tests/test_extension_lifecycle.py` (`host` fixture — should call
+  `await host.stop()` in a finalizer)
+- `tests/test_extension_import_boundary.py` (same warning observed)
+- `AIP_Aristotle/tests/test_aristotle_tutoring.py::TestExaminerMethods::test_quiz_calls_evaluation_slot`
+  (same warning observed — surfaced because the Aristotle test fixture
+  also constructs an ExtensionHost)
+
+---
+
