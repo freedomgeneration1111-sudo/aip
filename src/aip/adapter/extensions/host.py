@@ -764,13 +764,14 @@ class ExtensionHost:
         # (ARISTOTLE has one corpus per extension in practice; multi-corpus
         # migration targeting is a v1.1+ concern.)
         #
-        # Path resolution (ADR-014 §6.3): manifest.migrations_path() returns
-        # extensions_dir / id / contributes.migrations, which equals
-        # rec.ext_dir / contributes.migrations. Same physical path.
+        # Path resolution: for filesystem-sourced extensions, the path is
+        # extensions_dir / id / migrations. For entry-point-sourced extensions,
+        # ext_dir is the package root (resolved via importlib.resources), so
+        # the path is ext_dir / migrations. Using rec.ext_dir handles both.
         if manifest.contributes.corpora:
             first_corpus_id = f"{manifest.id}:{manifest.contributes.corpora[0].role}"
             stores = await registry.get_stores(first_corpus_id)
-            migrations_dir = manifest.migrations_path(self._extensions_dir)
+            migrations_dir = rec.ext_dir / manifest.contributes.migrations
             loaded = load_migrations_dir(migrations_dir)
             if loaded:
                 await apply_extension_migrations(
@@ -799,7 +800,8 @@ class ExtensionHost:
         # Workflows: re-glob the extension's workflows_dir onto the
         # WorkflowRegistry via add_path() (ADR-014 §5.4). Also record each
         # workflow path on the extension record for the health surface.
-        workflows_path = manifest.workflows_path(self._extensions_dir)
+        # Use rec.ext_dir for path resolution (same fix as migrations).
+        workflows_path = rec.ext_dir / manifest.contributes.workflows_dir
         if workflows_path.exists():
             # Call add_path on the host-owned WorkflowRegistry (if wired).
             if self._workflow_registry is not None:
