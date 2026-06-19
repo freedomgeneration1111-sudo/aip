@@ -36,17 +36,26 @@ import gui.pages.retrieval_lab  # noqa: F401, E402 — registers "/retrieval"
 import gui.pages.settings  # noqa: F401, E402 — registers "/settings"
 import gui.pages.wiki  # noqa: F401, E402 — registers "/wiki"
 
-# ADR-014 v1.1: dynamically import extension GUI pages.
-# Extensions that are pip-installed and declare a `gui` module get their
-# page builder called here. The import is wrapped in try/except so a
-# missing or broken extension doesn't crash the GUI.
+# ADR-014 v1.1: dynamically discover extension GUI pages via entry points.
+# Extensions that have a GUI declare an "aip.extension_gui" entry point in
+# their pyproject.toml. We scan for it and load each module — the @ui.page
+# decorator inside registers the route. No named imports — fully dynamic.
 try:
-    import aristotle.gui as _aristotle_gui  # noqa: F401, E402 — registers "/learn"
-    log.info("aristotle GUI page mounted at /learn")
-except ImportError:
-    log.debug("aristotle.gui not available — extension not installed")
-except Exception as exc:
-    log.warning("aristotle GUI page failed to mount: %s", exc)
+    from importlib.metadata import entry_points as _entry_points
+
+    try:
+        _gui_eps = _entry_points(group="aip.extension_gui")
+    except TypeError:
+        _gui_eps = _entry_points().get("aip.extension_gui", [])
+
+    for _ep in _gui_eps:
+        try:
+            _ep.load()  # imports the module, triggering @ui.page registration
+            log.info("extension GUI mounted: %s", _ep.name)
+        except Exception as _exc:
+            log.warning("extension GUI %s failed to mount: %s", _ep.name, _exc)
+except Exception as _exc:
+    log.debug("extension GUI discovery skipped: %s", _exc)
 
 GUI_PORT = int(os.getenv("AIP_GUI_PORT", "8080"))
 GUI_RELOAD = os.getenv("AIP_GUI_RELOAD", "false").lower() in ("true", "1", "yes")

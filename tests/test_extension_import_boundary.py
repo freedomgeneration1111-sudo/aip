@@ -36,6 +36,7 @@ import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SRC_ROOT = PROJECT_ROOT / "src" / "aip"
+GUI_ROOT = PROJECT_ROOT / "gui"
 EXTENSIONS_ROOT = PROJECT_ROOT / "extensions"
 
 # ---------------------------------------------------------------------------
@@ -227,6 +228,46 @@ def test_platform_does_not_import_extensions():
         "The platform must not import from any extension package. "
         "Extensions are discovered dynamically (filesystem or entry points), "
         "never imported by name.\n  " + "\n  ".join(violations)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 2b: the GUI imports nothing from extensions by name
+# ---------------------------------------------------------------------------
+
+
+def test_gui_does_not_import_extensions():
+    """Nothing under gui/ imports from any extension package by name.
+
+    The GUI discovers extension pages via entry points
+    (aip.extension_gui group), not by named imports. A static
+    `import aristotle.gui` inside gui/ would couple the GUI to a specific
+    extension — a hard violation.
+
+    This test closes the gap where gui/app.py previously did
+    `import aristotle.gui` directly. The boundary test for src/aip/
+    (test_platform_does_not_import_extensions) does NOT cover gui/ —
+    this test does.
+    """
+    if not GUI_ROOT.exists():
+        pytest.skip("No gui/ directory present")
+
+    violations: list[str] = []
+
+    for py_file in _py_files(GUI_ROOT):
+        rel = py_file.relative_to(PROJECT_ROOT)
+        for module, lineno, style in _collect_imports(py_file):
+            if _is_extension_package(module):
+                violations.append(
+                    f"{rel}:{lineno} ({style}) — imports extension package {module!r} "
+                    f"(GUI must discover extension pages via entry points, never import by name)"
+                )
+
+    assert not violations, (
+        "The GUI must not import from any extension package by name. "
+        "Extension GUI pages are discovered via entry points "
+        "(aip.extension_gui group), not by named imports.\n  "
+        + "\n  ".join(violations)
     )
 
 
