@@ -331,12 +331,15 @@ class ModelSlotResolver(ModelProvider):
             # that callers parse with json.loads(). Returning plain text for those slots
             # breaks the contract and forces the caller into a fallback path.
             # Currently slot-specific: "evaluation" → Aristotle EXAMINER's evaluate()
-            # expects {"score": float, "mastery_achieved": bool, "feedback": str}.
-            # The high score + mastery_achieved=True lets CI-mode dogfood runs exercise
-            # the mastered=True branch (without this, ARISTOTLE-DEBT-010 — the learner
-            # can never master anything in CI mode). Other slots keep the plain-text
-            # fixture (their callers don't parse JSON, or they have robust extraction
-            # like Sexton/Beast's find-first-bracket logic).
+            # expects {"score": float, "mastery_achieved": bool, "feedback": str,
+            # "diagnosis": dict | None}. Phase B.5 (ADR-002 §3) added the diagnosis
+            # field — it's a dict when the answer is wrong, None when correct.
+            # The CI fixture returns the mastered/correct case (score=0.9,
+            # mastery_achieved=True, diagnosis=None) so CI-mode dogfood runs
+            # exercise the mastered=True branch (without this, ARISTOTLE-DEBT-010 —
+            # the learner can never master anything in CI mode). Other slots keep
+            # the plain-text fixture (their callers don't parse JSON, or they have
+            # robust extraction like Sexton/Beast's find-first-bracket logic).
             prompt = messages[-1]["content"] if messages else ""
             if slot_name == "evaluation":
                 import json as _json
@@ -346,6 +349,12 @@ class ModelSlotResolver(ModelProvider):
                     "feedback": (
                         f"[CI-FIXTURE for {slot_name}] {prompt[:60]}..."
                     ),
+                    # Phase B.5: diagnosis is None when mastery_achieved is True.
+                    # The CI fixture is deterministic (always the mastered case),
+                    # so diagnosis is always None here. Unit tests that need the
+                    # wrong-answer path use _FakeModelProvider with explicit
+                    # JSON responses including a diagnosis dict.
+                    "diagnosis": None,
                 })
             else:
                 content = f"[CI-FIXTURE for {slot_name}] {prompt[:80]}..."
