@@ -167,35 +167,30 @@ def build_left_nav(state: GuiState, active_page: str = "") -> None:
     # ADR-014 v1.1: collect nav items from built-in + extensions
     nav_items = list(_NAV_ITEMS)  # built-in: (label, route, icon) tuples
 
-    # Try to get extension nav items from the host
+    # Dynamically fetch extension nav items from /health/extensions.
+    # The response includes nav_items per MOUNTED extension — no hardcoded
+    # extension names. Any future extension declares its own nav entry in
+    # hooks.py via host.register_page() and appears here automatically.
     try:
-        from gui.api_client import AipApiClient
-        client = AipApiClient()
-        # The host's nav_items() returns NavItem dataclass instances with
-        # .label, .route, .icon, .order. We fetch them via the API client
-        # (the GUI is API-first — it doesn't import the host directly).
-        # For now, we read from the container via a simple HTTP call.
-        # If the server isn't reachable, extensions just don't show in nav.
-        import os
-        base_url = os.getenv("AIP_BACKEND_URL", "http://127.0.0.1:8000")
-        import httpx
+        import os as _os
+        import httpx as _httpx
+        _base_url = _os.getenv("AIP_BACKEND_URL", "http://127.0.0.1:8000")
         try:
-            resp = httpx.get(f"{base_url}/health/extensions", timeout=2.0)
-            if resp.status_code == 200:
-                data = resp.json()
-                for ext in data.get("extensions", []):
-                    if ext.get("state") == "MOUNTED":
-                        # Extension is mounted — its nav items are available
-                        # via the host. For pre-alpha, we hardcode the known
-                        # extension routes here. A future API endpoint will
-                        # expose nav_items() directly.
-                        ext_id = ext.get("id", "")
-                        if ext_id == "aristotle":
-                            nav_items.append(("Learn", "/learn", "school"))
+            _resp = _httpx.get(f"{_base_url}/health/extensions", timeout=2.0)
+            if _resp.status_code == 200:
+                _data = _resp.json()
+                for _ext in _data.get("extensions", []):
+                    if _ext.get("state") == "MOUNTED":
+                        for _nav in _ext.get("nav_items", []):
+                            nav_items.append((
+                                _nav["label"],
+                                _nav["route"],
+                                _nav["icon"],
+                            ))
         except Exception:
             pass  # Server not reachable — extensions don't show in nav
     except ImportError:
-        pass  # api_client not available — built-in nav only
+        pass  # httpx not available — built-in nav only
 
     with (
         ui.left_drawer(value=True)

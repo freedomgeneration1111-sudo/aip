@@ -226,7 +226,13 @@ class ExtensionRegistry:
     # ------------------------------------------------------------------
 
     def health_snapshot(self) -> list[dict]:
-        """Return a list of per-extension health dicts (id, version, state, failures)."""
+        """Return a list of per-extension health dicts.
+
+        Each dict includes: id, version, state, failures, and nav_items
+        (the GUI nav entries the extension registered via host.register_page).
+        The nav_items field lets the GUI render extension nav entries
+        dynamically — no hardcoded extension names in layout.py.
+        """
         out: list[dict] = []
         for rec in self._records.values():
             out.append({
@@ -234,6 +240,15 @@ class ExtensionRegistry:
                 "version": rec.manifest.version if rec.manifest else "unknown",
                 "state": rec.state.value,
                 "failures": [f.to_dict() for f in rec.failures],
+                "nav_items": [
+                    {
+                        "label": item.label,
+                        "route": item.route,
+                        "icon": item.icon,
+                        "order": item.order,
+                    }
+                    for item in rec.nav_items
+                ],
             })
         # Sort by id for stable output.
         out.sort(key=lambda h: h["id"])
