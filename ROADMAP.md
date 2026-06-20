@@ -1,15 +1,15 @@
-# AIP Roadmap
+# AIP Brain Roadmap
 # DEFINER: B. Moses Jorgensen
-# Last Updated: 2026-06-18 (Phase 0 Extension Platform complete — ARISTOTLE extracted)
+# Last Updated: 2026-06-20
 # Process: Update this document after each significant build session or architectural decision.
-# Release: 0.1.0-alpha (Alpha Test Release)
+# Release: 0.1.0-alpha (extension platform + ARISTOTLE dogfood-ready)
 
 ---
 
 ## How to Read This Document
 
 Status indicators:
-- ✅ COMPLETE — built, tested, in production use
+- ✅ COMPLETE — built, tested, in use
 - ⏳ IN PROGRESS — actively being built
 - 🔲 PLANNED — decided, not yet started
 - 💡 PROPOSED — under consideration, not yet decided
@@ -20,387 +20,97 @@ the roadmap, update both documents.
 
 ---
 
-## PHASE 0 — Foundation
-*Core artifact lifecycle, storage, and evaluation pipeline.*
-*Status: ✅ COMPLETE*
+## Current State (verified, not reconstructed)
 
-- ✅ Three-layer architecture (foundation → orchestration → adapter)
-- ✅ ECS state machine (SPECIFIED→GENERATED→REVIEWED→APPROVED→SUPERSEDED)
-- ✅ Persistent SQLite stores (artifacts, ECS, events, lexical, projects)
-- ✅ FTS5 full-text search with domain filtering
-- ✅ Model dispatch (Ollama + OpenAI-compatible, all slots)
-- ✅ Review/approve/reject/export pipeline
-- ✅ DEFINER sovereignty gates (no auto-approve in MANUAL mode)
-- ✅ Auth system (laptop: disabled by default, production: required)
-- ✅ FastAPI backend with 11+ routers
-- ✅ Click CLI (init, status, ingest, ask, review, export, eval)
-- ✅ CI gates (ruff format, ruff check, pytest 1000+ tests)
-- ✅ Docker profiles (laptop + production)
-- ✅ Beast actor (background scheduler, health checks, context advisory)
-- ✅ Vigil actor (quality evaluation, retrieval quality gate, LLM faithfulness)
-- ✅ Sexton actor (built with all 5 ops; wired into app.py — DEBT-006 resolved)
-- ✅ Autonomy gate with audit trail
-- ✅ Budget enforcement
-- ✅ MCP server (scaffold — tool listing real, dispatch scaffold)
-- ✅ Alerting system (webhook, email, WebSocket, SSE, digest, muting)
-- ✅ VigilQualityStore (persistent quality history with retention and rollup)
-- ✅ Read pool with auto-sizing
-- ✅ Config hot-reload (safe keys)
+**Test count:** 60 passed, 1 skipped (platform suite — 6 files: extension lifecycle,
+import boundary, actor protocol, extended workflows, workflow engine wiring,
+model slot resolver). 0 warnings.
+
+**What is built and passing:**
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Multi-corpus architecture (ADR-008) | ✅ | All 9 chunks complete. CorpusRegistry, migration runner, retrieval scoping, graph bridge edges, code corpus ingest. |
+| Extension platform (ADR-014 steps 0–6) | ✅ | ExtensionHost lifecycle, entry-point discovery, Actor Protocol, WorkflowEngine, `/health/extensions`, GUI mount (stage 4), import boundary test. |
+| ARISTOTLE integration | ✅ | Entry-point discovery, router mount in lifespan (DEBT-014), CLI URL fix (DEBT-009). |
+| ActorResult.data field | ✅ | Added `data: Any = None` to ActorResult (DEFINER decision ADR-002 §16 #4). |
+| Model slot resolver CI fixture | ✅ | Evaluation slot returns JSON with diagnosis field. ARISTOTLE-DEBT-010 resolved. |
+| ExtensionHost test fixture teardown | ✅ | DEBT-013 resolved — 0 warnings in platform suite. |
+| pypdf import fix | ✅ | DEBT-012 resolved — `from pypdf import PdfReader` (not PyPDF2). |
+| Fusion pipeline | ✅ | Retrieval bridge, Judge/Synth split, per-model compression, provenance widget. |
+| ADR-014 Amendment A1 | ✅ | Extension UI visibility via known-list health polling (docs-only — implementation is in the GUI phase below). |
 
 ---
 
-## PHASE 1 — Corpus Intelligence
-*Turn-level corpus ingestion, tagging, and retrieval.*
-*Status: ✅ COMPLETE (core)*
+## Immediate Next — GUI Phase (no blockers)
 
-### 1.1 Turn-Level Corpus Foundation
-- ✅ CorpusTurn schema (atomic unit: user+assistant pair with thinking_text)
-- ✅ CorpusTurnStore (SQLite + FTS5 + Beast tagging path)
-- ✅ make_turn_id (deterministic, idempotent)
-- ✅ thinking_text field (extended thinking preserved separately from assistant_text)
+Ordered by dependency:
 
-### 1.2 Source Parsers
-- ✅ Claude export parser (conversations.json, handles all content block types)
-- ✅ 2,691 turns ingested from claude_export_june_2026
-- ✅ 1,743 turns with extended thinking blocks preserved
-- 🔲 ChatGPT export parser (tree-structure conversation format)
-- 🔲 DeepSeek export parser
-- 🔲 GLM export parser
-- 🔲 Gemini export parser
-- 🔲 xAI/Grok export parser
-- 🔲 Plain text / sermon transcript parser (for external corpora)
-- 🔲 PDF parser (for academic papers and books)
-- 🔲 Web crawl / sitestrip parser (for external research corpora)
+  [Brain] 1. ADR-014 A1 implementation: Extension UI sidebar visibility
+             (ui.timer + ui.refreshable + KNOWN_EXTENSIONS config in
+             config/aip.config.toml [extensions] section)
+  [Brain] 2. Three-panel shell restructure (left drawer + right drawer + main chat)
+  [Brain] 3. + menu (Upload PDF, Upload Image, Voice mode, Chat settings,
+             extension items below divider)
+  [Brain] 4. Extension mode shift (header accent, mode label, sidebar open/close)
+  [Arst]  5. ARISTOTLE stats page (/aristotle/stats — mastery, misconceptions, patterns)
+  [Arst]  6. ARISTOTLE learning map (/aristotle/map — concept graph, progress)
+  [Arst]  7. ARISTOTLE settings page (/aristotle/settings — preferences)
+  [Arst]  8. Right panel: mastery state + concept progress (collapsible)
+  [Arst]  9. OCR path via pytesseract (pypdf fix already done — DEBT-012 resolved)
+  [Arst] 10. Voice mode toggle (Web Speech API — contributed via Brain core + menu)
+  [Arst] 11. Teacher dashboard (Komal's interface — revised per UI_CONVENTIONS.md)
 
-### 1.3 Beast Turn Tagging
-- ✅ Domain registry (docs/beast_domain_registry_v1.md)
-- ✅ DomainRegistry loader (load_registry, DomainEntry, ConnectorEntry)
-- ✅ Beast _run_turn_tagging (batch-8 LLM tagging)
-- ✅ Domain proposal system (Beast proposes → DEFINER approves)
-- ✅ Connector proposal system
-- ✅ aip corpus tag CLI (--limit, --retag)
-- ✅ 2,681 turns tagged (tagging_version > 0)
-- ✅ Registry v1.0: 26 domains, 13 connectors
-- ✅ Registry v1.1: aip hall model, ancient_archaeology, agi_philosophy
-- 🔲 Registry v1.2: (future — based on Beast proposals and dogfood observations)
+**Note:** The pypdf import fix listed as step 9 in the user's prompt is already
+done (DEBT-012 resolved at commit 48aea1a). OCR is NOT blocked by a pypdf fix —
+it is only blocked on the OCR implementation itself (pytesseract pipeline).
 
-### 1.4 Embedding Pipeline & Hybrid Retrieval
-- ✅ Embed corpus_turns.searchable_text using embedding slot (infrastructure complete)
-- ✅ Store vectors keyed by turn_id in vector store (SqliteVssVectorStore)
-- ✅ Hybrid FTS5+vector scoring via RRF fusion in RetrievalOrchestrator
-- ✅ Channel weights configurable in aip.config.toml (vector=0.6, fts=0.4, corpus=0.4)
-- ✅ Coverage-aware gating (min_vector_coverage=0.10, graceful FTS5 fallback)
-- ✅ Background embedding pass in Sexton _run_embedding_pass (built, not wired — DEBT-006)
-- ✅ Re-embedding on model slot change (infrastructure complete)
-- ✅ Retrieval evaluation harness (`aip eval retrieval` with --mode flag)
-- ✅ Channel weight tuning script (`scripts/retrieval_weight_tuning.py`)
-- ✅ Vigil retrieval quality gate (periodic precision@5 sampling with alerting)
-- ✅ Golden queries with corpus-mapped IDs (`tests/retrieval_goldens/golden_queries.json`)
-- ✅ Baseline benchmark (`docs/retrieval_benchmark_baseline.json`)
-
-**Remaining gap:** ~1.8% embedding coverage (50/2766 turns). Full pass requires DEBT-006 fix.
-
-### 1.5 Multi-Corpus Architecture
-- ✅ **COMPLETE — ADR-008 Rev 3.1** (supersedes ADR-004). All 9 chunks shipped:
-  - ✅ Chunk 1: Foundation types + ECS ARCHIVED state (complete, 43 tests)
-  - ✅ Chunk 2: CorpusRegistry + Factory (complete, 55 tests — includes 2a shared connection manager APPROVED, 2b migration runner, 2c 5-scheduler gate)
-  - ✅ Chunk 8: ECS/ArtifactStore per corpus (complete, 29 tests — delete_turn, artifact_turn_links/M004, durable outbox, revision_parent_id, aip audit log)
-  - ✅ Chunk 3: Call-site migration (complete — registry wired into lifespan, legacy singletons are delegating properties, 302 tests pass)
-  - ✅ Chunk 4: Retrieval scoping (complete, 21 tests — fusion-layer ECS filter §A2, hit ID namespacing, cache key, Branham graceful degrade §A12, assemble_augmented_context multi-corpus path)
-  - ✅ Chunk 5: Session/project binding + custom-channel scoping (complete, 30 tests — session_corpus_binding §5 policy, custom_channel_scoping §A14 ScopedCorpusStores, GUI corpus_selector)
-  - ✅ Chunk 6: Graph bridge edges + actor GraphStore refactor (complete, 17 tests — GraphEdge.target_corpus_id §A7, M002 migration, 4 new GraphStore methods, _reconcile_bridge_edges §A13, delete_corpus bridge cleanup)
-  - ✅ Chunk 7: Code corpus ingest (complete, 24 tests — Python AST parser: functions/classes/module registration calls, stale detection via content_hash, 3 golden queries acceptance tests. Delivers Phase 1.6 Codebase-as-Corpus)
-  - ✅ Chunk 9: Acceptance suite + aip corpus migrate --force + aip backup rewrite (complete, 19 acceptance tests AC-01 through AC-09, strategy A backup, corpus migrate CLI)
-- 🔲 Branham research corpus (1200 sermons + books + critic sites) — post-Chunk 9
-- 🔲 NBCM citations corpus (academic papers across relevant domains) — post-Chunk 9
-- SEE: `docs/decisions/ADR-008-multi-corpus-architecture-rev3.md` + Amendment (supersedes ADR-004)
+See `docs/UI_CONVENTIONS.md` for the governing UI conventions document.
+See `PLANNED_FEATURES.md` → "GUI Phase — Core Shell Features" for the feature spec.
 
 ---
 
-## PHASE 2 — Knowledge Synthesis
-*Beast-generated wiki, knowledge graph, and cross-corpus intelligence.*
-*Status: ✅ COMPLETE (core)*
+## Blocked (do not schedule until unblocked)
 
-### 2.1 Beast Wiki Generation
-- ✅ Domain article generation (300-500 words per active domain)
-- ✅ Wiki articles as GENERATED artifacts → DEFINER review → APPROVED
-- ✅ BeastContextPreparer reads approved wiki as domain overview
-- ✅ Wiki update triggered by Sexton cycle (not on timer)
-- ✅ Wiki versioning (new article supersedes old on regeneration)
-
-### 2.2 Knowledge Graph
-- ✅ Entity extraction from corpus_turns (people, concepts, projects, places)
-- ✅ Relationship inference (bridge-tagged turns → graph edges)
-- ✅ Graph store (SQLite, synchronous GraphStore)
-- ✅ Graph-aware retrieval (PersonalizedPageRank in GraphRetriever)
-- ✅ Graph visualization in UI (Cytoscape.js at /graph-viz)
-- ✅ Entity alias registry (22 entries)
-- SEE: ADR-007-knowledge-graph-architecture.md
-
-### 2.3 Domain Export Packages
-- 🔲 Export mechanism: filter corpus by domain → standalone package
-- 🔲 Package format: db + wiki + graph + embeddings as archive
-- 🔲 Versioned packages (v1.0, v2.0 as corpus grows)
-- 🔲 Package recipient model (share without exposing personal corpus)
-- SEE: ADR-004-multi-corpus-architecture.md
+- **HERALD Phase C (ARISTOTLE):** blocked on Brain web/feed layer (ADR-014 §3.4 — not started)
+- **Web-search material sourcing:** same block as HERALD
+- **MCP transport (stdio/SSE):** deferred — not on current roadmap
 
 ---
 
-## PHASE 3 — Actor Intelligence
-*Beast, Vigil, and Sexton functioning as genuine intelligence layer.*
-*Status: ✅ COMPLETE (code); DEBT-006 wiring gap remains*
+## Deferred (conscious decisions, not forgotten)
 
-### 3.1 Beast (Corpus Intelligence)
-- ✅ Background scheduler (health check, entity check, heartbeat)
-- ✅ Beast LLM slot (nvidia/nemotron-3-super-120b-a12b)
-- ✅ Domain summary generation (event-driven, not timer-driven)
-- ✅ BeastContextPreparer (retrieval + domain overview in augmented chat)
-- ✅ Context advisory injected into synthesis model system prompt
-- 🔲 Beast reads wiki artifacts as enhanced domain overview (maintenance)
-- 🔲 Beast corpus health reporting (coverage gaps, stale artifacts) (maintenance)
-- 🔲 Beast re-tagging trigger (when registry changes, retag affected turns) (maintenance)
-
-### 3.2 Vigil (Quality Evaluation)
-- ✅ Vigil scheduler (runs every 3600s)
-- ✅ Vigil model slot (openai/gpt-oss-20b)
-- ✅ Model slot change → mark canonicals for re-evaluation
-- ✅ Faithfulness scorer (LLM-powered faithfulness checking, graduated Sprint 5.24)
-- ✅ Citation rate scoring (pure-Python, always runs)
-- ✅ Quality gate (flag responses that cite sources poorly)
-- ✅ Vigil evaluation report as reviewable artifact
-- ✅ Retrieval quality gate (precision@5 sampling with alerting, Sprint 6.4)
-- ✅ VigilQualityStore (persistent history with retention/rollup)
-- ✅ Trend tracking and degradation alerting
-
-### 3.3 Sexton (Background Maintenance)
-- ✅ Deterministic rules for failure types A-F + 7 special conditions
-- ✅ Full Sexton actor (actors/sexton.py, 5 operations: tagging, embedding, wiki, graph, classification)
-- ✅ Sexton model slot (google/gemma-4-26b-a4b-it)
-- ❌ **NOT WIRED** — DEBT-006: app.py still calls old Sexton. All maintenance ops are dead code until wired.
-
----
-
-## PHASE 4 — UI and Experience
-*Making the knowledge engine usable and transparent.*
-*Status: PARTIAL*
-
-### 4.1 Augmented Chat UI
-- ✅ Basic chat working (CHAT and AUGMENTED tabs)
-- ✅ Auto-save to corpus on chat turn completion
-- ✅ Beast context advisory injected in augmented mode
-- 🔲 Show retrieved domain in chat
-- 🔲 Show source citations inline in response
-- 🔲 Show domain overview in chat (collapsible Beast summary)
-- 🔲 Corpus selector in UI
-
-### 4.2 Corpus Browser
-- ✅ aip history list / aip history show (CLI)
-- 🔲 Domain distribution view
-- 🔲 Turn browser (search by domain, filter by importance)
-- 🔲 Turn detail view
-- 🔲 Domain proposal review UI
-
-### 4.3 Knowledge Graph UI
-- ✅ Interactive graph visualization (/graph-viz, Cytoscape.js)
-- 🔲 Entity search and navigation
-- 🔲 Relationship explorer
-
-### 4.4 Slot and Model Management
-- ✅ Actor Roles panel in GUI
-- ✅ Five slots visible (synthesis, beast, vigil, sexton, embedding)
-- 🔲 Per-slot model selector in Actor Roles panel
-- 🔲 Slot health indicator
-
----
-
-## PHASE 5 — Production and Scale
-*Multi-user deployment, hardening, and sharing.*
-*Status: DEFERRED (maintenance mode)*
-
-- 🔲 Multi-user support (per-user corpora, shared canonicals)
-- 🔲 Real MCP tool dispatch (search, approve, config via MCP)
-- 🔲 Adaptive router (weight routes from outcomes, not random)
-- 🔲 ScriptNode sandbox (safe execution environment)
-- 🔲 Streaming model support
-- 🔲 PostgreSQL migration for production
-- 🔲 Review queue web UI for MANUAL mode
-- 🔲 Per-component performance metrics (not estimated)
-- 🔲 Onboarding flow for new users (export import wizard)
-
----
-
-## PHASE 6 — Fusion Pipeline (2026-06-17)
-*Multi-model synthesis upgrade — OpenRouter Fusion-style architecture.*
-*Status: ✅ COMPLETE*
-
-- ✅ Phase 1: Retrieval bridge — shared `_augmented_context.py` helper, both chat.py and model_council.py call the same retrieval pipeline (fixes the AIP-acronym bug)
-- ✅ Phase 1: Two-stage Fusion pipeline (Judge-Beast → Synth-Beast) with per-call timeouts + engine fallback
-- ✅ Phase 1: Multi-select dropdown (models NOT tied to actor slots/roles) + `skip_default_slots` flag
-- ✅ Phase 1: `assemble_augmented_context` flag (GUI sends when augmented mode is on) — dogfood-confirmed
-- ✅ Phase 1: Panel dispatch remediation (Bug 1: behavioral system prompt + Bug 2: [PANEL] log markers + DISPATCH_ERROR stubs)
-- ✅ Phase 2: `blind_spots[]`, `partial_coverage[{models[], point}]` (2 to N-1 boundary), `unique_insights[{model, insight}]` attribution
-- ✅ Phase 2: Per-model compression pass (`compress_panel_outputs` flag — opt-in)
-- ✅ Phase 2: PDF Part IX test suite (9 net-new tests)
-- ✅ Phase 3: Per-model attribution badges (deterministic 8-color palette in panel + markdown)
-- ✅ Phase 3: Per-model stance color-coding on contradictions
-- ✅ Phase 3: Dedicated `[models.judge]` TOML slot (preference 0 in `_pick_fusion_engine`)
-- ✅ Phase 3: GUI toggle for `compress_panel_outputs`
-- ✅ Phase 4.1: Real-time provenance feedback widget (inline source strip on answer cards)
-- ✅ Phase 4.1: Context Preparer visualizer (4-step fusion flow diagram in trace panel)
-- ✅ Phase 4.1: Automated consistency-checker (Vigil 5th evaluation pass — cross-turn contradiction detection)
-
----
-
-## PHASE 1.6 — Codebase-as-Corpus (FUTURE)
-*Parse the codebase itself into a queryable corpus — closes the "advice in the dark" gap.*
-*Status: 💡 PROPOSED*
-
-- 💡 Python AST → CorpusTurn format parser (functions, classes, modules as "turns")
-- 💡 Code dependency graph (Graph B): modules, functions, classes, tests — with `imports`, `calls`, `tests`, `implements` edges
-- 💡 Cross-graph edges: conversation turns that reference code get `references` edges; ADRs that decided code patterns get `decided` edges
-- 💡 Re-ingest trigger: CI hook on commit OR Sexton file-watcher that detects `.py` changes and queues a re-parse pass
-- 💡 Cross-corpus RRF fusion: a query about DEBT-006 would return both the roadmap mention AND the actual `sexton.py` file AND the `app.py` call site
-
-See `PLANNED_FEATURES.md` → "Codebase-as-Corpus" for the full architectural sketch.
-
----
-
-## Maintenance Mode → Active Development Transition
-
-**Effective:** 2026-06-17 (post Fusion pipeline)
-
-The project transitioned from maintenance mode back to active development
-for the Fusion pipeline upgrade (Phases 1-3 + 4.1). The Fusion pipeline is
-now feature-complete. The system is stable for local development, evaluation,
-and dogfood usage. Future work is tracked in `PLANNED_FEATURES.md`.
-
-Remaining items:
-1. **Operational** — Run the server long enough for Sexton to close the 1.8% embedding gap
-2. **Long-term** — Codebase-as-corpus (Phase 1.6, proposed)
-3. **Long-term** — Adaptive per-query retrieval weighting (enhancement over existing fixed weights)
-4. **Long-term** — Learned entity resolution (enhancement over static alias registry)
-
----
-
-## Ongoing / Evergreen
-
-- 🔄 Domain registry maintenance (review Beast proposals, update registry)
-- 🔄 Corpus retag passes (after registry updates)
-- 🔄 Monthly Claude export ingest
-- 🔄 Other platform exports as parsers are built
-- 🔄 STATUS.md kept current after each build session
-- 🔄 ADRs written for each significant architectural decision
-- 🔄 Re-run retrieval evaluation after significant corpus changes
-- 🔄 PLANNED_FEATURES.md kept current (move items from Near-Term to Already Built when shipped)
+- Self-registration protocol (ADR-014 Amendment A1 — deferred until third-party extensions)
+- Desktop shell migration (NiceGUI → PyWebView → Tauri)
+- Loom as extension
+- CodeForge as extension
+- Agent Studio, Company Brain, Federation, Praxis, Chronicle, Astra (not yet specced)
+- Third-party extension support
+- Multi-tenant / enterprise features
+- Per-exception HTTP handlers (nice-to-have)
+- MCP tools (ADR-014 step 7, v1.2 — not needed for ARISTOTLE)
 
 ---
 
 ## Version History
 
-| Date       | Change                                      | Author  |
-|------------|---------------------------------------------|---------|
-| 2026-06-04 | Initial roadmap created from repo audit     | Claude + Moses |
-| 2026-06-04 | Phase 1 corpus work reflected               | Claude + Moses |
-| 2026-06-10 | Sprint 6.4 completion; maintenance mode     | Claude + Moses |
-| 2026-06-10 | Alpha test release; documentation refresh   | Claude + Moses |
+| Date | Change | Author |
+|------|--------|--------|
+| 2026-06-04 | Phase 1 corpus work reflected | Claude + Moses |
+| 2026-06-10 | Sprint 6.4 completion; maintenance mode | Claude + Moses |
+| 2026-06-10 | Alpha test release; documentation refresh | Claude + Moses |
 | 2026-06-17 | Phase 6: Fusion pipeline complete; Phase 1.6 proposed; DEBT-006 reference fixed | Super Z |
-| 2026-06-18 | ADR-008 Multi-Corpus Chunk 1 complete: ARCHIVED terminal state added to ECS graph, 4 foundation files created, 43 tests. Phase 1.5 marked IN PROGRESS. | GLM (Coding Agent) |
-| 2026-06-18 | ADR-008 Multi-Corpus Chunk 2 complete: CorpusRegistry + Factory + shared connection manager (§A0) + migration runner (§A8) + 5-scheduler gate (§A5). 55 tests. | GLM (Coding Agent) |
-| 2026-06-18 | ADR-008 Multi-Corpus Chunk 8 complete: ECS/ArtifactStore per corpus. delete_turn, states_for, revision_parent_id, M004/M005, durable outbox, transition_artifact, list_review_items, backfill, aip audit log CLI. 29 tests. | GLM (Coding Agent) |
-| 2026-06-18 | ADR-008 Multi-Corpus Chunk 3 partial: call-site migration infrastructure. corpus_registry field + definer_stores property on AipContainer. AskStores.from_corpus_stores (§A1). set_embedding_provider registry-aware (§A6). 12 tests. Mechanical rewrite of 264 sites deferred. | GLM (Coding Agent) |
-| 2026-06-18 | ADR-008 Multi-Corpus Chunk 4 complete: Retrieval scoping. corpus_retrieval.py: namespace_hit_id, corpus_aware_cache_key, filter_excluded_states (§A2), gather_corpus_results (§A12). assemble_augmented_context multi-corpus path. 21 tests. | GLM (Coding Agent) |
-| 2026-06-18 | ADR-008 Multi-Corpus Chunk 5 complete: Session/project binding + custom-channel scoping. session_corpus_binding.py (§5 policy enforcement). custom_channel_scoping.py (§A14 ScopedCorpusStores). GUI corpus_selector.py. 30 tests. | GLM (Coding Agent) |
-| 2026-06-18 | ADR-008 Multi-Corpus Chunk 6 complete: Graph bridge edges. GraphEdge.target_corpus_id (§A7). M002 migration. 4 new GraphStore methods. _reconcile_bridge_edges (§A13). delete_corpus bridge cleanup. 17 tests. | GLM (Coding Agent) |
-| 2026-06-18 | ADR-008 Multi-Corpus Chunk 7 complete: Code corpus ingest. python_ast_parser.py (functions/classes/module registration). code_ingest_pipeline.py (stale detection). 3 golden queries acceptance tests. 24 tests. Delivers Phase 1.6. | GLM (Coding Agent) |
-| 2026-06-18 | ADR-008 Multi-Corpus Chunk 9 complete (FINAL): Acceptance suite AC-01 through AC-09 (19 tests). aip corpus migrate --force CLI. aip backup strategy A rewrite. Phase 1.5 marked COMPLETE. All 9 chunks shipped. | GLM (Coding Agent) |
+| 2026-06-18 | ADR-008 Multi-Corpus Chunks 1–9 complete (all chunks). 43+55+29+12+21+30+17+24+19 tests across the sequence. Phase 1.5 marked COMPLETE. | GLM (Coding Agent) |
+| 2026-06-18 | **Phase 0 Extension Platform (ADR-014) complete.** ExtensionHost lifecycle, entry-point discovery, Actor Protocol, WorkflowEngine wired, `/health/extensions` endpoint, import boundary test. ARISTOTLE extracted to separate repo. Chunk 3 wiring verified LIVE. | Super Z (main) |
+| 2026-06-19 | DEBT-013 (coroutine warning) resolved — platform test suite at 0 warnings. DEBT-014 (extension router mount) resolved. DEBT-009 (CLI URL) resolved. ActorResult.data field added (DEFINER decision ADR-002 §16 #4). Model slot resolver CI fixture extended with diagnosis field. | Super Z (main) |
+| 2026-06-20 | ADR-014 Amendment A1 accepted (extension UI visibility via known-list health polling). UI_CONVENTIONS.md created. GUI Phase section added to PLANNED_FEATURES.md. Roadmap rewritten to reflect current state + GUI phase as immediate next. | Super Z (main) |
 
 ---
 
-## PHASE 0 — Extension Platform (ADR-014)
-*The platform becomes a platform. Extensions mount through a declared manifest.*
-*Status: ✅ COMPLETE (v1.0 backend) — v1.1 GUI mount + v1.2 MCP tools deferred*
+## Ongoing / Evergreen
 
-### What shipped (this session)
-
-| Step | What | Status |
-|------|------|--------|
-| 0 | Branham audit-action rename (`BRANHAM_POLICY_TRIGGERED` → `RESTRICTED_CORPUS_ACCESS_DENIED`) | ✅ |
-| 1 | ExtensionHost skeleton + lifecycle (discover/validate/migrate/register/ready/stop) | ✅ |
-| 2 | WorkflowRegistry + WorkflowEngine wired into container; `/health/extensions` endpoint | ✅ |
-| 3 | Actor Protocol (`Actor`/`ActorContext`/`ActorResult`) in foundation, runtime_checkable | ✅ |
-| 4 | MigrationLoader (separate `extension_applied_migrations` table) | ✅ |
-| 5 | Manifest v1 validator (pydantic v2); cross-stage coherence deferred | ✅ partial |
-| 6 | v1.1 GUI mount (`register_gui_page` + stage 4) | 🔲 deferred |
-| 7 | v1.2 MCP tools (`McpToolRegistry`) | 🔲 deferred |
-
-### Platform infrastructure
-
-- ✅ `src/aip/adapter/extensions/` — the host package (host.py, manifest.py, registry.py, state.py, supervision.py, loaders/migration_loader.py)
-- ✅ Entry-point discovery via `importlib.metadata.entry_points(group="aip.extensions")` — replaces the sys.path hack
-- ✅ `tests/test_extension_import_boundary.py` — machine-enforced SoC boundary (extensions import only `aip.foundation.protocols.*` + `aip.adapter.extensions` + `aip.foundation.schemas`; platform imports nothing from extensions)
-- ✅ `tests/test_extension_lifecycle.py` — 11-test TDD contract (10 GREEN for v1.0, 1 `xfail(strict=True)` for v1.1 GUI)
-- ✅ `tests/test_actor_protocol.py` — 11 Protocol conformance tests
-- ✅ ADR-014 (`docs/decisions/ADR-014-phase0-extension-host.md`) — the build spec
-
-### Chunk 3 wiring — VERIFIED LIVE
-
-**The 150 call sites that reference `container.corpus_turn_store` / `artifact_store` / `ecs_store` ARE already getting registry-served stores.** The "mechanical rewrite of 264 call sites" mentioned in earlier changelogs is cosmetic cleanup, not functional. The registry is serving the live app via the delegating-property pattern:
-
-1. `CorpusRegistry.startup()` runs in lifespan, registers the `definer` corpus.
-2. `container.definer_stores` is a `@property` that reads `registry._definer_stores`.
-3. `container.corpus_turn_store` / `artifact_store` / `ecs_store` are `@property` delegators that return `definer_stores.<store>` when wired, falling back to `_legacy_*` singletons otherwise.
-4. The lifespan explicitly overwrites the legacy attrs with the registry's stores (belt-and-suspenders).
-
-**Implication for ARISTOTLE:** when ARISTOTLE's actors call `ctx.container.corpus_registry.get_stores("aristotle:textbook")`, they get real per-corpus stores. The registry is live. ARISTOTLE Phase A completion is NOT blocked by Chunk 3.
-
-### Wrap-up scope (commit for testing)
-
-The platform is ready for testing. The following is the wrap-up scope to commit before ARISTOTLE development accelerates:
-
-1. ✅ **Entry-point discovery** — done (replaces sys.path hack)
-2. ✅ **Import boundary test** — done (machine-enforced SoC)
-3. ✅ **ARISTOTLE extracted** to separate repo — done
-4. ✅ **`/health/extensions` endpoint** — done
-5. ✅ **WorkflowEngine wired** — done
-6. 🔲 **Per-exception HTTP handlers** — `RestrictedCorpusAccessViolation` → 403, `CorpusNotFound` → 404, `CorpusMigrationError` → 503, `DeletionStateError` → 409 (ADR-014 §7). Two afternoons; the GUI needs this for meaningful error rendering. NOT a blocker for ARISTOTLE backend testing.
-7. 🔲 **Cross-stage coherence checks** in manifest validator (ADR-014 §8 step 5 remainder). Nice-to-have; pydantic handles structural validation.
-
-Items 6–7 are NOT blockers for testing. The platform can be tested now with ARISTOTLE installed.
-
-### Deferred (not blockers)
-
-- ❌ **PluginManager wiring** — one-line fix to stop 503s from dead REST/CLI surfaces. Orthogonal to extension lifecycle.
-- ❌ **McpToolRegistry** — v1.2. The hardcoded `TOOLS` list still works.
-- ❌ **GUI mount (stage 4)** — v1.1. The `xfail(strict=True)` test is waiting. Needed before ARISTOTLE has a GUI learning view; backend is testable now.
-- ❌ **Web/feed layer (ADR-014 §3.4)** — needed for ARISTOTLE Phase C (HERALD). Not started.
-- ❌ **Chunk 3 mechanical call-site rewrite** — cosmetic cleanup. The delegating properties make it unnecessary for function.
-
----
-
-## How to test the platform (for the DEFINER)
-
-```bash
-# Clone + install (editable)
-git clone https://github.com/freedomgeneration1111-sudo/AIP_Brain.git
-cd AIP_Brain
-pip install -e .
-
-# Install ARISTOTLE (editable)
-git clone https://github.com/freedomgeneration1111-sudo/AIP_Aristotle.git
-cd AIP_Aristotle
-pip install -e .
-
-# Back to AIP_Brain, run the platform
-cd ../AIP_Brain
-uv run pytest tests/test_extension_lifecycle.py tests/test_actor_protocol.py tests/test_extension_import_boundary.py tests/test_workflow_engine_wiring.py -v
-
-# Or start the server (ARISTOTLE mounts automatically via entry-point discovery)
-./start.sh
-# Check extension health
-curl http://127.0.0.1:8000/health/extensions
-```
-
-The `/health/extensions` endpoint should return ARISTOTLE in `REGISTERED` state.
-
-| 2026-06-18 | ADR-008 Multi-Corpus Chunk 9 complete (FINAL): Acceptance suite AC-01 through AC-09 (19 tests). aip corpus migrate --force CLI. aip backup strategy A rewrite. Phase 1.5 marked COMPLETE. All 9 chunks shipped. | GLM (Coding Agent) |
-| 2026-06-18 | **Phase 0 Extension Platform (ADR-014) complete.** ExtensionHost lifecycle, entry-point discovery, Actor Protocol, WorkflowEngine wired, `/health/extensions` endpoint, import boundary test. ARISTOTLE extracted to separate repo (AIP_Aristotle). Chunk 3 wiring verified LIVE (delegating properties serve registry stores to 150 call sites). Platform ready for testing with ARISTOTLE installed. | Super Z (main) |
+- Keep `PLANNED_FEATURES.md` current (move items from Near-Term to Already Built when shipped)
+- Keep `STATUS.md` current after each build session
+- Keep `TECH_DEBT.md` current (file new debt, mark resolved debt)
+- Write ADRs for each significant architectural decision
+- Log every platform-reach as a Phase 0 protocol gap

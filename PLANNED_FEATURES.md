@@ -176,6 +176,50 @@ be an enhancement over the current PersonalizedPageRank approach.
 
 ---
 
+## GUI Phase — Core Shell Features
+
+The next development phase is the GUI shell restructure per
+`docs/UI_CONVENTIONS.md`. No external blockers — all depend on
+platform capabilities already built (NiceGUI, ui.timer, ui.refreshable).
+
+### 1. Three-panel shell (NiceGUI implementation)
+
+- Left drawer: core links (Home, Search, Corpus) + dynamic extension
+  items (appear only when the extension backend is running)
+- Right drawer: collapsible extension context panel (mastery state,
+  terminal, document navigator — per extension declaration)
+- Main area: chat view default. Chat-primary extensions use the main
+  area as their primary surface. Non-chat-primary extensions migrate
+  the chat bar to a collapsible bottom panel.
+
+### 2. + menu
+
+- `ui.button` adjacent to chat input, opens `ui.menu`
+- Core items: Upload PDF, Upload Image, Voice mode, Chat settings
+- Divider, then extension-registered items below
+- Extension item registration via manifest (hooks.py declares items)
+- Brain core owns the menu; extensions contribute below the divider
+
+### 3. Extension mode shift
+
+- Header accent color change on session activate (subtle, not jarring)
+- Mode label display (e.g., "ARISTOTLE - Tutoring")
+- Left sidebar shows extension nav items
+- Right sidebar opens with extension context panel
+- Auto-clear on session end: returns to Brain default, no full repaint
+
+### 4. Extension UI sidebar visibility (ADR-014 Amendment A1)
+
+- `ui.timer` (5s interval) polls each endpoint in KNOWN_EXTENSIONS
+  (defined in `config/aip.config.toml` under `[extensions]`)
+- `ui.refreshable` re-renders the left sidebar based on health results
+- Icon/link renders on HTTP 200, absent otherwise
+- Each extension MUST expose `GET /health -> 200` when ready
+- Self-registration deferred (ADR-014 A1) — new first-party extensions
+  require a config update to KNOWN_EXTENSIONS
+
+---
+
 ## Change Log
 
 | Date | Change | Agent |
@@ -200,6 +244,7 @@ be an enhancement over the current PersonalizedPageRank approach.
 | 2026-06-18 | ARISTOTLE Phase A multi-actor + state machine: built EXAMINER actor (probe/quiz/evaluate, degrades gracefully without model) + MENTOR actor (reads/writes aristotle_struggle_pattern via corpus write_conn). Updated hooks.py to register all 3 actors. Updated manifest advisory list. Replaced placeholder workflow with real TEACH→PROBE→QUIZ→EVALUATE→REMEDIATE state machine (7 nodes, declared not executable — engine wiring deferred). Added `tests/test_aristotle_actors.py` (10 tests: 5 conformance + 5 behavior with fakes). All 10 pass locally; all 14 existing tests still pass. | Super Z (main) |
 | 2026-06-18 | ADR-014 §8 step 2 complete: wired `WorkflowEngine` into `AipContainer` + lifespan (`container.workflow_engine`). Rewrote `tutoring_session_v1.yaml` to use engine-compatible node types (agent/script/condition, not synthesize/decision/commit). Added `GET /health/extensions` endpoint (ADR-014 §7). Added `tests/test_workflow_engine_wiring.py` (9 tests: container fields, lifespan wiring, YAML structure, node-type compatibility, route existence). All 9 pass locally. 33 tests pass locally total — no regression. | Super Z (main) |
 | 2026-06-18 | **ARISTOTLE extracted to separate repo + entry-point discovery.** Added `tests/test_extension_import_boundary.py` (machine-enforces the SoC boundary: extensions import only `aip.foundation.protocols.*` + `aip.adapter.extensions`; platform imports nothing from extensions). Added entry-point discovery to `ExtensionHost.discover()` via `importlib.metadata.entry_points(group="aip.extensions")` — the production path that replaces the sys.path hack. Extracted ARISTOTLE to [AIP_Aristotle](https://github.com/freedomgeneration1111-sudo/AIP_Aristotle) (pip-installable: `pip install git+.../AIP_Aristotle.git`). Removed `extensions/aristotle/` + ARISTOTLE-specific tests from AIP_Brain. Added `extensions/` to `.gitignore`. Updated README with extension install instructions. 21 platform tests pass; 9 ARISTOTLE tests pass from the new repo. | Super Z (main) |
+| 2026-06-20 | Added `docs/UI_CONVENTIONS.md` — governing document for all UI work. Added "GUI Phase - Core Shell Features" section covering: three-panel shell (left/right drawers + main chat), + menu (core items + extension-registered items below divider), extension mode shift (accent color, mode label, sidebar), ADR-014 A1 sidebar visibility (ui.timer 5s poll, ui.refreshable). No code changes. | Super Z (main) |
 
 ---
 
