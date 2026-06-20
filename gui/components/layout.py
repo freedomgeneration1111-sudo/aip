@@ -30,6 +30,7 @@ from gui.theme import (
     C_DOGFOOD_DEGRADED,
     C_DOGFOOD_FULL,
     C_ERR_FG,
+    C_GROUND,
     C_INK40,
     C_MUTED,
     C_OK_FG,
@@ -195,6 +196,76 @@ def _render_extension_nav(config: dict) -> None:
                         )
 
 
+# ---------------------------------------------------------------------------
+# Extension mode state (ADR-014 A1 — three-panel shell)
+# ---------------------------------------------------------------------------
+
+# Extension session state — set by extension session activate/deactivate.
+# Keys: "name" (e.g. "aristotle"), "mode" (e.g. "Tutoring").
+# Empty dict = no active extension session.
+_active_extension: dict[str, str] = {}
+
+
+def set_active_extension(name: str, mode: str = "") -> None:
+    """Called by extension when a session activates."""
+    _active_extension.clear()
+    _active_extension.update({"name": name, "mode": mode})
+    try:
+        _right_extension_panel.refresh()
+        _top_bar_mode_label.refresh()
+    except Exception:
+        pass
+
+
+def clear_active_extension() -> None:
+    """Called by extension when a session ends."""
+    _active_extension.clear()
+    try:
+        _right_extension_panel.refresh()
+        _top_bar_mode_label.refresh()
+    except Exception:
+        pass
+
+
+@ui.refreshable
+def _right_extension_panel() -> None:
+    """Right drawer content — extension context panel.
+
+    Only renders content when an extension session is active.
+    Content is a placeholder; each extension fills it via its
+    own GUI page in a later commit.
+    """
+    if not _active_extension:
+        return
+    name = _active_extension.get("name", "")
+    mode = _active_extension.get("mode", "")
+    label = f"{name.upper()}"
+    if mode:
+        label += f" · {mode}"
+    ui.label(label).style(
+        f"font-size:10px; font-weight:700; letter-spacing:1px; "
+        f"color:{C_AMBER}; text-transform:uppercase; margin-bottom:8px;"
+    )
+    ui.label("Session active").style(
+        f"font-size:11px; color:{C_MUTED}; font-family:{F_MONO};"
+    )
+
+
+@ui.refreshable
+def _top_bar_mode_label() -> None:
+    """Mode label in the top bar — appears when extension is active."""
+    if _active_extension:
+        name = _active_extension.get("name", "")
+        mode = _active_extension.get("mode", "")
+        label = name.upper() + (f" · {mode}" if mode else "")
+        ui.label(label).style(
+            f"font-size:10px; font-weight:700; letter-spacing:1px; "
+            f"color:{C_GROUND}; background:{C_AMBER}; "
+            f"padding:2px 10px; border-radius:3px; "
+            f"font-family:{F_MONO}; margin-left:8px;"
+        )
+
+
 def build_top_bar(state: GuiState) -> None:
     """Build the top bar: AIP_Brain title, dogfood badge, backend status, DEFINER label.
 
@@ -217,6 +288,9 @@ def build_top_bar(state: GuiState) -> None:
         ui.label("AIP_Brain").style(
             f"font-family:{F_SANS}; font-size:16px; font-weight:700; color:{C_CREAM}; letter-spacing:0.5px;"
         )
+
+        # Extension mode label (refreshable — appears only when extension is active)
+        _top_bar_mode_label()
 
         # Dogfood mode badge
         _dogfood_badge(state.dogfood_mode)
@@ -356,16 +430,23 @@ def build_left_nav(state: GuiState, active_page: str = "") -> None:
 
 
 def build_right_rail(state: GuiState) -> None:
-    """No-op — right rail has been removed.
+    """Right extension panel — shows context when extension session
+    is active, absent otherwise.
 
-    The status info formerly shown in the right rail (dogfood mode,
-    actor status, retrieval health, pending gates, warnings) is now
-    available in Settings and Maintenance pages where it belongs.
-
-    This function is kept as a stub so that existing page imports
-    don't break; it can be removed in a later cleanup pass.
+    Per UI_CONVENTIONS.md: extension-specific context panel.
+    Replaces the old system-status right rail (removed UI Cycle 3).
+    Content is contributed by each extension's GUI commit.
     """
-    pass
+    with (
+        ui.right_drawer(value=bool(_active_extension))
+        .props("width=260 bordered=false")
+        .style(
+            f"background:{C_SURFACE}; "
+            f"border-left:0.5px solid {C_INK40}; "
+            f"padding:12px; overflow-y:auto;"
+        )
+    ):
+        _right_extension_panel()
 
 
 def _section_label(text: str) -> None:

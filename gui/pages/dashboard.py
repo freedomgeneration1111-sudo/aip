@@ -13,7 +13,7 @@ import logging
 
 from nicegui import context, ui
 
-from gui.components.layout import build_left_nav, build_top_bar
+from gui.components.layout import build_left_nav, build_top_bar, build_right_rail
 from gui.state import GuiState, get_session_state
 from gui.theme import (
     C_AMBER,
@@ -45,6 +45,7 @@ async def dashboard_page():
     # Build layout
     build_top_bar(state)
     build_left_nav(state, active_page="/")
+    build_right_rail(state)
 
     # Main content
     with (

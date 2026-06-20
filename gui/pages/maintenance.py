@@ -17,7 +17,7 @@ from nicegui import context, ui
 
 from gui.api_client import get_api_client
 from gui.components.actor_status_table import ActorStatusTable
-from gui.components.layout import build_left_nav, build_top_bar
+from gui.components.layout import build_left_nav, build_top_bar, build_right_rail
 from gui.components.maintenance_jobs import MaintenanceJobs
 from gui.components.maintenance_log import MaintenanceLog
 from gui.components.maintenance_problem_panel import MaintenanceProblemPanel
@@ -51,6 +51,7 @@ async def maintenance_page():
 
     build_top_bar(state)
     build_left_nav(state, active_page="/maintenance")
+    build_right_rail(state)
 
     # Page-local mutable state
     maintenance_status: dict = {}

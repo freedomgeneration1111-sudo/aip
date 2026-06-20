@@ -15,7 +15,7 @@ from typing import Any
 from nicegui import context, ui
 
 from gui.api_client import get_api_client
-from gui.components.layout import build_left_nav, build_top_bar
+from gui.components.layout import build_left_nav, build_top_bar, build_right_rail
 from gui.state import get_session_state
 from gui.theme import (
     C_AMBER,
@@ -49,6 +49,7 @@ async def graph_page():
             state = get_session_state()
             build_top_bar(state)
             build_left_nav(state, active_page="/graph")
+    build_right_rail(state)
             with (
                 ui.card()
                 .style(
@@ -83,6 +84,7 @@ async def _graph_page_impl():
 
     build_top_bar(state)
     build_left_nav(state, active_page="/graph")
+    build_right_rail(state)
 
     # ── Fetch graph stats ───────────────────────────────────────
     graph_stats: dict[str, Any] = {}

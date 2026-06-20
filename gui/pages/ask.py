@@ -75,7 +75,7 @@ from nicegui import context, ui
 from gui.components.answer_card import add_answer_card
 from gui.components.beast_panel import BeastPanel
 from gui.components.chat import add_message, add_system_message, build_chat_input
-from gui.components.layout import build_left_nav, build_top_bar
+from gui.components.layout import build_left_nav, build_top_bar, build_right_rail
 from gui.components.modals import show_api_key_prompt
 from gui.components.model_council_panel import ModelCouncilPanel
 from gui.components.source_panel import SourcePanel
@@ -125,6 +125,7 @@ async def ask_page():
             state = get_session_state()
             build_top_bar(state)
             build_left_nav(state, active_page="/ask")
+    build_right_rail(state)
             with (
                 ui.card()
                 .style(
@@ -230,6 +231,7 @@ async def _ask_page_impl():
     # ── BUILD LAYOUT ──────────────────────────────────────────
     build_top_bar(state)
     build_left_nav(state, active_page="/ask")
+    build_right_rail(state)
 
     # ── Show degraded card if initialization had errors ────────
     if _init_error or _api_key_missing:

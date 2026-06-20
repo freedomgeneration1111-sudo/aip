@@ -93,6 +93,31 @@ def build_chat_input(state: GuiState, chat_container, send_fn) -> ui.input:
             )
         )
         input_field.on("keydown.enter", lambda: asyncio.create_task(send_fn()))
+
+        # + menu (UI_CONVENTIONS.md §4 — Brain core feature)
+        plus_btn = ui.button("+").props("flat dense").style(
+            f"color:{C_MUTED}; font-size:16px; font-weight:300; "
+            f"padding:0 6px; min-width:28px;"
+        )
+        with ui.menu().props("auto-close") as plus_menu:
+            ui.menu_item(
+                "Upload PDF",
+                on_click=lambda: ui.notify("Upload PDF — coming soon", color="info"),
+            )
+            ui.menu_item(
+                "Upload Image",
+                on_click=lambda: ui.notify("Upload Image — coming soon", color="info"),
+            )
+            ui.menu_item(
+                "Voice mode",
+                on_click=lambda: ui.notify("Voice mode — coming soon", color="info"),
+            )
+            ui.menu_item(
+                "Chat settings",
+                on_click=lambda: ui.navigate.to("/settings"),
+            )
+        plus_btn.on("click", plus_menu.open)
+
         ui.button("Send", on_click=lambda: asyncio.create_task(send_fn())).style(btn_primary()).props("dense")
 
     return input_field

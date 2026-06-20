@@ -25,7 +25,7 @@ from typing import Any
 from nicegui import context, ui
 
 from gui.api_client import get_api_client
-from gui.components.layout import build_left_nav, build_top_bar
+from gui.components.layout import build_left_nav, build_top_bar, build_right_rail
 from gui.components.retrieval_channel_results import RetrievalChannelResults
 from gui.components.retrieval_health_cards import RetrievalHealthCards
 from gui.components.retrieval_query_panel import RetrievalQueryPanel
@@ -59,6 +59,7 @@ async def retrieval_lab_page():
 
     build_top_bar(state)
     build_left_nav(state, active_page="/retrieval")
+    build_right_rail(state)
 
     # ── State ──────────────────────────────────────────────────────────
     health_data: dict[str, Any] = {}

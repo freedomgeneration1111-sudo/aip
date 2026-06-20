@@ -27,7 +27,7 @@ from nicegui import context, ui
 
 from gui.components.artifact_detail import render_artifact_detail
 from gui.components.artifact_list import render_artifact_list
-from gui.components.layout import build_left_nav, build_top_bar
+from gui.components.layout import build_left_nav, build_top_bar, build_right_rail
 from gui.state import get_session_state
 from gui.theme import (
     C_CREAM,
@@ -51,6 +51,7 @@ async def artifacts_page():
 
     build_top_bar(state)
     build_left_nav(state, active_page="/artifacts")
+    build_right_rail(state)
 
     from gui.api_client import get_api_client
 

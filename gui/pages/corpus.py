@@ -36,7 +36,7 @@ from gui.components.corpus_problems import CorpusProblems
 from gui.components.corpus_summary import CorpusSummaryCards
 from gui.components.document_detail import DocumentDetail
 from gui.components.document_table import DocumentTable
-from gui.components.layout import build_left_nav, build_top_bar
+from gui.components.layout import build_left_nav, build_top_bar, build_right_rail
 from gui.state import get_session_state
 from gui.theme import (
     C_AMBER,
@@ -66,6 +66,7 @@ async def corpus_page():
 
     build_top_bar(state)
     build_left_nav(state, active_page="/corpus")
+    build_right_rail(state)
 
     # ── State ──────────────────────────────────────────────────────
 
