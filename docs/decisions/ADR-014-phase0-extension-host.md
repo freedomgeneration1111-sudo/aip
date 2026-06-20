@@ -1,7 +1,7 @@
 # ADR-014: Phase 0 Extension Platform — ExtensionHost Lifecycle & Manifest v1
 
 **Date:** 2026-06-18
-**Status:** PROPOSED — build target
+**Status:** ACCEPTED — built, tested, in use (steps 0–6 complete)
 **DEFINER:** B. Moses Jorgensen
 **Supersedes:** None (extends ADR-PHASE0 draft; corrects its §1 "already exists" framing)
 **Verified against:** `feat/multi-corpus` @ `956f06f`
@@ -596,3 +596,43 @@ A half-applied migration is visible in `applied_migrations` and surfaces as
   - `src/aip/adapter/mcp/server.py` — `TOOLS` list → `McpToolRegistry`.
   - `src/aip/orchestration/channels/registry.py` — `_custom_channels` → host-owned.
   - `tests/test_extension_lifecycle.py` — TDD contract (RED by design).
+
+---
+
+## Amendment A1 — Extension UI Visibility via Known-List Health Polling
+*Date: 2026-06-20 | Status: ACCEPTED*
+
+### Context
+Every extension has a UI surface (sidebar icon/link in Brain's left
+drawer). The icon must appear only when the extension backend is running
+and disappear when it stops — mirroring a system tray presence indicator.
+
+### Decision
+**Known-list health polling.** Brain maintains a hardcoded registry of
+known extension health endpoints defined in `config/aip.config.toml`
+under the `[extensions]` section (the same section that already holds
+`extensions.dir` and `extensions.manifest_version_range`, read by
+`src/aip/adapter/api/app.py` at startup). This is the canonical location
+for all extension-related configuration — consistent with the existing
+pattern where extension lifecycle parameters live in the TOML config
+and are consumed by both the backend (`app.py`) and the GUI
+(`gui/components/layout.py` reads `/health/extensions` from the same
+backend that reads this config).
+
+A `ui.timer` (5s interval) polls each endpoint; `ui.refreshable`
+re-renders the sidebar based on results. Icon renders on HTTP 200,
+is absent otherwise.
+
+Each extension MUST expose `GET /health → 200` when ready.
+
+### Deferred: Self-Registration Protocol
+Self-registration is explicitly deferred. It becomes necessary only if
+Brain is opened to third-party extensions — not on current roadmap.
+Until then, adding a new first-party extension requires a core update
+to KNOWN_EXTENSIONS — accepted tradeoff.
+
+### Consequences
+- New first-party extensions: update KNOWN_EXTENSIONS in
+  `config/aip.config.toml` under `[extensions]`
+- No inter-process registration protocol to maintain
+- Third-party extension support requires revisiting this amendment

@@ -42,39 +42,40 @@ model slot resolver). 0 warnings.
 
 ---
 
-## Immediate Next — GUI Phase (no blockers)
+## GUI Phase — Next Sprint (no blockers)
 
 Ordered by dependency:
 
-  [Brain] 1. ADR-014 A1 implementation: Extension UI sidebar visibility
-             (ui.timer + ui.refreshable + KNOWN_EXTENSIONS config in
-             config/aip.config.toml [extensions] section)
-  [Brain] 2. Three-panel shell restructure (left drawer + right drawer + main chat)
-  [Brain] 3. + menu (Upload PDF, Upload Image, Voice mode, Chat settings,
-             extension items below divider)
-  [Brain] 4. Extension mode shift (header accent, mode label, sidebar open/close)
-  [Arst]  5. ARISTOTLE stats page (/aristotle/stats — mastery, misconceptions, patterns)
-  [Arst]  6. ARISTOTLE learning map (/aristotle/map — concept graph, progress)
-  [Arst]  7. ARISTOTLE settings page (/aristotle/settings — preferences)
-  [Arst]  8. Right panel: mastery state + concept progress (collapsible)
-  [Arst]  9. OCR path via pytesseract (pypdf fix already done — DEBT-012 resolved)
-  [Arst] 10. Voice mode toggle (Web Speech API — contributed via Brain core + menu)
-  [Arst] 11. Teacher dashboard (Komal's interface — revised per UI_CONVENTIONS.md)
-
-**Note:** The pypdf import fix listed as step 9 in the user's prompt is already
-done (DEBT-012 resolved at commit 48aea1a). OCR is NOT blocked by a pypdf fix —
-it is only blocked on the OCR implementation itself (pytesseract pipeline).
+1. **pypdf fix** (DEBT-012) — one line, do first, unblocks OCR.
+   NOTE: Already done (commit 48aea1a). The file uses `from pypdf import PdfReader`.
+   Listed for completeness — skip to #2.
+2. **ADR-014 A1 implementation** — KNOWN_EXTENSIONS in TOML +
+   ui.timer/ui.refreshable in left sidebar
+3. **Three-panel shell restructure** — left/right drawers wired
+4. **+ menu** — Upload PDF, Image, Voice, Settings
+5. **Extension mode shift** — header accent + mode label
+6. **ARISTOTLE stats page** (/aristotle/stats)
+7. **ARISTOTLE learning map** (/aristotle/map)
+8. **ARISTOTLE settings page** (/aristotle/settings)
+9. **ARISTOTLE right panel** — mastery state + concept progress
+10. **OCR path** via pytesseract (depends on #1 — already done)
+11. **Voice mode toggle** via + menu (Web Speech API, zero-dep)
+12. **Teacher dashboard** (/aristotle/teacher — Komal's interface)
 
 See `docs/UI_CONVENTIONS.md` for the governing UI conventions document.
-See `PLANNED_FEATURES.md` → "GUI Phase — Core Shell Features" for the feature spec.
+See `PLANNED_FEATURES.md` → "GUI Phase — Brain Core Shell Features" for the feature spec.
 
 ---
 
-## Blocked (do not schedule until unblocked)
+## Blocked
 
-- **HERALD Phase C (ARISTOTLE):** blocked on Brain web/feed layer (ADR-014 §3.4 — not started)
-- **Web-search material sourcing:** same block as HERALD
-- **MCP transport (stdio/SSE):** deferred — not on current roadmap
+- HERALD Phase C: Brain web/feed layer (ADR-014 §3.4) not built
+- Web-search material sourcing: same block as HERALD
+- test_extension_lifecycle regression: discover_installed_packages
+  fixture fix needed before GUI work touches ExtensionHost
+  (NOTE: tests currently pass — 11 passed, 0 warnings. This item
+  may refer to a prior issue that's already resolved. Verify before
+  scheduling.)
 
 ---
 
@@ -104,6 +105,7 @@ See `PLANNED_FEATURES.md` → "GUI Phase — Core Shell Features" for the featur
 | 2026-06-18 | **Phase 0 Extension Platform (ADR-014) complete.** ExtensionHost lifecycle, entry-point discovery, Actor Protocol, WorkflowEngine wired, `/health/extensions` endpoint, import boundary test. ARISTOTLE extracted to separate repo. Chunk 3 wiring verified LIVE. | Super Z (main) |
 | 2026-06-19 | DEBT-013 (coroutine warning) resolved — platform test suite at 0 warnings. DEBT-014 (extension router mount) resolved. DEBT-009 (CLI URL) resolved. ActorResult.data field added (DEFINER decision ADR-002 §16 #4). Model slot resolver CI fixture extended with diagnosis field. | Super Z (main) |
 | 2026-06-20 | ADR-014 Amendment A1 accepted (extension UI visibility via known-list health polling). UI_CONVENTIONS.md created. GUI Phase section added to PLANNED_FEATURES.md. Roadmap rewritten to reflect current state + GUI phase as immediate next. | Super Z (main) |
+| 2026-06-20 | ADR-014 status updated to ACCEPTED. UI_CONVENTIONS.md expanded with ASCII shell diagram, full extension right-panel reference map, chat bar migration rules, + menu spec. PLANNED_FEATURES GUI section updated with 6 items. ROADMAP updated with 12-item GUI sprint plan + blocked/deferred sections. | Claude + Moses |
 
 ---
 

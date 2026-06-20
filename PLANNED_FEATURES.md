@@ -176,47 +176,44 @@ be an enhancement over the current PersonalizedPageRank approach.
 
 ---
 
-## GUI Phase — Core Shell Features
+## GUI Phase — Brain Core Shell Features
+*(Planned — no blockers)*
 
-The next development phase is the GUI shell restructure per
-`docs/UI_CONVENTIONS.md`. No external blockers — all depend on
-platform capabilities already built (NiceGUI, ui.timer, ui.refreshable).
+### 1. Extension UI sidebar visibility (ADR-014 A1)
+- KNOWN_EXTENSIONS in config/aip.config.toml [extensions]
+- ui.timer 5s poll of each known health endpoint
+- ui.refreshable re-renders left sidebar on state change
+- Extension icon/link absent until HTTP 200 received
 
-### 1. Three-panel shell (NiceGUI implementation)
+### 2. Three-panel shell (NiceGUI)
+- Left drawer: core links + dynamic extension items
+- Right drawer: collapsible extension context panel
+  (hidden by default, opens on session activate)
+- Main area: chat view as default
 
-- Left drawer: core links (Home, Search, Corpus) + dynamic extension
-  items (appear only when the extension backend is running)
-- Right drawer: collapsible extension context panel (mastery state,
-  terminal, document navigator — per extension declaration)
-- Main area: chat view default. Chat-primary extensions use the main
-  area as their primary surface. Non-chat-primary extensions migrate
-  the chat bar to a collapsible bottom panel.
+### 3. + menu
+- ui.button adjacent to chat input
+- ui.menu: Upload PDF, Upload Image, Voice mode, Chat settings
+- Divider + extension-registered items below
+- Extensions register items via manifest
 
-### 2. + menu
+### 4. Extension mode shift
+- Header accent on session activate
+- Mode label: "[EXTENSION] - [mode]"
+- Right panel opens with extension context
+- Auto-clear on session end
 
-- `ui.button` adjacent to chat input, opens `ui.menu`
-- Core items: Upload PDF, Upload Image, Voice mode, Chat settings
-- Divider, then extension-registered items below
-- Extension item registration via manifest (hooks.py declares items)
-- Brain core owns the menu; extensions contribute below the divider
+### 5. Chat bar migration (non-chat-primary extensions)
+- Collapsible bottom panel implementation
+- Chat bar always accessible regardless of primary view
 
-### 3. Extension mode shift
-
-- Header accent color change on session activate (subtle, not jarring)
-- Mode label display (e.g., "ARISTOTLE - Tutoring")
-- Left sidebar shows extension nav items
-- Right sidebar opens with extension context panel
-- Auto-clear on session end: returns to Brain default, no full repaint
-
-### 4. Extension UI sidebar visibility (ADR-014 Amendment A1)
-
-- `ui.timer` (5s interval) polls each endpoint in KNOWN_EXTENSIONS
-  (defined in `config/aip.config.toml` under `[extensions]`)
-- `ui.refreshable` re-renders the left sidebar based on health results
-- Icon/link renders on HTTP 200, absent otherwise
-- Each extension MUST expose `GET /health -> 200` when ready
-- Self-registration deferred (ADR-014 A1) — new first-party extensions
-  require a config update to KNOWN_EXTENSIONS
+### 6. pypdf one-line fix (DEBT-012)
+- File: src/aip/orchestration/ingestion/parsers/document_parser.py:254
+- Change: from PyPDF2 import PdfReader -> from pypdf import PdfReader
+- Unblocks OCR path in ARISTOTLE and native PDF ingest in Brain
+- NOTE: This fix is ALREADY DONE (DEBT-012 resolved at commit 48aea1a).
+  The file already uses `from pypdf import PdfReader`. Listed here for
+  completeness — no action needed.
 
 ---
 
