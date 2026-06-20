@@ -125,7 +125,7 @@ async def ask_page():
             state = get_session_state()
             build_top_bar(state)
             build_left_nav(state, active_page="/ask")
-    build_right_rail(state)
+            build_right_rail(state)
             with (
                 ui.card()
                 .style(

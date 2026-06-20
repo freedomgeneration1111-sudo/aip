@@ -393,7 +393,7 @@ dir = "extensions"
 
 [[extensions.known]]
 name        = "aristotle"
-health_url  = "http://localhost:8001/health"
+health_url  = "http://localhost:8000/aristotle/health"
 label       = "ARISTOTLE"
 
 [[extensions.known.nav]]
@@ -410,3 +410,8 @@ icon  = "map"
 label = "Settings"
 path  = "/aristotle/settings"
 icon  = "settings"
+
+[[extensions.known.nav]]
+label = "Teacher"
+path  = "/aristotle/teacher"
+icon  = "school"
