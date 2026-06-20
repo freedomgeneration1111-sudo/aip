@@ -75,6 +75,118 @@ def build_chat_input(state: GuiState, chat_container, send_fn) -> ui.input:
     Returns:
         The ui.input element (for focus control etc.)
     """
+    # Extension-to-MIME mapping for upload handler.
+    _EXT_TYPES = {
+        "pdf": "application/pdf",
+        "txt": "text/plain", "md": "text/markdown",
+        "csv": "text/csv", "html": "text/html",
+        "htm": "text/html", "json": "application/json",
+        "yaml": "application/yaml", "yml": "application/yaml",
+        "docx": ("application/vnd.openxmlformats-officedocument"
+                 ".wordprocessingml.document"),
+        "jpg": "image/jpeg", "jpeg": "image/jpeg",
+        "png": "image/png", "webp": "image/webp",
+        "bmp": "image/bmp", "tiff": "image/tiff",
+    }
+
+    async def _handle_upload(e) -> None:
+        """POST uploaded file to ARISTOTLE /upload, inject result into chat."""
+        import httpx
+
+        filename = getattr(e, "name", "file")
+        content = e.content.read()
+
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        content_type = _EXT_TYPES.get(ext, "application/octet-stream")
+
+        try:
+            async with httpx.AsyncClient() as client:
+                r = await client.post(
+                    "http://localhost:8001/aristotle/upload",
+                    content=content,
+                    headers={
+                        "Content-Type": content_type,
+                        "Content-Disposition": f'attachment; filename="{filename}"',
+                    },
+                    timeout=15.0,
+                )
+                r.raise_for_status()
+                data = r.json()
+        except Exception as exc:
+            ui.notify(f"Upload failed: {exc}", color="negative")
+            return
+
+        extracted = data.get("extracted_text", "")
+        char_count = data.get("char_count", len(extracted))
+        source_type = data.get("source_type", "file")
+
+        if not extracted.strip():
+            ui.notify(f"No text extracted from {filename}", color="warning")
+            return
+
+        with chat_container:
+            ui.label(
+                f"{filename} - {char_count:,} chars extracted ({source_type})"
+            ).style(
+                f"font-size:11px; color:{C_AMBER}; "
+                f"font-family:{F_MONO}; padding:4px 8px; "
+                f"background:#1A1200; border-radius:3px; "
+                f"margin:4px 0; align-self:flex-start;"
+            )
+
+        ui.notify(
+            f"{filename} ready - {char_count:,} chars",
+            color="positive", timeout=3000,
+        )
+
+    def _start_voice_recognition(inp: ui.input) -> None:
+        """Start browser Web Speech API recognition.
+
+        Chrome/Edge only — graceful fallback via alert() for unsupported browsers.
+        Transcript is injected into the chat input element.
+        """
+        ui.run_javascript("""
+            (function() {
+                const SpeechRecognition =
+                    window.SpeechRecognition ||
+                    window.webkitSpeechRecognition;
+
+                if (!SpeechRecognition) {
+                    alert('Voice input not supported in this browser. Use Chrome or Edge.');
+                    return;
+                }
+
+                const recognition = new SpeechRecognition();
+                recognition.lang = 'en-US';
+                recognition.continuous = false;
+                recognition.interimResults = false;
+                recognition.maxAlternatives = 1;
+
+                recognition.onresult = function(event) {
+                    const transcript = event.results[0][0].transcript;
+                    const inputs = document.querySelectorAll(
+                        '.q-field__native[type="text"], '
+                        + '.q-field__native:not([type])'
+                    );
+                    for (let i = inputs.length - 1; i >= 0; i--) {
+                        if (inputs[i].offsetParent !== null) {
+                            inputs[i].value = transcript;
+                            inputs[i].dispatchEvent(
+                                new Event('input', {bubbles: true})
+                            );
+                            break;
+                        }
+                    }
+                };
+
+                recognition.onerror = function(event) {
+                    console.warn('Speech error:', event.error);
+                };
+
+                recognition.start();
+            })();
+        """)
+
     with (
         ui.row()
         .classes("w-full items-center")
@@ -94,6 +206,21 @@ def build_chat_input(state: GuiState, chat_container, send_fn) -> ui.input:
         )
         input_field.on("keydown.enter", lambda: asyncio.create_task(send_fn()))
 
+        # Hidden upload widgets (one per type)
+        doc_upload = (
+            ui.upload(on_upload=lambda e: asyncio.create_task(_handle_upload(e)),
+                      auto_upload=True, max_file_size=10_000_000)
+            .props("accept='.pdf,.txt,.md,.markdown,.csv,.html,.htm,"
+                   ".yaml,.yml,.json,.docx'")
+            .style("display:none;")
+        )
+        img_upload = (
+            ui.upload(on_upload=lambda e: asyncio.create_task(_handle_upload(e)),
+                      auto_upload=True, max_file_size=10_000_000)
+            .props("accept='.jpg,.jpeg,.png,.webp,.bmp,.tiff'")
+            .style("display:none;")
+        )
+
         # + menu (UI_CONVENTIONS.md §4 — Brain core feature)
         plus_btn = ui.button("+").props("flat dense").style(
             f"color:{C_MUTED}; font-size:16px; font-weight:300; "
@@ -101,16 +228,16 @@ def build_chat_input(state: GuiState, chat_container, send_fn) -> ui.input:
         )
         with ui.menu().props("auto-close") as plus_menu:
             ui.menu_item(
-                "Upload PDF",
-                on_click=lambda: ui.notify("Upload PDF — coming soon", color="info"),
+                "Upload Document",
+                on_click=lambda: doc_upload.run_method("pickFiles"),
             )
             ui.menu_item(
-                "Upload Image",
-                on_click=lambda: ui.notify("Upload Image — coming soon", color="info"),
+                "Upload Image (OCR)",
+                on_click=lambda: img_upload.run_method("pickFiles"),
             )
             ui.menu_item(
-                "Voice mode",
-                on_click=lambda: ui.notify("Voice mode — coming soon", color="info"),
+                "Voice input",
+                on_click=lambda: _start_voice_recognition(input_field),
             )
             ui.menu_item(
                 "Chat settings",
