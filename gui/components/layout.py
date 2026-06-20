@@ -2,11 +2,22 @@
 
 Provides the three-region layout shell that every page renders inside.
 All styling uses tokens from gui.theme.
+
+ADR-014 Amendment A1: Extension UI sidebar visibility via known-list
+health polling. A ui.timer (5s interval) polls each known extension's
+health endpoint. ui.refreshable re-renders the extension nav section
+when status changes. KNOWN_EXTENSIONS is defined in config/aip.config.toml
+under [extensions.known].
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
+from pathlib import Path
+
+import httpx
 
 from nicegui import ui
 
@@ -84,6 +95,106 @@ _LAYOUT_CSS = f"""
 """
 
 
+# ---------------------------------------------------------------------------
+# ADR-014 Amendment A1: Extension UI sidebar visibility
+# ---------------------------------------------------------------------------
+
+# Module-level extension status store. Keyed by extension name → bool (alive).
+_extension_status: dict[str, bool] = {}
+
+
+def _load_known_extensions() -> list:
+    """Load KNOWN_EXTENSIONS from config/aip.config.toml.
+
+    Returns the list of known extension dicts (name, health_url, nav).
+    Falls back to an empty list if the config file or section is missing.
+    """
+    try:
+        import tomllib
+    except ImportError:
+        try:
+            import tomli as tomllib  # type: ignore[no-redef]
+        except ImportError:
+            return []
+
+    candidates = [
+        Path.cwd() / "config" / "aip.config.toml",
+        Path(__file__).resolve().parent.parent.parent / "config" / "aip.config.toml",
+    ]
+    for path in candidates:
+        if path.is_file():
+            try:
+                with open(path, "rb") as f:
+                    cfg = tomllib.load(f)
+                return cfg.get("extensions", {}).get("known", [])
+            except Exception:
+                pass
+    return []
+
+
+async def _poll_extension_health(config: dict) -> None:
+    """Best-effort health check for each known extension.
+
+    Never raises — failures silently set status to False.
+    Updates _extension_status and triggers sidebar refresh only
+    when status actually changes (avoids unnecessary redraws).
+    """
+    known = config.get("extensions", {}).get("known", [])
+    changed = False
+    for ext in known:
+        name = ext.get("name", "")
+        url = ext.get("health_url", "")
+        if not name or not url:
+            continue
+        try:
+            async with httpx.AsyncClient() as client:
+                r = await client.get(url, timeout=1.0)
+                alive = r.status_code == 200
+        except Exception:
+            alive = False
+        if _extension_status.get(name) != alive:
+            _extension_status[name] = alive
+            changed = True
+    if changed:
+        try:
+            _render_extension_nav.refresh()
+        except Exception:
+            pass  # NiceGUI loop not available (e.g. in tests) — status still updated
+
+
+@ui.refreshable
+def _render_extension_nav(config: dict) -> None:
+    """Renders extension nav links — only for live extensions.
+
+    Called by build_left_nav after the core nav items. The ui.refreshable
+    decorator allows _poll_extension_health to trigger a re-render when
+    extension status changes, without rebuilding the entire sidebar.
+    """
+    known = config.get("extensions", {}).get("known", [])
+    for ext in known:
+        if _extension_status.get(ext.get("name", ""), False):
+            with ui.column().classes("w-full items-center"):
+                for item in ext.get("nav", []):
+                    with (
+                        ui.column()
+                        .classes("w-full items-center cursor-pointer")
+                        .style(
+                            f"padding:8px 4px; background:transparent; "
+                            f"border-left:2px solid transparent; transition:background 0.15s;"
+                        )
+                        .on("click", lambda p=item["path"]: ui.navigate.to(p))
+                    ):
+                        ui.icon(item.get("icon", "extension"), size="20px").style(
+                            f"color:{C_CREAM};"
+                        )
+                        ui.label(item["label"]).style(
+                            f"font-size:9px; font-family:{F_SANS}; color:{C_CREAM}; "
+                            f"font-weight:400; text-align:center; margin-top:2px; "
+                            f"line-height:1.1; overflow:hidden; text-overflow:ellipsis; "
+                            f"white-space:nowrap; max-width:88px;"
+                        )
+
+
 def build_top_bar(state: GuiState) -> None:
     """Build the top bar: AIP_Brain title, dogfood badge, backend status, DEFINER label.
 
@@ -153,6 +264,11 @@ def build_left_nav(state: GuiState, active_page: str = "") -> None:
     nav items from container.extensions.nav_items(). Extension pages appear
     after built-in pages, sorted by their `order` field.
 
+    ADR-014 Amendment A1: extension nav items are rendered via
+    _render_extension_nav (ui.refreshable), which only shows items for
+    extensions whose health endpoint is alive (polled every 5s by
+    _poll_extension_health via ui.timer).
+
     Three Quasar gotchas addressed here:
 
     1. **Width via Quasar prop, not CSS**: ``q-drawer`` re-applies its own
@@ -164,6 +280,10 @@ def build_left_nav(state: GuiState, active_page: str = "") -> None:
 
     3. **Belt-and-suspenders CSS** in ``_LAYOUT_CSS``.
     """
+    # Load KNOWN_EXTENSIONS from config for the health-polling sidebar.
+    _known = _load_known_extensions()
+    _config = {"extensions": {"known": _known}} if _known else {}
+
     # ADR-014 v1.1: collect nav items from built-in + extensions
     nav_items = list(_NAV_ITEMS)  # built-in: (label, route, icon) tuples
 
@@ -172,11 +292,9 @@ def build_left_nav(state: GuiState, active_page: str = "") -> None:
     # extension names. Any future extension declares its own nav entry in
     # hooks.py via host.register_page() and appears here automatically.
     try:
-        import os as _os
-        import httpx as _httpx
-        _base_url = _os.getenv("AIP_BACKEND_URL", "http://127.0.0.1:8000")
+        _base_url = os.getenv("AIP_BACKEND_URL", "http://127.0.0.1:8000")
         try:
-            _resp = _httpx.get(f"{_base_url}/health/extensions", timeout=2.0)
+            _resp = httpx.get(f"{_base_url}/health/extensions", timeout=2.0)
             if _resp.status_code == 200:
                 _data = _resp.json()
                 for _ext in _data.get("extensions", []):
@@ -189,7 +307,7 @@ def build_left_nav(state: GuiState, active_page: str = "") -> None:
                             ))
         except Exception:
             pass  # Server not reachable — extensions don't show in nav
-    except ImportError:
+    except Exception:
         pass  # httpx not available — built-in nav only
 
     with (
@@ -217,6 +335,24 @@ def build_left_nav(state: GuiState, active_page: str = "") -> None:
                     f"text-align:center; margin-top:2px; line-height:1.1; "
                     f"overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:88px;"
                 )
+
+        # ADR-014 Amendment A1: render extension nav items via ui.refreshable.
+        # Only shows items for extensions whose health endpoint is alive.
+        if _config:
+            _render_extension_nav(_config)
+
+            # Fire one poll immediately on page load (don't wait 5s for first render).
+            ui.timer(
+                0.1,
+                lambda: asyncio.create_task(_poll_extension_health(_config)),
+                once=True,
+            )
+
+            # Poll every 5 seconds. ui.timer creates a task on each tick.
+            ui.timer(
+                5.0,
+                lambda: asyncio.create_task(_poll_extension_health(_config)),
+            )
 
 
 def build_right_rail(state: GuiState) -> None:

@@ -381,3 +381,32 @@ base_url = "https://openrouter.ai/api"
 # model = "anthropic/claude-3.5-sonnet"
 # base_url = "https://openrouter.ai/api"
 # # api_key = ""   # Set your key here, or use AIP_JUDGE_API_KEY / AIP_OPENAI_API_KEY env var
+
+# ── Extensions (ADR-014 Amendment A1) ──────────────────────────────
+# KNOWN_EXTENSIONS: the list of known first-party extensions whose
+# health endpoints the GUI polls every 5s. When an endpoint returns
+# HTTP 200, its nav items appear in the left sidebar. When it is
+# unreachable, they disappear. Self-registration is deferred (ADR-014
+# A1) — adding a new extension requires updating this section.
+[extensions]
+dir = "extensions"
+
+[[extensions.known]]
+name        = "aristotle"
+health_url  = "http://localhost:8001/health"
+label       = "ARISTOTLE"
+
+[[extensions.known.nav]]
+label = "Stats"
+path  = "/aristotle/stats"
+icon  = "bar_chart"
+
+[[extensions.known.nav]]
+label = "Map"
+path  = "/aristotle/map"
+icon  = "map"
+
+[[extensions.known.nav]]
+label = "Settings"
+path  = "/aristotle/settings"
+icon  = "settings"
