@@ -1,7 +1,7 @@
 # ============================================================
 
 # Tests — Agent Navigation
-> 2251 tests collected. CI is blocking. Fixture discipline is law.
+> 4374 tests collected. CI is blocking. Fixture discipline is law.
 
 ## Purpose
 The test suite is the conformance gate for all AIP guarantees. Tests verify that
