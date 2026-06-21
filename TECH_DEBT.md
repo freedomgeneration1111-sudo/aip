@@ -631,3 +631,51 @@ error-as-payload pattern is now soft-deprecated, not broken.
 
 ---
 
+
+## DEBT-016 — BUG-001/002/003 Reconciliation (Unregistered Bug Markers)
+
+**Status:** Resolved — registered for traceability
+**Phase:** Phase 0 Foundation
+**Filed:** 2026-06-18
+
+**What was deferred:**
+Three BUG-xxx markers in code had no entry in the TECH_DEBT register:
+- BUG-001 (`app.py:293`): Default project creation after init — ensures a default project exists so `aip ask` works without explicit `--project`.
+- BUG-002 (`_augmented_context.py:96`): db_path resolution diverged from CLI's `_db_path.py` — unified.
+- BUG-003 (`app.py:421,706,761`): ECS store must be initialized BEFORE Sexton actor creation — ordering fix + safety-net backfill.
+
+All three are fixed in code (the markers are historical annotations, not active bugs). Registering them so the BUG-xxx namespace is reconciled with the DEBT-xxx namespace.
+
+**Resolution:** All three bugs are fixed. The markers remain in code as historical annotations. No action needed.
+
+---
+
+## DEBT-017 — SessionManager CLI Wiring (Unregistered TODO)
+
+**Status:** Active — low priority
+**Phase:** Phase 0 CLI
+**Filed:** 2026-06-18
+
+**What was deferred:**
+Two TODOs in `cli/session.py` (lines 39, 76) reference wiring through SessionManager API. The session CLI commands (`aip session start`, `aip session resume`) are stubs that don't connect to the SessionManager.
+
+**Why deferred:** SessionManager is not yet fully wired into the CLI path. The API routes handle sessions; the CLI doesn't.
+
+**Remediation trigger:** When CLI session management is needed (multi-session workflows from the terminal).
+
+---
+
+## DEBT-018 — AutonomyGate CLI Wiring (Unregistered TODO)
+
+**Status:** Active — low priority
+**Phase:** Phase 0 CLI
+**Filed:** 2026-06-18
+
+**What was deferred:**
+Two duplicated TODOs in `cli/config.py:137` and `cli/project.py:81` reference wiring through AutonomyGate for admin-level write approval. Currently the CLI bypasses the autonomy gate (acceptable in local-first single-user mode).
+
+**Why deferred:** AutonomyGate is wired in the API layer (FastAPI routes) but not in the CLI. For local-first single-user operation, the CLI bypass is acceptable. For multi-user or production CLI access, this needs wiring.
+
+**Remediation trigger:** When CLI is used in a multi-user or production context.
+
+---
