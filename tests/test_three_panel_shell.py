@@ -5,12 +5,10 @@ clear_active_extension) and the refreshable panels.
 
 Run: pytest tests/test_three_panel_shell.py -v
 """
+
 from __future__ import annotations
 
 import warnings
-from unittest.mock import patch
-
-import pytest
 
 # Suppress NiceGUI refreshable warnings in test context
 warnings.filterwarnings("ignore", message="coroutine.*was never awaited")
@@ -41,7 +39,7 @@ def test_clear_active_extension_empties_state():
     """Set active extension, then clear.
     Assert _active_extension == {}.
     """
-    from gui.components.layout import _active_extension, set_active_extension, clear_active_extension
+    from gui.components.layout import _active_extension, clear_active_extension, set_active_extension
 
     _active_extension.clear()
     set_active_extension("aristotle", "Tutoring")
@@ -59,7 +57,7 @@ def test_set_active_extension_exported():
     """from gui.components.layout import set_active_extension, clear_active_extension.
     Assert both are callable.
     """
-    from gui.components.layout import set_active_extension, clear_active_extension
+    from gui.components.layout import clear_active_extension, set_active_extension
 
     assert callable(set_active_extension)
     assert callable(clear_active_extension)

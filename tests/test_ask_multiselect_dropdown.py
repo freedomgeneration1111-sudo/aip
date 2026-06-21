@@ -45,7 +45,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ── Path helpers ────────────────────────────────────────────────────────
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -114,9 +113,7 @@ class TestOldMulticastHelpersRemoved:
     def test_multicast_btn_reference_removed(self):
         """The ``multicast_btn`` variable (the ON/OFF button element) is gone."""
         source = _read_ask_source()
-        assert "multicast_btn" not in source, (
-            "multicast_btn reference must be removed — the Multi-Cast button is gone."
-        )
+        assert "multicast_btn" not in source, "multicast_btn reference must be removed — the Multi-Cast button is gone."
 
     def test_multicast_row_reference_removed(self):
         """The ``multicast_row`` variable (the second checkbox row) is gone."""
@@ -136,9 +133,9 @@ class TestNewMultiselectHandler:
     def test_on_chat_models_changed_defined(self):
         """``_on_chat_models_changed`` is defined in ask.py."""
         source = _read_ask_source()
-        assert re.search(
-            r"^\s*async\s+def\s+_on_chat_models_changed\s*\(", source, re.MULTILINE
-        ), "_on_chat_models_changed must be defined (async) in ask.py"
+        assert re.search(r"^\s*async\s+def\s+_on_chat_models_changed\s*\(", source, re.MULTILINE), (
+            "_on_chat_models_changed must be defined (async) in ask.py"
+        )
 
     def test_on_chat_models_changed_is_async(self):
         """``_on_chat_models_changed`` must be ``async def`` (awaits backend slot update)."""
@@ -181,9 +178,7 @@ class TestNewMultiselectHandler:
         source = _read_ask_source()
         func = _extract_func(source, "_on_chat_models_changed")
         assert func is not None
-        assert "multicast_enabled" in func, (
-            "_on_chat_models_changed must derive state.multicast_enabled from the count"
-        )
+        assert "multicast_enabled" in func, "_on_chat_models_changed must derive state.multicast_enabled from the count"
 
     def test_dropdown_uses_multiple_true(self):
         """The chat header uses ``ui.select(..., multiple=True)`` for multi-select."""
@@ -191,8 +186,7 @@ class TestNewMultiselectHandler:
         # Find the ui.select call in the chat header section
         # We can't be too specific about whitespace, but multiple=True must be present
         assert "multiple=True" in source, (
-            "The chat header must use ui.select(..., multiple=True) to enable "
-            "checkbox multi-select in the dropdown."
+            "The chat header must use ui.select(..., multiple=True) to enable checkbox multi-select in the dropdown."
         )
 
     def test_dropdown_on_change_calls_on_chat_models_changed(self):
@@ -218,12 +212,10 @@ class TestDispatchSendAutoRoutes:
         func = _extract_func(source, "_dispatch_send")
         assert func is not None, "_dispatch_send not found in ask.py"
         assert "multicast_selected_model_ids" in func, (
-            "_dispatch_send must read state.multicast_selected_model_ids to "
-            "auto-route based on count."
+            "_dispatch_send must read state.multicast_selected_model_ids to auto-route based on count."
         )
         assert "n_selected" in func or "len(" in func, (
-            "_dispatch_send must compute the count of selected models to "
-            "decide whether to multi-cast."
+            "_dispatch_send must compute the count of selected models to decide whether to multi-cast."
         )
 
     def test_dispatch_send_does_not_read_multicast_enabled_flag(self):
@@ -259,18 +251,14 @@ class TestDispatchSendAutoRoutes:
         source = _read_ask_source()
         func = _extract_func(source, "_dispatch_send")
         assert func is not None
-        assert "_send_multicast" in func, (
-            "_dispatch_send must call _send_multicast when n_selected >= 2."
-        )
+        assert "_send_multicast" in func, "_dispatch_send must call _send_multicast when n_selected >= 2."
 
     def test_dispatch_send_routes_one_to_single_model(self):
         """When exactly 1 model is selected, the handler calls _send_prompt."""
         source = _read_ask_source()
         func = _extract_func(source, "_dispatch_send")
         assert func is not None
-        assert "_send_prompt" in func, (
-            "_dispatch_send must call _send_prompt when n_selected == 1."
-        )
+        assert "_send_prompt" in func, "_dispatch_send must call _send_prompt when n_selected == 1."
 
 
 # ── 4. _send_multicast uses skip_default_slots + empty slots list ──────
@@ -288,9 +276,7 @@ class TestSendMulticastContract:
         assert func is not None
         # Either explicitly [] or via state.multicast_selected_slots which is always []
         # The user requirement: models NOT tied to actor slots/roles.
-        assert "selected_model_slots=[]" in func or (
-            "selected_model_slots" in func and "[]" in func
-        ), (
+        assert "selected_model_slots=[]" in func or ("selected_model_slots" in func and "[]" in func), (
             "_send_multicast must pass selected_model_slots=[] to "
             "run_model_council — models are NOT tied to actor slots/roles."
         )
@@ -448,13 +434,9 @@ class TestApiClientForwardsSkipDefaultSlots:
         from gui.api_client import AipApiClient
 
         sig = inspect.signature(AipApiClient.run_model_council)
-        assert "skip_default_slots" in sig.parameters, (
-            "run_model_council must accept a skip_default_slots parameter."
-        )
+        assert "skip_default_slots" in sig.parameters, "run_model_council must accept a skip_default_slots parameter."
         param = sig.parameters["skip_default_slots"]
-        assert param.default is False, (
-            "skip_default_slots must default to False — backward compat."
-        )
+        assert param.default is False, "skip_default_slots must default to False — backward compat."
 
     def test_run_model_council_forwards_skip_default_slots_in_payload(self):
         """The method includes ``skip_default_slots`` in the POST payload."""
@@ -518,8 +500,7 @@ class TestGuiStateContract:
         # multiple comment lines so we check for the key tokens.
         source_lower = source.lower()
         assert "not tied to actor" in source_lower, (
-            "state.py must document the new 'models not tied to actor slots/roles' "
-            "semantics in the field docstrings."
+            "state.py must document the new 'models not tied to actor slots/roles' semantics in the field docstrings."
         )
         assert "beast" in source_lower and "synth" in source_lower, (
             "state.py must mention that the beast slot is used ONLY for "
@@ -552,9 +533,12 @@ class TestEndToEndSkipDefaultSlots:
             "beast": {"provider": "openai_compatible", "model": "deepseek", "api_key": "k"},
         }.get(slot, {})
         # Slot calls would return JSON; we won't call them at all in this test
-        provider.call = AsyncMock(return_value={"content": "{}", "model": "x", "usage": {}, "latency_ms": 1, "error": False})
+        provider.call = AsyncMock(
+            return_value={"content": "{}", "model": "x", "usage": {}, "latency_ms": 1, "error": False}
+        )
 
         from aip.adapter.api.dependencies import AipContainer
+
         container = AipContainer({})
         container.model_provider = provider
         container.artifact_store = AsyncMock()
@@ -581,14 +565,16 @@ class TestEndToEndSkipDefaultSlots:
             ),
             patch(
                 "aip.adapter.api.routes.model_council._call_fusion_engine",
-                new=AsyncMock(return_value={
-                    "content": '{"status":"completed","analysis":{"consensus":[],"contradictions":[],"partial_coverage":[],"unique_insights":[],"blind_spots":[]}}',
-                    "model": "fake-judge",
-                    "usage": {},
-                    "latency_ms": 10,
-                    "cost_usd": 0.0,
-                    "error": False,
-                }),
+                new=AsyncMock(
+                    return_value={
+                        "content": '{"status":"completed","analysis":{"consensus":[],"contradictions":[],"partial_coverage":[],"unique_insights":[],"blind_spots":[]}}',
+                        "model": "fake-judge",
+                        "usage": {},
+                        "latency_ms": 10,
+                        "cost_usd": 0.0,
+                        "error": False,
+                    }
+                ),
             ),
             patch(
                 "aip.adapter.api.routes.model_council._pick_fusion_engine",
@@ -641,9 +627,11 @@ class TestEndToEndSkipDefaultSlots:
                 "cost_usd": 0.0,
                 "error": False,
             }
+
         provider.call = AsyncMock(side_effect=fake_call)
 
         from aip.adapter.api.dependencies import AipContainer
+
         container = AipContainer({})
         container.model_provider = provider
         container.artifact_store = AsyncMock()
@@ -652,14 +640,16 @@ class TestEndToEndSkipDefaultSlots:
         with (
             patch(
                 "aip.adapter.api.routes.model_council._call_fusion_engine",
-                new=AsyncMock(return_value={
-                    "content": '{"status":"completed","analysis":{"consensus":[],"contradictions":[],"partial_coverage":[],"unique_insights":[],"blind_spots":[]}}',
-                    "model": "fake-judge",
-                    "usage": {},
-                    "latency_ms": 10,
-                    "cost_usd": 0.0,
-                    "error": False,
-                }),
+                new=AsyncMock(
+                    return_value={
+                        "content": '{"status":"completed","analysis":{"consensus":[],"contradictions":[],"partial_coverage":[],"unique_insights":[],"blind_spots":[]}}',
+                        "model": "fake-judge",
+                        "usage": {},
+                        "latency_ms": 10,
+                        "cost_usd": 0.0,
+                        "error": False,
+                    }
+                ),
             ),
             patch(
                 "aip.adapter.api.routes.model_council._pick_fusion_engine",
@@ -713,6 +703,5 @@ class TestBeastSlotOnlyForSynthesis:
         # Verify no 'beast'/'synthesis'/'evaluation' appears in selected_model_slots
         # The function should pass selected_model_slots=[] explicitly.
         assert re.search(r"selected_model_slots\s*=\s*\[\s*\]", func), (
-            "_send_multicast must pass selected_model_slots=[] — models are "
-            "NOT tied to actor slots/roles."
+            "_send_multicast must pass selected_model_slots=[] — models are NOT tied to actor slots/roles."
         )

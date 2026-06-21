@@ -343,19 +343,20 @@ class ModelSlotResolver(ModelProvider):
             prompt = messages[-1]["content"] if messages else ""
             if slot_name == "evaluation":
                 import json as _json
-                content = _json.dumps({
-                    "score": 0.9,
-                    "mastery_achieved": True,
-                    "feedback": (
-                        f"[CI-FIXTURE for {slot_name}] {prompt[:60]}..."
-                    ),
-                    # Phase B.5: diagnosis is None when mastery_achieved is True.
-                    # The CI fixture is deterministic (always the mastered case),
-                    # so diagnosis is always None here. Unit tests that need the
-                    # wrong-answer path use _FakeModelProvider with explicit
-                    # JSON responses including a diagnosis dict.
-                    "diagnosis": None,
-                })
+
+                content = _json.dumps(
+                    {
+                        "score": 0.9,
+                        "mastery_achieved": True,
+                        "feedback": (f"[CI-FIXTURE for {slot_name}] {prompt[:60]}..."),
+                        # Phase B.5: diagnosis is None when mastery_achieved is True.
+                        # The CI fixture is deterministic (always the mastered case),
+                        # so diagnosis is always None here. Unit tests that need the
+                        # wrong-answer path use _FakeModelProvider with explicit
+                        # JSON responses including a diagnosis dict.
+                        "diagnosis": None,
+                    }
+                )
             else:
                 content = f"[CI-FIXTURE for {slot_name}] {prompt[:80]}..."
             log.debug("ci_fixture_response", slot=slot_name)

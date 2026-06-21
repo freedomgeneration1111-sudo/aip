@@ -11,19 +11,17 @@ A failing extension reaches DEGRADED/FAILED in isolation; the host stays up.
 
 Run:  CI=true uv run pytest tests/test_extension_lifecycle.py -v
 """
+
 from __future__ import annotations
 
-import asyncio
 import textwrap
 from pathlib import Path
-from typing import Any
 
 import pytest
 
 # These imports do not exist yet — that is the point (red state).
 from aip.adapter.extensions.host import ExtensionHost
 from aip.adapter.extensions.state import ExtensionState
-
 
 # --------------------------------------------------------------------------
 # Helpers — write a minimal, valid extension into an operator-owned dir.
@@ -87,18 +85,14 @@ def _write_extension(
     ext_dir = root / "extensions" / ext_id
     (ext_dir / "migrations").mkdir(parents=True, exist_ok=True)
     gui_line = (
-        "  gui: { nav: { label: Demo, icon: school, order: 30 },"
-        " pages: 'demo_ext.gui:register_pages' }\n"
+        "  gui: { nav: { label: Demo, icon: school, order: 30 }, pages: 'demo_ext.gui:register_pages' }\n"
         if with_gui
         else ""
     )
     disabled_line = "enabled: false\n            " if disabled else ""
     # config is a TOP-LEVEL key per ADR-014 §6 (not under `contributes:`).
     if with_invalid_config_schema:
-        config_line = (
-            "config:\n"
-            "              schema: nonexistent_pkg.missing_mod:MissingClass\n"
-        )
+        config_line = "config:\n              schema: nonexistent_pkg.missing_mod:MissingClass\n"
     else:
         config_line = "config: {}\n"
     (ext_dir / "extension.yaml").write_text(
@@ -268,23 +262,18 @@ async def test_validates_manifest_schema(tmp_path: Path, host: ExtensionHost):
 
 
 @pytest.mark.asyncio
-async def test_extension_with_invalid_config_fails_at_validate(
-    tmp_path: Path, host: ExtensionHost
-):
+async def test_extension_with_invalid_config_fails_at_validate(tmp_path: Path, host: ExtensionHost):
     # config.schema points to a missing class -> FAILED at stage 1 with a
     # `config`-tagged failure (ADR-014 §4.1).
     _write_extension(tmp_path, "demo", with_invalid_config_schema=True)
     await host.discover()
     await host.validate()
     assert host.state("demo") is ExtensionState.FAILED
-    assert any("config" in f.reason or f.contribution == "config"
-               for f in host.failures("demo"))
+    assert any("config" in f.reason or f.contribution == "config" for f in host.failures("demo"))
 
 
 @pytest.mark.asyncio
-async def test_two_extensions_with_same_id_fails_cleanly(
-    tmp_path: Path, host: ExtensionHost
-):
+async def test_two_extensions_with_same_id_fails_cleanly(tmp_path: Path, host: ExtensionHost):
     # Two extensions declaring the same manifest id -> the second is FAILED at
     # stage 1 with an id-collision failure; the first proceeds normally.
     # Records are keyed by directory name (the unique physical key), so both
@@ -312,9 +301,7 @@ async def test_two_extensions_with_same_id_fails_cleanly(
         )
     )
     (other / "migrations").mkdir()
-    (other / "migrations" / "M001.sql").write_text(
-        "CREATE TABLE other (id TEXT PRIMARY KEY);"
-    )
+    (other / "migrations" / "M001.sql").write_text("CREATE TABLE other (id TEXT PRIMARY KEY);")
     await host.discover()
     await host.validate()
     # Both records survive (keyed by directory name). Exactly one is VALIDATED
@@ -329,14 +316,11 @@ async def test_two_extensions_with_same_id_fails_cleanly(
     failed_dirs = [d for d, s in states_by_dir.items() if s is ExtensionState.FAILED]
     assert failed_dirs, "expected at least one FAILED extension"
     failed_rec_failures = host.failures(failed_dirs[0])
-    assert any("collid" in f.reason.lower() or "id" in f.reason.lower()
-               for f in failed_rec_failures)
+    assert any("collid" in f.reason.lower() or "id" in f.reason.lower() for f in failed_rec_failures)
 
 
 @pytest.mark.asyncio
-async def test_runs_extension_migrations(
-    tmp_path: Path, host: ExtensionHost, container
-):
+async def test_runs_extension_migrations(tmp_path: Path, host: ExtensionHost, container):
     _write_extension(tmp_path, "demo")
     await host.start()  # discover -> validate -> migrate -> register
     # The contributed table exists in the extension's corpus.
@@ -380,9 +364,7 @@ async def test_mounts_extension_gui_pages(tmp_path: Path, host: ExtensionHost):
 
 
 @pytest.mark.asyncio
-async def test_failed_extension_does_not_break_host(
-    tmp_path: Path, host: ExtensionHost
-):
+async def test_failed_extension_does_not_break_host(tmp_path: Path, host: ExtensionHost):
     # A broken migration must isolate to DEGRADED and let a healthy peer run.
     _write_extension(tmp_path, "broken", with_bad_migration=True)
     _write_extension(tmp_path, "healthy")
@@ -402,9 +384,7 @@ async def test_disabled_extension_does_not_mount(tmp_path: Path, host: Extension
 
 
 @pytest.mark.asyncio
-async def test_extension_state_surfaces_in_health(
-    tmp_path: Path, host: ExtensionHost
-):
+async def test_extension_state_surfaces_in_health(tmp_path: Path, host: ExtensionHost):
     _write_extension(tmp_path, "broken", with_bad_migration=True)
     _write_extension(tmp_path, "healthy")
     await host.start()
@@ -419,9 +399,7 @@ async def test_extension_state_surfaces_in_health(
 
 
 @pytest.mark.asyncio
-async def test_stop_cancels_extension_actors(
-    tmp_path: Path, host: ExtensionHost
-):
+async def test_stop_cancels_extension_actors(tmp_path: Path, host: ExtensionHost):
     # ADR-014 §4.2: host.stop() cancels every actor scheduler task and marks
     # every extension DISABLED. No background tasks leak.
     _write_extension(tmp_path, "demo", with_hooks=True)
@@ -439,7 +417,5 @@ async def test_stop_cancels_extension_actors(
 async def _table_exists(stores, table: str) -> bool:
     """Check a SQLite table exists in the corpus's write connection."""
     conn = stores.connection_manager.write_conn
-    cur = await conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
-    )
+    cur = await conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,))
     return await cur.fetchone() is not None

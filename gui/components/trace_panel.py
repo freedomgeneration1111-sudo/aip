@@ -240,8 +240,7 @@ class TracePanel:
             # Step 1: Per-channel raw hits
             if channel_contributions:
                 ui.label("Step 1 — Channel Retrieval").style(
-                    f"font-size:10px; font-weight:700; color:{C_AMBER}; "
-                    f"font-family:{F_MONO}; margin-bottom:4px;"
+                    f"font-size:10px; font-weight:700; color:{C_AMBER}; font-family:{F_MONO}; margin-bottom:4px;"
                 )
                 for ch, hits in channel_contributions.items():
                     bar_len = min(int(hits) * 3, 30) if isinstance(hits, (int, float)) else 0
@@ -268,9 +267,7 @@ class TracePanel:
             gate_delta = hits_after - hits_gate if hits_after >= hits_gate else 0
             gate_label = f"  {hits_after} fused → {hits_gate} gated ({gate_delta} filtered)"
             gate_color = C_OK_FG if hits_gate > 0 else C_WARN_FG
-            ui.label(gate_label).style(
-                f"font-size:10px; color:{gate_color}; font-family:{F_MONO}; line-height:1.4;"
-            )
+            ui.label(gate_label).style(f"font-size:10px; color:{gate_color}; font-family:{F_MONO}; line-height:1.4;")
 
             # Step 4: Final context
             ui.label("Step 4 — Final Context").style(
@@ -303,20 +300,21 @@ class TracePanel:
         packed_context = trace.get("packed_context", "")
         if packed_context:
             self._render_section_label("PACKED CONTEXT PREVIEW")
-            with ui.expansion(
-                "Show packed context (what the model actually saw)",
-                icon="description",
-            ).classes("w-full").style(
-                f"margin-bottom:8px; padding:0 8px; font-family:{F_MONO}; "
-                f"background:{C_RAISED}; border-radius:{R_SM};"
+            with (
+                ui.expansion(
+                    "Show packed context (what the model actually saw)",
+                    icon="description",
+                )
+                .classes("w-full")
+                .style(
+                    f"margin-bottom:8px; padding:0 8px; font-family:{F_MONO}; "
+                    f"background:{C_RAISED}; border-radius:{R_SM};"
+                )
             ):
                 preview = packed_context[:2000]
                 if len(packed_context) > 2000:
                     preview += f"\n\n... ({len(packed_context) - 2000} more chars truncated)"
-                ui.code(preview).style(
-                    f"font-size:9px; font-family:{F_MONO}; "
-                    f"background:{C_GROUND}; color:{C_INK60};"
-                )
+                ui.code(preview).style(f"font-size:9px; font-family:{F_MONO}; background:{C_GROUND}; color:{C_INK60};")
 
     def close(self) -> None:
         """Close the trace panel drawer."""

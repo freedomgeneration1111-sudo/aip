@@ -113,8 +113,7 @@ def _dogfood_section(state: GuiState) -> None:
             summary = state.status_summary
             actor_summary = summary.get("actor_status_summary", state.actor_status)
             has_any_actor = any(
-                actor_summary.get(a, {}).get("initialized", False)
-                for a in ("beast", "vigil", "sexton")
+                actor_summary.get(a, {}).get("initialized", False) for a in ("beast", "vigil", "sexton")
             )
             any_degraded = any(
                 actor_summary.get(a, {}).get("state") in ("degraded", "failed")
@@ -134,9 +133,7 @@ def _dogfood_section(state: GuiState) -> None:
                     f"font-size:9px; color:{C_AMBER}; font-family:{F_MONO};"
                 )
         else:
-            ui.label("No status data fetched yet.").style(
-                f"font-size:9px; color:{C_AMBER}; font-family:{F_MONO};"
-            )
+            ui.label("No status data fetched yet.").style(f"font-size:9px; color:{C_AMBER}; font-family:{F_MONO};")
 
 
 def _actor_section(state: GuiState) -> None:

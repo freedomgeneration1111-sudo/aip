@@ -78,15 +78,21 @@ def build_chat_input(state: GuiState, chat_container, send_fn) -> ui.input:
     # Extension-to-MIME mapping for upload handler.
     _EXT_TYPES = {
         "pdf": "application/pdf",
-        "txt": "text/plain", "md": "text/markdown",
-        "csv": "text/csv", "html": "text/html",
-        "htm": "text/html", "json": "application/json",
-        "yaml": "application/yaml", "yml": "application/yaml",
-        "docx": ("application/vnd.openxmlformats-officedocument"
-                 ".wordprocessingml.document"),
-        "jpg": "image/jpeg", "jpeg": "image/jpeg",
-        "png": "image/png", "webp": "image/webp",
-        "bmp": "image/bmp", "tiff": "image/tiff",
+        "txt": "text/plain",
+        "md": "text/markdown",
+        "csv": "text/csv",
+        "html": "text/html",
+        "htm": "text/html",
+        "json": "application/json",
+        "yaml": "application/yaml",
+        "yml": "application/yaml",
+        "docx": ("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+        "png": "image/png",
+        "webp": "image/webp",
+        "bmp": "image/bmp",
+        "tiff": "image/tiff",
     }
 
     async def _handle_upload(e) -> None:
@@ -125,9 +131,7 @@ def build_chat_input(state: GuiState, chat_container, send_fn) -> ui.input:
             return
 
         with chat_container:
-            ui.label(
-                f"{filename} - {char_count:,} chars extracted ({source_type})"
-            ).style(
+            ui.label(f"{filename} - {char_count:,} chars extracted ({source_type})").style(
                 f"font-size:11px; color:{C_AMBER}; "
                 f"font-family:{F_MONO}; padding:4px 8px; "
                 f"background:#1A1200; border-radius:3px; "
@@ -136,7 +140,8 @@ def build_chat_input(state: GuiState, chat_container, send_fn) -> ui.input:
 
         ui.notify(
             f"{filename} ready - {char_count:,} chars",
-            color="positive", timeout=3000,
+            color="positive",
+            timeout=3000,
         )
 
     def _start_voice_recognition(inp: ui.input) -> None:
@@ -208,23 +213,25 @@ def build_chat_input(state: GuiState, chat_container, send_fn) -> ui.input:
 
         # Hidden upload widgets (one per type)
         doc_upload = (
-            ui.upload(on_upload=lambda e: asyncio.create_task(_handle_upload(e)),
-                      auto_upload=True, max_file_size=10_000_000)
-            .props("accept='.pdf,.txt,.md,.markdown,.csv,.html,.htm,"
-                   ".yaml,.yml,.json,.docx'")
+            ui.upload(
+                on_upload=lambda e: asyncio.create_task(_handle_upload(e)), auto_upload=True, max_file_size=10_000_000
+            )
+            .props("accept='.pdf,.txt,.md,.markdown,.csv,.html,.htm,.yaml,.yml,.json,.docx'")
             .style("display:none;")
         )
         img_upload = (
-            ui.upload(on_upload=lambda e: asyncio.create_task(_handle_upload(e)),
-                      auto_upload=True, max_file_size=10_000_000)
+            ui.upload(
+                on_upload=lambda e: asyncio.create_task(_handle_upload(e)), auto_upload=True, max_file_size=10_000_000
+            )
             .props("accept='.jpg,.jpeg,.png,.webp,.bmp,.tiff'")
             .style("display:none;")
         )
 
         # + menu (UI_CONVENTIONS.md §4 — Brain core feature)
-        plus_btn = ui.button("+").props("flat dense").style(
-            f"color:{C_MUTED}; font-size:16px; font-weight:300; "
-            f"padding:0 6px; min-width:28px;"
+        plus_btn = (
+            ui.button("+")
+            .props("flat dense")
+            .style(f"color:{C_MUTED}; font-size:16px; font-weight:300; padding:0 6px; min-width:28px;")
         )
         with ui.menu().props("auto-close") as plus_menu:
             ui.menu_item(

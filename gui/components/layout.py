@@ -18,7 +18,6 @@ import os
 from pathlib import Path
 
 import httpx
-
 from nicegui import ui
 
 from gui.state import GuiState
@@ -180,14 +179,12 @@ def _render_extension_nav(config: dict) -> None:
                         ui.column()
                         .classes("w-full items-center cursor-pointer")
                         .style(
-                            f"padding:8px 4px; background:transparent; "
-                            f"border-left:2px solid transparent; transition:background 0.15s;"
+                            "padding:8px 4px; background:transparent; "
+                            "border-left:2px solid transparent; transition:background 0.15s;"
                         )
                         .on("click", lambda p=item["path"]: ui.navigate.to(p))
                     ):
-                        ui.icon(item.get("icon", "extension"), size="20px").style(
-                            f"color:{C_CREAM};"
-                        )
+                        ui.icon(item.get("icon", "extension"), size="20px").style(f"color:{C_CREAM};")
                         ui.label(item["label"]).style(
                             f"font-size:9px; font-family:{F_SANS}; color:{C_CREAM}; "
                             f"font-weight:400; text-align:center; margin-top:2px; "
@@ -246,9 +243,7 @@ def _right_extension_panel() -> None:
         f"font-size:10px; font-weight:700; letter-spacing:1px; "
         f"color:{C_AMBER}; text-transform:uppercase; margin-bottom:8px;"
     )
-    ui.label("Session active").style(
-        f"font-size:11px; color:{C_MUTED}; font-family:{F_MONO};"
-    )
+    ui.label("Session active").style(f"font-size:11px; color:{C_MUTED}; font-family:{F_MONO};")
 
 
 @ui.refreshable
@@ -374,11 +369,13 @@ def build_left_nav(state: GuiState, active_page: str = "") -> None:
                 for _ext in _data.get("extensions", []):
                     if _ext.get("state") == "MOUNTED":
                         for _nav in _ext.get("nav_items", []):
-                            nav_items.append((
-                                _nav["label"],
-                                _nav["route"],
-                                _nav["icon"],
-                            ))
+                            nav_items.append(
+                                (
+                                    _nav["label"],
+                                    _nav["route"],
+                                    _nav["icon"],
+                                )
+                            )
         except Exception:
             pass  # Server not reachable — extensions don't show in nav
     except Exception:
@@ -387,9 +384,7 @@ def build_left_nav(state: GuiState, active_page: str = "") -> None:
     with (
         ui.left_drawer(value=True)
         .props("width=100 mini=false bordered=false")
-        .style(
-            f"background:{C_SURFACE}; border-right:0.5px solid {C_INK40}; padding:0;"
-        )
+        .style(f"background:{C_SURFACE}; border-right:0.5px solid {C_INK40}; padding:0;")
     ):
         for label, route, icon in nav_items:
             is_active = active_page == route or (active_page == "" and route == "/")
@@ -440,11 +435,7 @@ def build_right_rail(state: GuiState) -> None:
     with (
         ui.right_drawer(value=bool(_active_extension))
         .props("width=260 bordered=false")
-        .style(
-            f"background:{C_SURFACE}; "
-            f"border-left:0.5px solid {C_INK40}; "
-            f"padding:12px; overflow-y:auto;"
-        )
+        .style(f"background:{C_SURFACE}; border-left:0.5px solid {C_INK40}; padding:12px; overflow-y:auto;")
     ):
         _right_extension_panel()
 

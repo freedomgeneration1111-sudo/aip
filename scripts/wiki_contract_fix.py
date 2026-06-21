@@ -21,10 +21,8 @@ USAGE:
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
 import sqlite3
-import sys
 from pathlib import Path
 
 
@@ -82,8 +80,10 @@ def diagnose(db_path: str) -> dict:
         print("  (none found — no backfill needed)")
     for row in orphaned:
         print(f"  ID: {row['id']}")
-        print(f"    domain: {row['domain']}, words: {row['word_count']}, "
-              f"content_len: {row['content_len']}, created: {row['created_at']}")
+        print(
+            f"    domain: {row['domain']}, words: {row['word_count']}, "
+            f"content_len: {row['content_len']}, created: {row['created_at']}"
+        )
 
     # 3. Beast wiki artifacts (the expected type)
     print()

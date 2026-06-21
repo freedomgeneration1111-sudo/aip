@@ -1104,9 +1104,9 @@ responses, that's not a contradiction. Flag only genuine conflicts."""
                         limit=lookback,
                     )
                     prior_turns = [
-                        t for t in prior_turns
-                        if t.turn_id != turn.turn_id
-                        and t.conversation_name == turn.conversation_name
+                        t
+                        for t in prior_turns
+                        if t.turn_id != turn.turn_id and t.conversation_name == turn.conversation_name
                     ]
                 except Exception as exc:
                     logger.warning(

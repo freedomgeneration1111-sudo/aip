@@ -44,7 +44,6 @@ from gui.theme import (
     F_MONO,
     F_SANS,
     R_MD,
-    R_SM,
 )
 
 log = logging.getLogger("gui.components.artifact_detail")
@@ -177,11 +176,7 @@ def _render_content(
         export_requires_force = data.get("export_requires_force", False)
 
         # ── Title + State Badge ────────────────────────────────
-        with (
-            ui.row()
-            .classes("w-full items-center")
-            .style(f"padding:16px 20px; border-bottom:0.5px solid {C_INK40};")
-        ):
+        with ui.row().classes("w-full items-center").style(f"padding:16px 20px; border-bottom:0.5px solid {C_INK40};"):
             render_artifact_state_badge(
                 ecs_state,
                 has_needs_revision=has_needs_revision,
@@ -193,8 +188,7 @@ def _render_content(
                     f"font-weight:600; line-height:1.3; word-break:break-word;"
                 )
                 ui.label(artifact_id).style(
-                    f"font-size:10px; color:{C_INK60}; font-family:{F_MONO}; "
-                    f"word-break:break-all;"
+                    f"font-size:10px; color:{C_INK60}; font-family:{F_MONO}; word-break:break-all;"
                 )
 
         # ── Review Action Panel ────────────────────────────────
@@ -247,8 +241,7 @@ def _render_content(
                             f"font-size:11px; color:{C_INK60}; font-family:{F_MONO}; min-width:100px; font-weight:600;"
                         )
                         ui.label(value).style(
-                            f"font-size:11px; color:{C_CREAM}; font-family:{F_MONO}; "
-                            f"word-break:break-all;"
+                            f"font-size:11px; color:{C_CREAM}; font-family:{F_MONO}; word-break:break-all;"
                         )
 
         # ── Sources ───────────────────────────────────────────

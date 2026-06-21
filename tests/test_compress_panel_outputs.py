@@ -25,7 +25,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ── Helpers ────────────────────────────────────────────────────────────
 
 
@@ -53,17 +52,19 @@ def _make_three_slot_container(call_fn):
 
 
 def _valid_judge_json() -> str:
-    return json.dumps({
-        "status": "completed",
-        "analysis": {
-            "consensus": ["AIP stands for AI Poiesis"],
-            "contradictions": [],
-            "partial_coverage": [],
-            "unique_insights": [],
-            "blind_spots": [],
-        },
-        "responses": [],
-    })
+    return json.dumps(
+        {
+            "status": "completed",
+            "analysis": {
+                "consensus": ["AIP stands for AI Poiesis"],
+                "contradictions": [],
+                "partial_coverage": [],
+                "unique_insights": [],
+                "blind_spots": [],
+            },
+            "responses": [],
+        }
+    )
 
 
 def _valid_compression_json(claims: list[str]) -> str:
@@ -106,11 +107,11 @@ class TestCompressPanelOutputsHelper:
 
     def test_helper_exists_and_is_async(self):
         import inspect
+
         from aip.adapter.api.routes.model_council import _compress_panel_outputs
 
         assert inspect.iscoroutinefunction(_compress_panel_outputs), (
-            "_compress_panel_outputs must be an async function — it makes "
-            "concurrent model calls via asyncio.gather."
+            "_compress_panel_outputs must be an async function — it makes concurrent model calls via asyncio.gather."
         )
 
     def test_compress_system_prompt_exists(self):
@@ -118,8 +119,7 @@ class TestCompressPanelOutputsHelper:
         from aip.adapter.api.routes import model_council
 
         assert hasattr(model_council, "_COMPRESS_SYSTEM_PROMPT"), (
-            "_COMPRESS_SYSTEM_PROMPT constant must exist — the compression "
-            "pass needs a dedicated system prompt."
+            "_COMPRESS_SYSTEM_PROMPT constant must exist — the compression pass needs a dedicated system prompt."
         )
         prompt = model_council._COMPRESS_SYSTEM_PROMPT
         # Must ask for 5-8 claims in JSON format
@@ -163,6 +163,7 @@ class TestCompressionPassRuns:
 
         # Track ALL fusion engine calls (compression + judge + synth)
         engine_calls = []
+
         async def fake_fusion_engine(kind, engine_id, messages, container, timeout):
             engine_calls.append(list(messages))
             # Detect compression calls by the system prompt
@@ -170,11 +171,13 @@ class TestCompressionPassRuns:
             if "compression engine" in sys_msg.lower():
                 # Return compressed claims
                 return {
-                    "content": _valid_compression_json([
-                        "Claim 1 from this model",
-                        "Claim 2 from this model",
-                        "Claim 3 from this model",
-                    ]),
+                    "content": _valid_compression_json(
+                        [
+                            "Claim 1 from this model",
+                            "Claim 2 from this model",
+                            "Claim 3 from this model",
+                        ]
+                    ),
                     "model": "fake-compressor",
                     "usage": {},
                     "latency_ms": 10,
@@ -220,8 +223,7 @@ class TestCompressionPassRuns:
 
         # Compression calls happened (3 panelists → 3 compression calls)
         compression_calls = [
-            c for c in engine_calls
-            if "compression engine" in (c[0].get("content", "") if c else "").lower()
+            c for c in engine_calls if "compression engine" in (c[0].get("content", "") if c else "").lower()
         ]
         assert len(compression_calls) == 3, (
             f"Expected 3 compression calls (one per panelist), got {len(compression_calls)}"
@@ -230,15 +232,13 @@ class TestCompressionPassRuns:
         # The Judge call's user message must contain compressed claims
         # (NOT the raw answer text)
         judge_calls = [
-            c for c in engine_calls
-            if "ACTING AS THE JUDGE" in (c[0].get("content", "") if c else "").upper()
+            c for c in engine_calls if "ACTING AS THE JUDGE" in (c[0].get("content", "") if c else "").upper()
         ]
         assert len(judge_calls) == 1, "Expected exactly 1 Judge call"
         judge_user_msg = judge_calls[0][-1]["content"]  # last message = user
         # Must contain the '[Compressed — N key claims]' header
         assert "[Compressed —" in judge_user_msg, (
-            "Judge's answers_block must contain '[Compressed — N key claims]' "
-            "headers when compress_panel_outputs=True"
+            "Judge's answers_block must contain '[Compressed — N key claims]' headers when compress_panel_outputs=True"
         )
         # Must contain the claim bullets
         assert "Claim 1 from this model" in judge_user_msg
@@ -280,6 +280,7 @@ class TestCompressionDisabledByDefault:
         container = _make_three_slot_container(panel_call)
 
         engine_calls = []
+
         async def fake_fusion_engine(kind, engine_id, messages, container, timeout):
             engine_calls.append(list(messages))
             sys_msg = messages[0].get("content", "") if messages else ""
@@ -317,17 +318,13 @@ class TestCompressionDisabledByDefault:
 
         # NO compression calls happened
         compression_calls = [
-            c for c in engine_calls
-            if "compression engine" in (c[0].get("content", "") if c else "").lower()
+            c for c in engine_calls if "compression engine" in (c[0].get("content", "") if c else "").lower()
         ]
-        assert len(compression_calls) == 0, (
-            "No compression calls should happen when compress_panel_outputs=False"
-        )
+        assert len(compression_calls) == 0, "No compression calls should happen when compress_panel_outputs=False"
 
         # The Judge's answers_block must contain the raw answer text
         judge_calls = [
-            c for c in engine_calls
-            if "ACTING AS THE JUDGE" in (c[0].get("content", "") if c else "").upper()
+            c for c in engine_calls if "ACTING AS THE JUDGE" in (c[0].get("content", "") if c else "").upper()
         ]
         assert len(judge_calls) == 1
         judge_user_msg = judge_calls[0][-1]["content"]
@@ -369,6 +366,7 @@ class TestCompressionGracefulDegrade:
         container = _make_three_slot_container(panel_call)
 
         engine_calls = []
+
         async def fake_fusion_engine(kind, engine_id, messages, container, timeout):
             engine_calls.append(list(messages))
             sys_msg = messages[0].get("content", "") if messages else ""
@@ -387,9 +385,11 @@ class TestCompressionGracefulDegrade:
                     }
                 # Succeed for synthesis + beast
                 return {
-                    "content": _valid_compression_json([
-                        f"Compressed claim from {user_msg.split('Model: ')[1].split('\\n')[0] if 'Model: ' in user_msg else 'unknown'}",
-                    ]),
+                    "content": _valid_compression_json(
+                        [
+                            f"Compressed claim from {user_msg.split('Model: ')[1].split('\\n')[0] if 'Model: ' in user_msg else 'unknown'}",
+                        ]
+                    ),
                     "model": "fake-compressor",
                     "usage": {},
                     "latency_ms": 10,
@@ -435,8 +435,7 @@ class TestCompressionGracefulDegrade:
         # - compressed claims for synthesis + beast
         # - raw answer for evaluation (compression failed)
         judge_calls = [
-            c for c in engine_calls
-            if "ACTING AS THE JUDGE" in (c[0].get("content", "") if c else "").upper()
+            c for c in engine_calls if "ACTING AS THE JUDGE" in (c[0].get("content", "") if c else "").upper()
         ]
         assert len(judge_calls) == 1
         judge_user_msg = judge_calls[0][-1]["content"]
@@ -480,11 +479,14 @@ class TestSynthUnaffectedByCompression:
         container = _make_three_slot_container(panel_call)
 
         engine_calls = []
+
         async def fake_fusion_engine(kind, engine_id, messages, container, timeout):
-            engine_calls.append({
-                "system": messages[0].get("content", "") if messages else "",
-                "user": messages[-1].get("content", "") if messages else "",
-            })
+            engine_calls.append(
+                {
+                    "system": messages[0].get("content", "") if messages else "",
+                    "user": messages[-1].get("content", "") if messages else "",
+                }
+            )
             sys_msg = messages[0].get("content", "") if messages else ""
             if "compression engine" in sys_msg.lower():
                 return {

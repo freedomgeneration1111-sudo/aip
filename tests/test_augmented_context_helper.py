@@ -37,14 +37,11 @@ Test coverage:
 
 from __future__ import annotations
 
+# ── Path helpers ────────────────────────────────────────────────────────
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
-
-# ── Path helpers ────────────────────────────────────────────────────────
-
-from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _AUGMENTED_CONTEXT_PY = _REPO_ROOT / "src" / "aip" / "adapter" / "api" / "routes" / "_augmented_context.py"
@@ -103,7 +100,6 @@ class TestHelperNoStores:
     async def test_returns_assembled_false_does_not_raise(self):
         """The helper NEVER raises — even on exception it returns assembled=False."""
         from aip.adapter.api.routes._augmented_context import (
-            AugmentedContext,
             assemble_augmented_context,
         )
 
@@ -148,7 +144,6 @@ class TestHelperExtractsCorpus:
     @pytest.mark.asyncio
     async def test_returns_assembled_true_with_corpus_turns(self):
         from aip.adapter.api.routes._augmented_context import (
-            AugmentedContext,
             assemble_augmented_context,
         )
 
@@ -247,8 +242,7 @@ class TestChatPyRefactored:
         aug_branch = source[aug_branch_start:else_idx]
         # The augmented branch should NOT have the inline search call
         assert "await _search_corpus_turns(" not in aug_branch, (
-            "chat.py's augmented branch must NOT call _search_corpus_turns "
-            "inline — that's now inside the helper."
+            "chat.py's augmented branch must NOT call _search_corpus_turns inline — that's now inside the helper."
         )
 
     def test_chat_py_reexports_four_helpers(self):
@@ -282,10 +276,9 @@ class TestChatPyRefactored:
         auto_save_idx = source.find("auto_save_chat_turn")
         if auto_save_idx != -1:
             # Look at the 30 lines before the auto_save call
-            auto_save_context = source[max(0, auto_save_idx - 2000):auto_save_idx]
+            auto_save_context = source[max(0, auto_save_idx - 2000) : auto_save_idx]
             assert "source_dicts or []" not in auto_save_context, (
-                "chat.py's auto-save path must NOT reference source_dicts — "
-                "use _augmented_source_turn_ids instead."
+                "chat.py's auto-save path must NOT reference source_dicts — use _augmented_source_turn_ids instead."
             )
 
 
@@ -333,11 +326,11 @@ class TestCompareModelsCallsHelper:
         """When assemble_augmented_context=True and turn_id is set,
         compare_models calls the helper and prepends the result to
         each panel call."""
+        from aip.adapter.api.dependencies import AipContainer
         from aip.adapter.api.routes.model_council import (
             ModelCouncilRequest,
             compare_models,
         )
-        from aip.adapter.api.dependencies import AipContainer
 
         # Mock provider with 2 slots
         provider = MagicMock()
@@ -357,6 +350,7 @@ class TestCompareModelsCallsHelper:
                 "cost_usd": 0.0,
                 "error": False,
             }
+
         provider.call = AsyncMock(side_effect=fake_call)
 
         container = AipContainer({})
@@ -395,14 +389,16 @@ class TestCompareModelsCallsHelper:
             ),
             patch(
                 "aip.adapter.api.routes.model_council._call_fusion_engine",
-                new=AsyncMock(return_value={
-                    "content": '{"status":"completed","analysis":{"consensus":[],"contradictions":[],"partial_coverage":[],"unique_insights":[],"blind_spots":[]}}',
-                    "model": "fake-judge",
-                    "usage": {},
-                    "latency_ms": 10,
-                    "cost_usd": 0.0,
-                    "error": False,
-                }),
+                new=AsyncMock(
+                    return_value={
+                        "content": '{"status":"completed","analysis":{"consensus":[],"contradictions":[],"partial_coverage":[],"unique_insights":[],"blind_spots":[]}}',
+                        "model": "fake-judge",
+                        "usage": {},
+                        "latency_ms": 10,
+                        "cost_usd": 0.0,
+                        "error": False,
+                    }
+                ),
             ),
             patch(
                 "aip.adapter.api.routes.model_council._pick_fusion_engine",
@@ -426,20 +422,18 @@ class TestCompareModelsCallsHelper:
             assert msgs[0]["content"] == "AUGMENTED CONTEXT: AIP = AI Poiesis", (
                 f"panel call for {slot_name} must start with the augmented prefix"
             )
-            assert msgs[-1]["role"] == "user", (
-                f"panel call for {slot_name} must end with the user message"
-            )
+            assert msgs[-1]["role"] == "user", f"panel call for {slot_name} must end with the user message"
 
     @pytest.mark.asyncio
     async def test_helper_not_called_when_flag_false(self):
         """When assemble_augmented_context=False (default), the helper is
         NOT called — panel calls proceed with the bare prompt. Backward
         compat with existing tests and external API clients."""
+        from aip.adapter.api.dependencies import AipContainer
         from aip.adapter.api.routes.model_council import (
             ModelCouncilRequest,
             compare_models,
         )
-        from aip.adapter.api.dependencies import AipContainer
 
         provider = MagicMock()
         provider.list_slots.return_value = ["synthesis", "beast"]
@@ -457,6 +451,7 @@ class TestCompareModelsCallsHelper:
                 "cost_usd": 0.0,
                 "error": False,
             }
+
         provider.call = AsyncMock(side_effect=fake_call)
 
         container = AipContainer({})
@@ -485,14 +480,16 @@ class TestCompareModelsCallsHelper:
             ),
             patch(
                 "aip.adapter.api.routes.model_council._call_fusion_engine",
-                new=AsyncMock(return_value={
-                    "content": '{"status":"completed","analysis":{"consensus":[],"contradictions":[],"partial_coverage":[],"unique_insights":[],"blind_spots":[]}}',
-                    "model": "fake-judge",
-                    "usage": {},
-                    "latency_ms": 10,
-                    "cost_usd": 0.0,
-                    "error": False,
-                }),
+                new=AsyncMock(
+                    return_value={
+                        "content": '{"status":"completed","analysis":{"consensus":[],"contradictions":[],"partial_coverage":[],"unique_insights":[],"blind_spots":[]}}',
+                        "model": "fake-judge",
+                        "usage": {},
+                        "latency_ms": 10,
+                        "cost_usd": 0.0,
+                        "error": False,
+                    }
+                ),
             ),
             patch(
                 "aip.adapter.api.routes.model_council._pick_fusion_engine",
@@ -527,11 +524,11 @@ class TestCompareModelsCallsHelper:
         """When assemble_augmented_context=True but turn_id is empty,
         the helper is NOT called — no session to scope the retrieval to.
         Graceful skip; panel calls proceed with bare prompt."""
+        from aip.adapter.api.dependencies import AipContainer
         from aip.adapter.api.routes.model_council import (
             ModelCouncilRequest,
             compare_models,
         )
-        from aip.adapter.api.dependencies import AipContainer
 
         provider = MagicMock()
         provider.list_slots.return_value = ["synthesis", "beast"]
@@ -549,6 +546,7 @@ class TestCompareModelsCallsHelper:
                 "cost_usd": 0.0,
                 "error": False,
             }
+
         provider.call = AsyncMock(side_effect=fake_call)
 
         container = AipContainer({})
@@ -576,14 +574,16 @@ class TestCompareModelsCallsHelper:
             ),
             patch(
                 "aip.adapter.api.routes.model_council._call_fusion_engine",
-                new=AsyncMock(return_value={
-                    "content": '{"status":"completed","analysis":{"consensus":[],"contradictions":[],"partial_coverage":[],"unique_insights":[],"blind_spots":[]}}',
-                    "model": "fake-judge",
-                    "usage": {},
-                    "latency_ms": 10,
-                    "cost_usd": 0.0,
-                    "error": False,
-                }),
+                new=AsyncMock(
+                    return_value={
+                        "content": '{"status":"completed","analysis":{"consensus":[],"contradictions":[],"partial_coverage":[],"unique_insights":[],"blind_spots":[]}}',
+                        "model": "fake-judge",
+                        "usage": {},
+                        "latency_ms": 10,
+                        "cost_usd": 0.0,
+                        "error": False,
+                    }
+                ),
             ),
             patch(
                 "aip.adapter.api.routes.model_council._pick_fusion_engine",
@@ -697,6 +697,5 @@ class TestSourceFileStructure:
         source = _read_augmented_context_source()
         # The docstring should mention "never raises" or equivalent
         assert "never raises" in source.lower() or "never raise" in source.lower(), (
-            "The helper's docstring must document that it never raises — "
-            "callers rely on this for graceful degradation."
+            "The helper's docstring must document that it never raises — callers rely on this for graceful degradation."
         )

@@ -32,7 +32,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ── Path helpers ────────────────────────────────────────────────────────
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -99,6 +98,7 @@ class TestBug1PanelMessageConstruction:
     def test_call_model_slot_accepts_panel_system_prompt_kwarg(self):
         """``_call_model_slot`` accepts the ``panel_system_prompt`` kwarg."""
         import inspect
+
         from aip.adapter.api.routes.model_council import _call_model_slot
 
         sig = inspect.signature(_call_model_slot)
@@ -180,11 +180,11 @@ class TestAcceptanceCriteria1PanelPromptTest:
         messages[-2] = system (behavioral only) and messages[-1] = user
         (the design-decisions question). The model cannot confuse the
         instructions for the task."""
+        from aip.adapter.api.dependencies import AipContainer
         from aip.adapter.api.routes.model_council import (
             ModelCouncilRequest,
             compare_models,
         )
-        from aip.adapter.api.dependencies import AipContainer
 
         # The Probe Shot question from the acceptance criteria
         probe_question = (
@@ -213,6 +213,7 @@ class TestAcceptanceCriteria1PanelPromptTest:
                 "cost_usd": 0.0,
                 "error": False,
             }
+
         provider.call = AsyncMock(side_effect=tracking_call)
 
         container = AipContainer({})
@@ -223,14 +224,16 @@ class TestAcceptanceCriteria1PanelPromptTest:
         with (
             patch(
                 "aip.adapter.api.routes.model_council._call_fusion_engine",
-                new=AsyncMock(return_value={
-                    "content": '{"status":"completed","analysis":{"consensus":[],"contradictions":[],"partial_coverage":[],"unique_insights":[],"blind_spots":[]}}',
-                    "model": "fake-judge",
-                    "usage": {},
-                    "latency_ms": 10,
-                    "cost_usd": 0.0,
-                    "error": False,
-                }),
+                new=AsyncMock(
+                    return_value={
+                        "content": '{"status":"completed","analysis":{"consensus":[],"contradictions":[],"partial_coverage":[],"unique_insights":[],"blind_spots":[]}}',
+                        "model": "fake-judge",
+                        "usage": {},
+                        "latency_ms": 10,
+                        "cost_usd": 0.0,
+                        "error": False,
+                    }
+                ),
             ),
             patch(
                 "aip.adapter.api.routes.model_council._pick_fusion_engine",
@@ -247,9 +250,7 @@ class TestAcceptanceCriteria1PanelPromptTest:
         assert len(captured_messages) == 3, "all 3 slots must have been called"
         for slot_name, msgs in captured_messages:
             # Bug 1 contract: LAST system message is behavioral, LAST message is user
-            assert msgs[-1]["role"] == "user", (
-                f"panel call for {slot_name}: last message must be user (the question)"
-            )
+            assert msgs[-1]["role"] == "user", f"panel call for {slot_name}: last message must be user (the question)"
             assert msgs[-1]["content"] == probe_question or probe_question[:4000] in msgs[-1]["content"], (
                 f"panel call for {slot_name}: user message must contain the Probe Shot question"
             )
@@ -258,8 +259,7 @@ class TestAcceptanceCriteria1PanelPromptTest:
             )
             # The system prompt must NOT contain the question (Bug 1)
             assert "design decisions" not in msgs[-2]["content"].lower(), (
-                f"panel call for {slot_name}: system prompt must NOT contain "
-                f"the task content (Bug 1 — behavioral only)"
+                f"panel call for {slot_name}: system prompt must NOT contain the task content (Bug 1 — behavioral only)"
             )
             # The system prompt must NOT say "Analyze the prompt below" (Bug 1 root cause (b))
             assert "Analyze the prompt below" not in msgs[-2]["content"]
@@ -278,8 +278,7 @@ class TestBug2PanelDispatchCompleteness:
         each panel call (Bug 2 fix requirement 2)."""
         source = _read_model_council_source()
         assert "[PANEL] Dispatching" in source, (
-            "Panel dispatch must log '[PANEL] Dispatching → {model_id}' "
-            "before each call — Bug 2 fix requirement 2."
+            "Panel dispatch must log '[PANEL] Dispatching → {model_id}' before each call — Bug 2 fix requirement 2."
         )
 
     def test_panel_dispatch_logs_response_marker(self):
@@ -315,10 +314,10 @@ class TestBug2PanelDispatchCompleteness:
         (completed + failed), not just ``pm.status == 'completed'``."""
         source = _read_model_council_source()
         # Find the answers_block loop
-        ab_idx = source.find("answers_block = \"\"")
+        ab_idx = source.find('answers_block = ""')
         assert ab_idx != -1, "answers_block construction not found"
         # Look at the next 800 chars for the loop
-        loop_section = source[ab_idx:ab_idx + 1500]
+        loop_section = source[ab_idx : ab_idx + 1500]
         # The loop must NOT have a top-level `if pm.status == "completed":`
         # that wraps the entire body (which would skip failed models).
         # Instead, the loop must handle both branches.
@@ -343,11 +342,11 @@ class TestAcceptanceCriteria2DispatchCompleteness:
         - 4 '[PANEL] Response' OR '[PANEL] FAILED' log entries
         - The Judge's answers_block contains 4 sections (one per slot)
         """
+        from aip.adapter.api.dependencies import AipContainer
         from aip.adapter.api.routes.model_council import (
             ModelCouncilRequest,
             compare_models,
         )
-        from aip.adapter.api.dependencies import AipContainer
 
         provider = MagicMock()
         provider.list_slots.return_value = ["synthesis", "evaluation", "beast", "sexton"]
@@ -370,6 +369,7 @@ class TestAcceptanceCriteria2DispatchCompleteness:
                 "cost_usd": 0.0,
                 "error": False,
             }
+
         provider.call = AsyncMock(side_effect=call_with_one_failure)
 
         container = AipContainer({})
@@ -408,9 +408,7 @@ class TestAcceptanceCriteria2DispatchCompleteness:
             result = await compare_models(request, container=container)
 
         # 4 panel results (3 completed + 1 failed)
-        assert len(result.selected_models) == 4, (
-            f"Expected 4 panel results, got {len(result.selected_models)}"
-        )
+        assert len(result.selected_models) == 4, f"Expected 4 panel results, got {len(result.selected_models)}"
         statuses = {pm.model_slot: pm.status for pm in result.selected_models}
         assert statuses.get("synthesis") == "completed"
         assert statuses.get("evaluation") == "failed", "evaluation must be recorded as failed"
@@ -442,12 +440,13 @@ class TestAcceptanceCriteria2DispatchCompleteness:
     async def test_dispatch_log_entries_match_slot_count(self, caplog):
         """Verify the [PANEL] Dispatching log entries match the number of
         dispatched slots. Uses pytest's caplog fixture to capture logs."""
+        import logging
+
+        from aip.adapter.api.dependencies import AipContainer
         from aip.adapter.api.routes.model_council import (
             ModelCouncilRequest,
             compare_models,
         )
-        from aip.adapter.api.dependencies import AipContainer
-        import logging
 
         provider = MagicMock()
         provider.list_slots.return_value = ["synthesis", "evaluation", "beast", "sexton"]
@@ -467,6 +466,7 @@ class TestAcceptanceCriteria2DispatchCompleteness:
                 "cost_usd": 0.0,
                 "error": False,
             }
+
         provider.call = AsyncMock(side_effect=fake_call)
 
         container = AipContainer({})
@@ -477,14 +477,16 @@ class TestAcceptanceCriteria2DispatchCompleteness:
         with (
             patch(
                 "aip.adapter.api.routes.model_council._call_fusion_engine",
-                new=AsyncMock(return_value={
-                    "content": '{"status":"completed","analysis":{"consensus":[],"contradictions":[],"partial_coverage":[],"unique_insights":[],"blind_spots":[]}}',
-                    "model": "fake-judge",
-                    "usage": {},
-                    "latency_ms": 10,
-                    "cost_usd": 0.0,
-                    "error": False,
-                }),
+                new=AsyncMock(
+                    return_value={
+                        "content": '{"status":"completed","analysis":{"consensus":[],"contradictions":[],"partial_coverage":[],"unique_insights":[],"blind_spots":[]}}',
+                        "model": "fake-judge",
+                        "usage": {},
+                        "latency_ms": 10,
+                        "cost_usd": 0.0,
+                        "error": False,
+                    }
+                ),
             ),
             patch(
                 "aip.adapter.api.routes.model_council._pick_fusion_engine",
@@ -500,14 +502,10 @@ class TestAcceptanceCriteria2DispatchCompleteness:
 
         # 4 dispatch entries
         dispatch_entries = [r for r in caplog.records if "[PANEL] Dispatching" in r.getMessage()]
-        assert len(dispatch_entries) == 4, (
-            f"Expected 4 [PANEL] Dispatching log entries, got {len(dispatch_entries)}"
-        )
+        assert len(dispatch_entries) == 4, f"Expected 4 [PANEL] Dispatching log entries, got {len(dispatch_entries)}"
         # 4 response entries (all succeeded in this test)
         response_entries = [r for r in caplog.records if "[PANEL] Response" in r.getMessage()]
-        assert len(response_entries) == 4, (
-            f"Expected 4 [PANEL] Response log entries, got {len(response_entries)}"
-        )
+        assert len(response_entries) == 4, f"Expected 4 [PANEL] Response log entries, got {len(response_entries)}"
 
 
 # ── Acceptance Criteria 3: ISOLATION CHECK ──────────────────────────────

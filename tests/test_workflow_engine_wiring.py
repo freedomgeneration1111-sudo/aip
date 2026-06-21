@@ -6,12 +6,10 @@ AIP_Aristotle repo (they test ARISTOTLE's workflow, not the platform).
 
 Run:  CI=true uv run pytest tests/test_workflow_engine_wiring.py -v
 """
+
 from __future__ import annotations
 
 from pathlib import Path
-
-import pytest
-
 
 _REPO_ROOT = Path(__file__).parent.parent
 
@@ -26,9 +24,7 @@ def test_container_has_workflow_engine_field():
     """AipContainer declares a workflow_engine field (ADR-014 §8 step 2)."""
     deps_path = _REPO_ROOT / "src" / "aip" / "adapter" / "api" / "dependencies.py"
     source = deps_path.read_text()
-    assert "self.workflow_engine" in source, (
-        "AipContainer must declare self.workflow_engine for ADR-014 §8 step 2"
-    )
+    assert "self.workflow_engine" in source, "AipContainer must declare self.workflow_engine for ADR-014 §8 step 2"
 
 
 def test_container_has_workflow_registry_field():
@@ -52,12 +48,8 @@ def test_lifespan_wires_workflow_engine():
     assert "from aip.orchestration.workflow.engine import WorkflowEngine" in source, (
         "Lifespan must import WorkflowEngine"
     )
-    assert "container.workflow_engine = _workflow_engine" in source, (
-        "Lifespan must assign container.workflow_engine"
-    )
-    assert "workflow_engine_wired=True" in source, (
-        "Lifespan should log workflow_engine_wired=True on success"
-    )
+    assert "container.workflow_engine = _workflow_engine" in source, "Lifespan must assign container.workflow_engine"
+    assert "workflow_engine_wired=True" in source, "Lifespan should log workflow_engine_wired=True on success"
 
 
 # --------------------------------------------------------------------------
@@ -72,9 +64,5 @@ def test_health_extensions_route_exists():
     # full adapter chain which needs aiosqlite etc.).
     health_route_path = _REPO_ROOT / "src" / "aip" / "adapter" / "api" / "routes" / "health.py"
     source = health_route_path.read_text()
-    assert '"/health/extensions"' in source, (
-        "Expected /health/extensions route declaration in health.py (ADR-014 §7)"
-    )
-    assert "async def extensions_health" in source, (
-        "Expected async def extensions_health handler in health.py"
-    )
+    assert '"/health/extensions"' in source, "Expected /health/extensions route declaration in health.py (ADR-014 §7)"
+    assert "async def extensions_health" in source, "Expected async def extensions_health handler in health.py"

@@ -13,7 +13,7 @@ import logging
 
 from nicegui import context, ui
 
-from gui.components.layout import build_left_nav, build_top_bar, build_right_rail
+from gui.components.layout import build_left_nav, build_right_rail, build_top_bar
 from gui.state import GuiState, get_session_state
 from gui.theme import (
     C_AMBER,

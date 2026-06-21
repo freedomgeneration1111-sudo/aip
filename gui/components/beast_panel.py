@@ -103,17 +103,9 @@ class BeastPanel:
         children inside the scrollable region.
         """
         self.close()
-        dialog = (
-            ui.dialog()
-            .props("persistent=false; maximized=false")
-            .style(_DIALOG_STYLE)
-        )
+        dialog = ui.dialog().props("persistent=false; maximized=false").style(_DIALOG_STYLE)
         self._drawer = dialog
-        content_column = (
-            ui.column()
-            .classes("w-full")
-            .style("max-height:85vh; overflow-y:auto;")
-        )
+        content_column = ui.column().classes("w-full").style("max-height:85vh; overflow-y:auto;")
         self._content_container = content_column
         try:
             dialog.open()

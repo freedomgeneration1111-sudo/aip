@@ -126,8 +126,11 @@ class CorpusSummaryCards:
             # Check for API key / provider status
             has_api_key = not bool(status.get("error", ""))
             embed_error = status.get("error", "")
-            if embed_error and ("api_key" in embed_error.lower() or "provider" in embed_error.lower()
-                                or "openrouter" in embed_error.lower()):
+            if embed_error and (
+                "api_key" in embed_error.lower()
+                or "provider" in embed_error.lower()
+                or "openrouter" in embed_error.lower()
+            ):
                 bf_label = "BLOCKED"
                 bf_color = C_ERR_FG
                 bf_detail = "API key / provider missing"

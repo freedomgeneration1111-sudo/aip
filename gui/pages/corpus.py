@@ -36,7 +36,7 @@ from gui.components.corpus_problems import CorpusProblems
 from gui.components.corpus_summary import CorpusSummaryCards
 from gui.components.document_detail import DocumentDetail
 from gui.components.document_table import DocumentTable
-from gui.components.layout import build_left_nav, build_top_bar, build_right_rail
+from gui.components.layout import build_left_nav, build_right_rail, build_top_bar
 from gui.state import get_session_state
 from gui.theme import (
     C_AMBER,
@@ -353,9 +353,7 @@ async def corpus_page():
             )
 
             with ui.row().style("gap:8px; margin-top:12px;"):
-                ui.button("Start Backfill", on_click=_do_backfill).props("dense").style(
-                    f"font-family:{F_SANS};"
-                )
+                ui.button("Start Backfill", on_click=_do_backfill).props("dense").style(f"font-family:{F_SANS};")
                 ui.button("Cancel", on_click=dialog.close).props("flat dense").style(
                     f"color:{C_MUTED}; font-family:{F_SANS};"
                 )

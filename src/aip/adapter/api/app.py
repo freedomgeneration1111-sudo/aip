@@ -527,18 +527,12 @@ async def lifespan(app: FastAPI):
         from aip.orchestration.workflow.engine import WorkflowEngine
         from aip.orchestration.workflow_registry import WorkflowRegistry
 
-        _extensions_dir = _Path(
-            config.get("extensions", {}).get("dir", "extensions")
-        )
-        _manifest_range = tuple(
-            config.get("extensions", {}).get("manifest_version_range", (1, 1))
-        )
+        _extensions_dir = _Path(config.get("extensions", {}).get("dir", "extensions"))
+        _manifest_range = tuple(config.get("extensions", {}).get("manifest_version_range", (1, 1)))
         # ADR-014 §5.4: WorkflowRegistry is host-owned. Construct it with the
         # default workflows/ dir (backward compat), then let the host call
         # add_path() for each extension's workflows_dir at stage 3.
-        _workflow_registry = WorkflowRegistry(
-            workflows_dir=config.get("workflows", {}).get("dir", "workflows")
-        )
+        _workflow_registry = WorkflowRegistry(workflows_dir=config.get("workflows", {}).get("dir", "workflows"))
         container.workflow_registry = _workflow_registry
 
         # ADR-014 §8 step 2: WorkflowEngine is host-owned. Construct it with
@@ -589,7 +583,8 @@ async def lifespan(app: FastAPI):
             except Exception as exc:
                 log.warning(
                     "extension_api_router_mount_failed ext=%s error=%s",
-                    router_info["ext_id"], exc,
+                    router_info["ext_id"],
+                    exc,
                 )
     except Exception as exc:
         log.warning(

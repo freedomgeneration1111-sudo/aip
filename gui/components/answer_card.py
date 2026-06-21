@@ -343,8 +343,7 @@ def _render_provenance_strip(sources: list[dict[str, Any]]) -> None:
         )
     ):
         ui.label(f"PROVENANCE: {len(sources)} source{'s' if len(sources) != 1 else ''}").style(
-            f"font-size:9px; font-weight:700; font-family:{F_MONO}; "
-            f"color:{C_OK_FG}; letter-spacing:0.3px;"
+            f"font-size:9px; font-weight:700; font-family:{F_MONO}; color:{C_OK_FG}; letter-spacing:0.3px;"
         )
         # Domain badges (max 4, then "+N more")
         for d in domains[:4]:
@@ -353,17 +352,16 @@ def _render_provenance_strip(sources: list[dict[str, Any]]) -> None:
                 f"background:{C_RAISED}; padding:1px 5px; border-radius:{R_SM};"
             )
         if len(domains) > 4:
-            ui.label(f"+{len(domains) - 4}").style(
-                f"font-size:8px; font-family:{F_MONO}; color:{C_INK60};"
-            )
+            ui.label(f"+{len(domains) - 4}").style(f"font-size:8px; font-family:{F_MONO}; color:{C_INK60};")
 
     # ── Collapsible detail list ────────────────────────────
-    with ui.expansion(
-        f"Show {len(sources)} retrieved source{'s' if len(sources) != 1 else ''}",
-        icon="library_books",
-    ).classes("w-full").style(
-        f"margin-top:1px; padding:0 8px; font-family:{F_MONO}; "
-        f"background:{C_SURFACE}; border-radius:{R_SM};"
+    with (
+        ui.expansion(
+            f"Show {len(sources)} retrieved source{'s' if len(sources) != 1 else ''}",
+            icon="library_books",
+        )
+        .classes("w-full")
+        .style(f"margin-top:1px; padding:0 8px; font-family:{F_MONO}; background:{C_SURFACE}; border-radius:{R_SM};")
     ):
         for i, s in enumerate(sources[:10], 1):
             title = s.get("title", s.get("source_id", f"source_{i}"))
@@ -379,13 +377,11 @@ def _render_provenance_strip(sources: list[dict[str, Any]]) -> None:
                 )
                 with ui.column().classes("flex-1").style("gap:1px;"):
                     ui.label(title).style(
-                        f"font-size:10px; font-weight:600; color:{C_CREAM}; "
-                        f"font-family:{F_MONO}; line-height:1.3;"
+                        f"font-size:10px; font-weight:600; color:{C_CREAM}; font-family:{F_MONO}; line-height:1.3;"
                     )
                     if snippet:
                         ui.label(snippet).style(
-                            f"font-size:9px; color:{C_MUTED}; font-family:{F_MONO}; "
-                            f"line-height:1.3; max-width:100%;"
+                            f"font-size:9px; color:{C_MUTED}; font-family:{F_MONO}; line-height:1.3; max-width:100%;"
                         )
                     # Metadata row: score + domain + type
                     meta_parts: list[str] = []
@@ -396,9 +392,7 @@ def _render_provenance_strip(sources: list[dict[str, Any]]) -> None:
                     if source_type:
                         meta_parts.append(f"type:{source_type}")
                     if meta_parts:
-                        ui.label(" · ".join(meta_parts)).style(
-                            f"font-size:8px; color:{C_INK60}; font-family:{F_MONO};"
-                        )
+                        ui.label(" · ".join(meta_parts)).style(f"font-size:8px; color:{C_INK60}; font-family:{F_MONO};")
 
         if len(sources) > 10:
             ui.label(f"... and {len(sources) - 10} more (use 'Sources' button for full list)").style(

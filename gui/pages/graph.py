@@ -15,7 +15,7 @@ from typing import Any
 from nicegui import context, ui
 
 from gui.api_client import get_api_client
-from gui.components.layout import build_left_nav, build_top_bar, build_right_rail
+from gui.components.layout import build_left_nav, build_right_rail, build_top_bar
 from gui.state import get_session_state
 from gui.theme import (
     C_AMBER,
@@ -50,12 +50,8 @@ async def graph_page():
             build_top_bar(state)
             build_left_nav(state, active_page="/graph")
             build_right_rail(state)
-            with (
-                ui.card()
-                .style(
-                    f"background:{C_ERR_BG}; border:1px solid {C_ERR_FG}; "
-                    f"border-radius:{R_SM}; padding:16px; margin:24px;"
-                )
+            with ui.card().style(
+                f"background:{C_ERR_BG}; border:1px solid {C_ERR_FG}; border-radius:{R_SM}; padding:16px; margin:24px;"
             ):
                 ui.label("Graph Page — Fatal Error").style(
                     f"font-size:16px; font-weight:700; color:{C_ERR_FG}; font-family:{F_SANS};"
@@ -109,28 +105,21 @@ async def _graph_page_impl():
         .style(f"background:{C_GROUND}; padding:24px; overflow-y:auto; min-height:calc(100vh - 44px);")
     ):
         # Title
-        ui.label("Knowledge Graph").style(
-            f"font-family:{F_SANS}; font-size:24px; font-weight:700; color:{C_CREAM};"
-        )
+        ui.label("Knowledge Graph").style(f"font-family:{F_SANS}; font-size:24px; font-weight:700; color:{C_CREAM};")
         ui.label("Explore entities, relationships, and domain bridges in the knowledge graph.").style(
             f"font-size:12px; color:{C_MUTED}; margin-bottom:16px;"
         )
 
         # Stats error warning
         if stats_error and not state.backend_reachable:
-            with (
-                ui.card()
-                .style(
-                    f"background:{C_WARN_BG}; border:1px solid {C_WARN_FG}; "
-                    f"border-radius:{R_SM}; padding:12px; margin-bottom:12px;"
-                )
+            with ui.card().style(
+                f"background:{C_WARN_BG}; border:1px solid {C_WARN_FG}; "
+                f"border-radius:{R_SM}; padding:12px; margin-bottom:12px;"
             ):
                 ui.label("Backend unreachable — graph stats unavailable.").style(
                     f"font-size:12px; color:{C_WARN_FG}; font-family:{F_SANS};"
                 )
-                ui.label(f"Error: {stats_error}").style(
-                    f"font-size:10px; color:{C_MUTED}; font-family:{F_MONO};"
-                )
+                ui.label(f"Error: {stats_error}").style(f"font-size:10px; color:{C_MUTED}; font-family:{F_MONO};")
 
         # Stats cards
         with ui.row().classes("w-full").style("gap:12px; margin-bottom:16px;"):
@@ -146,12 +135,9 @@ async def _graph_page_impl():
 
         # Type breakdown
         if by_type:
-            with (
-                ui.card()
-                .style(
-                    f"background:{C_SURFACE}; border-radius:{R_MD}; padding:16px; "
-                    f"margin-bottom:16px; border:0.5px solid {C_INK40};"
-                )
+            with ui.card().style(
+                f"background:{C_SURFACE}; border-radius:{R_MD}; padding:16px; "
+                f"margin-bottom:16px; border:0.5px solid {C_INK40};"
             ):
                 ui.label("Nodes by Type").style(
                     f"font-size:13px; font-weight:600; color:{C_CREAM}; font-family:{F_SANS}; margin-bottom:8px;"
@@ -165,12 +151,9 @@ async def _graph_page_impl():
         # Relationship breakdown
         by_rel = graph_stats.get("edges_by_relationship", {})
         if by_rel:
-            with (
-                ui.card()
-                .style(
-                    f"background:{C_SURFACE}; border-radius:{R_MD}; padding:16px; "
-                    f"margin-bottom:16px; border:0.5px solid {C_INK40};"
-                )
+            with ui.card().style(
+                f"background:{C_SURFACE}; border-radius:{R_MD}; padding:16px; "
+                f"margin-bottom:16px; border:0.5px solid {C_INK40};"
             ):
                 ui.label("Edges by Relationship").style(
                     f"font-size:13px; font-weight:600; color:{C_CREAM}; font-family:{F_SANS}; margin-bottom:8px;"
@@ -185,12 +168,9 @@ async def _graph_page_impl():
         node_count = graph_stats.get("nodes", 0)
         if node_count == 0:
             # Empty state
-            with (
-                ui.card()
-                .style(
-                    f"background:{C_SURFACE}; border-radius:{R_MD}; padding:24px; "
-                    f"border:0.5px solid {C_INK40}; text-align:center; width:100%;"
-                )
+            with ui.card().style(
+                f"background:{C_SURFACE}; border-radius:{R_MD}; padding:24px; "
+                f"border:0.5px solid {C_INK40}; text-align:center; width:100%;"
             ):
                 ui.icon("hub", size="48px").style(f"color:{C_MUTED}; margin-bottom:12px;")
                 ui.label("No graph data yet").style(
@@ -218,12 +198,9 @@ async def _graph_page_impl():
                 f'loading="lazy"></iframe>'
             )
             # Fallback: direct link if iframe blocked or blank
-            with (
-                ui.card()
-                .style(
-                    f"background:{C_SURFACE}; border-radius:{R_SM}; padding:12px; "
-                    f"margin-top:8px; border:0.5px solid {C_INK40}; width:100%;"
-                )
+            with ui.card().style(
+                f"background:{C_SURFACE}; border-radius:{R_SM}; padding:12px; "
+                f"margin-top:8px; border:0.5px solid {C_INK40}; width:100%;"
             ):
                 ui.label("If the embedded visualization doesn't render above:").style(
                     f"font-size:10px; color:{C_MUTED};"
@@ -239,9 +216,7 @@ async def _graph_page_impl():
 
         # Links
         with ui.row().classes("w-full items-center").style("padding:8px 16px; gap:16px;"):
-            ui.link("Corpus Workbench", "/corpus").style(
-                f"font-size:10px; color:{C_AMBER}; text-decoration:underline;"
-            )
+            ui.link("Corpus Workbench", "/corpus").style(f"font-size:10px; color:{C_AMBER}; text-decoration:underline;")
             ui.link("Maintenance Center", "/maintenance").style(
                 f"font-size:10px; color:{C_AMBER}; text-decoration:underline;"
             )
@@ -249,17 +224,11 @@ async def _graph_page_impl():
 
 def _stat_card(label: str, value: Any) -> None:
     """Render a small stat card."""
-    with (
-        ui.card()
-        .style(
-            f"background:{C_SURFACE}; border-radius:{R_MD}; padding:12px 16px; "
-            f"min-width:100px; border:0.5px solid {C_INK40};"
-        )
+    with ui.card().style(
+        f"background:{C_SURFACE}; border-radius:{R_MD}; padding:12px 16px; "
+        f"min-width:100px; border:0.5px solid {C_INK40};"
     ):
-        ui.label(str(value)).style(
-            f"font-size:20px; font-weight:700; color:{C_OK_FG}; font-family:{F_MONO};"
-        )
+        ui.label(str(value)).style(f"font-size:20px; font-weight:700; color:{C_OK_FG}; font-family:{F_MONO};")
         ui.label(label).style(
-            f"font-size:10px; color:{C_MUTED}; font-family:{F_SANS}; text-transform:uppercase; "
-            f"letter-spacing:0.5px;"
+            f"font-size:10px; color:{C_MUTED}; font-family:{F_SANS}; text-transform:uppercase; letter-spacing:0.5px;"
         )

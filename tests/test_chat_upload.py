@@ -2,6 +2,7 @@
 
 Run: pytest tests/test_chat_upload.py -v
 """
+
 from __future__ import annotations
 
 import warnings
@@ -35,12 +36,12 @@ def test_handle_upload_ext_type_mapping():
     # Since _EXT_TYPES is a closure variable, we verify the mapping
     # by checking the code source for the key-value pairs.
     import inspect
+
     from gui.components.chat import build_chat_input
+
     source = inspect.getsource(build_chat_input)
     for ext, mime in expected.items():
-        assert f'"{ext}"' in source and mime in source, (
-            f"Expected _EXT_TYPES to map '{ext}' to '{mime}'"
-        )
+        assert f'"{ext}"' in source and mime in source, f"Expected _EXT_TYPES to map '{ext}' to '{mime}'"
     # docx is a concatenated string in the source — check for key + partial mime
     assert '"docx"' in source
     assert "wordprocessingml" in source
@@ -83,6 +84,7 @@ async def test_handle_upload_calls_aristotle_endpoint():
 
     with patch("httpx.AsyncClient", return_value=mock_client):
         import httpx
+
         async with httpx.AsyncClient() as client:
             r = await client.post(
                 "http://localhost:8001/aristotle/upload",

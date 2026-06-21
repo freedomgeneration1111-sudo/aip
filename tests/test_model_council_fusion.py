@@ -52,7 +52,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ── Helpers ────────────────────────────────────────────────────────────
 
 
@@ -188,43 +187,45 @@ class TestFusionPipelineExecution:
 
                 if "JUDGE" in system_content:
                     return {
-                        "content": json.dumps({
-                            "status": "completed",
-                            "analysis": {
-                                "consensus": [
-                                    "AIP is a knowledge engine",
-                                    "It is local-first",
+                        "content": json.dumps(
+                            {
+                                "status": "completed",
+                                "analysis": {
+                                    "consensus": [
+                                        "AIP is a knowledge engine",
+                                        "It is local-first",
+                                    ],
+                                    "contradictions": [
+                                        {
+                                            "topic": "scope",
+                                            "stances": [
+                                                {"model": "synthesis", "stance": "broad"},
+                                                {"model": "evaluation", "stance": "narrow"},
+                                            ],
+                                        },
+                                    ],
+                                    "partial_coverage": [
+                                        {
+                                            "models": ["synthesis"],
+                                            "point": "sovereignty",
+                                        },
+                                    ],
+                                    "unique_insights": [
+                                        {
+                                            "model": "evaluation",
+                                            "insight": "lifecycle framing",
+                                        },
+                                    ],
+                                    "blind_spots": [
+                                        "no model addressed cost",
+                                    ],
+                                },
+                                "responses": [
+                                    {"model": "synthesis", "content": "knowledge engine"},
+                                    {"model": "evaluation", "content": "lifecycle manager"},
                                 ],
-                                "contradictions": [
-                                    {
-                                        "topic": "scope",
-                                        "stances": [
-                                            {"model": "synthesis", "stance": "broad"},
-                                            {"model": "evaluation", "stance": "narrow"},
-                                        ],
-                                    },
-                                ],
-                                "partial_coverage": [
-                                    {
-                                        "models": ["synthesis"],
-                                        "point": "sovereignty",
-                                    },
-                                ],
-                                "unique_insights": [
-                                    {
-                                        "model": "evaluation",
-                                        "insight": "lifecycle framing",
-                                    },
-                                ],
-                                "blind_spots": [
-                                    "no model addressed cost",
-                                ],
-                            },
-                            "responses": [
-                                {"model": "synthesis", "content": "knowledge engine"},
-                                {"model": "evaluation", "content": "lifecycle manager"},
-                            ],
-                        }),
+                            }
+                        ),
                         "model": "deepseek-chat",
                         "usage": {"prompt_tokens": 300, "completion_tokens": 200, "total_tokens": 500},
                         "latency_ms": 2000,
@@ -276,9 +277,7 @@ class TestFusionPipelineExecution:
         with patch("aip.adapter.api.routes.model_council.logger"):
             result = await compare_models(request, container=fusion_container)
 
-        all_beast_calls = [
-            c for c in fusion_container._test_beast_call_log if c["slot"] == "beast"
-        ]
+        all_beast_calls = [c for c in fusion_container._test_beast_call_log if c["slot"] == "beast"]
         # Isolate the Fusion calls by inspecting the system prompt
         fusion_calls = []
         for call in all_beast_calls:
@@ -396,6 +395,7 @@ class TestFusionBackwardCompat:
     @pytest.fixture
     def legacy_judge_container(self):
         """Container whose beast slot returns old-schema JSON for Judge call."""
+
         async def mock_call(slot_name, messages, **kwargs):
             if slot_name in ("synthesis", "evaluation"):
                 return {
@@ -414,14 +414,16 @@ class TestFusionBackwardCompat:
                 if "JUDGE" in system_content:
                     # Old-schema JSON (legacy Beast behavior)
                     return {
-                        "content": json.dumps({
-                            "convergence": "Legacy convergence string",
-                            "disagreements": "Legacy disagreements string",
-                            "unique_contributions": "Legacy unique contributions",
-                            "risks": "Legacy risks",
-                            "beast_conclusion": "Legacy conclusion",
-                            "recommended_decision": "Legacy decision",
-                        }),
+                        "content": json.dumps(
+                            {
+                                "convergence": "Legacy convergence string",
+                                "disagreements": "Legacy disagreements string",
+                                "unique_contributions": "Legacy unique contributions",
+                                "risks": "Legacy risks",
+                                "beast_conclusion": "Legacy conclusion",
+                                "recommended_decision": "Legacy decision",
+                            }
+                        ),
                         "model": "deepseek-chat",
                         "usage": {},
                         "latency_ms": 1000,
@@ -523,17 +525,19 @@ class TestFusionAsymmetricInformation:
                         user_content = msg.get("content", "")
                 if "JUDGE" in system_content:
                     return {
-                        "content": json.dumps({
-                            "status": "completed",
-                            "analysis": {
-                                "consensus": [],
-                                "contradictions": [],
-                                "partial_coverage": [],
-                                "unique_insights": [],
-                                "blind_spots": [],
-                            },
-                            "responses": [],
-                        }),
+                        "content": json.dumps(
+                            {
+                                "status": "completed",
+                                "analysis": {
+                                    "consensus": [],
+                                    "contradictions": [],
+                                    "partial_coverage": [],
+                                    "unique_insights": [],
+                                    "blind_spots": [],
+                                },
+                                "responses": [],
+                            }
+                        ),
                         "model": "deepseek-chat",
                         "usage": {},
                         "latency_ms": 1000,
@@ -664,17 +668,19 @@ class TestFusionFailurePaths:
                         system_content = msg.get("content", "")
                 if "JUDGE" in system_content:
                     return {
-                        "content": json.dumps({
-                            "status": "completed",
-                            "analysis": {
-                                "consensus": ["x"],
-                                "contradictions": [],
-                                "partial_coverage": [],
-                                "unique_insights": [],
-                                "blind_spots": ["y"],
-                            },
-                            "responses": [],
-                        }),
+                        "content": json.dumps(
+                            {
+                                "status": "completed",
+                                "analysis": {
+                                    "consensus": ["x"],
+                                    "contradictions": [],
+                                    "partial_coverage": [],
+                                    "unique_insights": [],
+                                    "blind_spots": ["y"],
+                                },
+                                "responses": [],
+                            }
+                        ),
                         "model": "deepseek-chat",
                         "usage": {},
                         "latency_ms": 1000,
@@ -720,7 +726,6 @@ class TestFusionFailurePaths:
     @pytest.mark.asyncio
     async def test_single_successful_model_yields_unavailable(self):
         """When only one panel model succeeds, synthesis_status='unavailable'."""
-        from aip.adapter.api.dependencies import AipContainer
         from aip.adapter.api.routes.model_council import ModelCouncilRequest, compare_models
 
         async def mock_call(slot_name, messages, **kwargs):
@@ -763,9 +768,21 @@ class TestFusionGuaranteesPreserved:
     def basic_container(self):
         async def mock_call(slot_name, messages, **kwargs):
             if slot_name == "synthesis":
-                return {"content": "synthesis answer", "model": "gpt-4", "usage": {}, "latency_ms": 1000, "error": False}
+                return {
+                    "content": "synthesis answer",
+                    "model": "gpt-4",
+                    "usage": {},
+                    "latency_ms": 1000,
+                    "error": False,
+                }
             if slot_name == "evaluation":
-                return {"content": "evaluation answer", "model": "claude-3-opus", "usage": {}, "latency_ms": 1000, "error": False}
+                return {
+                    "content": "evaluation answer",
+                    "model": "claude-3-opus",
+                    "usage": {},
+                    "latency_ms": 1000,
+                    "error": False,
+                }
             if slot_name == "beast":
                 system_content = ""
                 for msg in messages:
@@ -773,11 +790,19 @@ class TestFusionGuaranteesPreserved:
                         system_content = msg.get("content", "")
                 if "JUDGE" in system_content:
                     return {
-                        "content": json.dumps({
-                            "status": "completed",
-                            "analysis": {"consensus": [], "contradictions": [], "partial_coverage": [], "unique_insights": [], "blind_spots": []},
-                            "responses": [],
-                        }),
+                        "content": json.dumps(
+                            {
+                                "status": "completed",
+                                "analysis": {
+                                    "consensus": [],
+                                    "contradictions": [],
+                                    "partial_coverage": [],
+                                    "unique_insights": [],
+                                    "blind_spots": [],
+                                },
+                                "responses": [],
+                            }
+                        ),
                         "model": "deepseek-chat",
                         "usage": {},
                         "latency_ms": 1000,
@@ -876,10 +901,7 @@ class TestFusionGuiConsumerContract:
         """The model_council_panel renders the ``fusion_answer`` field."""
         from pathlib import Path
 
-        panel_path = (
-            Path(__file__).resolve().parent.parent
-            / "gui" / "components" / "model_council_panel.py"
-        )
+        panel_path = Path(__file__).resolve().parent.parent / "gui" / "components" / "model_council_panel.py"
         source = panel_path.read_text(encoding="utf-8")
         assert 'data.get("fusion_answer"' in source, (
             "model_council_panel.py must render data['fusion_answer'] as the new headline section"
@@ -903,6 +925,7 @@ class TestFusionPerCallTimeouts:
         (without waiting for the hung slot) and the hung slot must be
         recorded as ``status="failed"`` with a timeout message.
         """
+
         # Patch the panel timeout DOWN to 0.3s so the test is fast.
         # We patch the module-level constant that the gather wraps use.
         async def mock_call(slot_name, messages, **kwargs):
@@ -933,17 +956,19 @@ class TestFusionPerCallTimeouts:
                         system_content = msg.get("content", "")
                 if "JUDGE" in system_content:
                     return {
-                        "content": json.dumps({
-                            "status": "completed",
-                            "analysis": {
-                                "consensus": ["synthesis answered"],
-                                "contradictions": [],
-                                "partial_coverage": [],
-                                "unique_insights": [],
-                                "blind_spots": ["evaluation hung — no stance captured"],
-                            },
-                            "responses": [{"model": "synthesis", "content": "fast answer"}],
-                        }),
+                        "content": json.dumps(
+                            {
+                                "status": "completed",
+                                "analysis": {
+                                    "consensus": ["synthesis answered"],
+                                    "contradictions": [],
+                                    "partial_coverage": [],
+                                    "unique_insights": [],
+                                    "blind_spots": ["evaluation hung — no stance captured"],
+                                },
+                                "responses": [{"model": "synthesis", "content": "fast answer"}],
+                            }
+                        ),
                         "model": "deepseek-chat",
                         "usage": {},
                         "latency_ms": 100,
@@ -1104,17 +1129,19 @@ class TestFusionPerCallTimeouts:
                         system_content = msg.get("content", "")
                 if "JUDGE" in system_content:
                     return {
-                        "content": json.dumps({
-                            "status": "completed",
-                            "analysis": {
-                                "consensus": ["x"],
-                                "contradictions": [],
-                                "partial_coverage": [],
-                                "unique_insights": [],
-                                "blind_spots": ["y"],
-                            },
-                            "responses": [],
-                        }),
+                        "content": json.dumps(
+                            {
+                                "status": "completed",
+                                "analysis": {
+                                    "consensus": ["x"],
+                                    "contradictions": [],
+                                    "partial_coverage": [],
+                                    "unique_insights": [],
+                                    "blind_spots": ["y"],
+                                },
+                                "responses": [],
+                            }
+                        ),
                         "model": "deepseek-chat",
                         "usage": {},
                         "latency_ms": 50,
@@ -1172,26 +1199,17 @@ class TestFusionJudgePromptContract:
         from pathlib import Path
 
         mc_path = (
-            Path(__file__).resolve().parent.parent
-            / "src" / "aip" / "adapter" / "api" / "routes" / "model_council.py"
+            Path(__file__).resolve().parent.parent / "src" / "aip" / "adapter" / "api" / "routes" / "model_council.py"
         )
         source = mc_path.read_text(encoding="utf-8")
         # The contract block heading
-        assert "MODEL LABEL CONTRACT" in source, (
-            "Judge system prompt must contain the MODEL LABEL CONTRACT block"
-        )
+        assert "MODEL LABEL CONTRACT" in source, "Judge system prompt must contain the MODEL LABEL CONTRACT block"
         # The "EXACT" emphasis — instructs the model not to invent labels
-        assert "EXACT <LABEL>" in source, (
-            "Judge prompt must instruct model to use the EXACT <LABEL> string"
-        )
+        assert "EXACT <LABEL>" in source, "Judge prompt must instruct model to use the EXACT <LABEL> string"
         # The "Do NOT invent your own labels" prohibition
-        assert "Do NOT invent your own labels" in source, (
-            "Judge prompt must prohibit inventing labels"
-        )
+        assert "Do NOT invent your own labels" in source, "Judge prompt must prohibit inventing labels"
         # The concrete example showing correct label usage
-        assert "anthropic/claude-3-opus" in source, (
-            "Judge prompt must include a concrete library-model label example"
-        )
+        assert "anthropic/claude-3-opus" in source, "Judge prompt must include a concrete library-model label example"
 
 
 class TestFusionGuiRendersJudgeAnalysis:
@@ -1223,10 +1241,7 @@ class TestFusionGuiRendersJudgeAnalysis:
         """
         from pathlib import Path
 
-        panel_path = (
-            Path(__file__).resolve().parent.parent
-            / "gui" / "components" / "model_council_panel.py"
-        )
+        panel_path = Path(__file__).resolve().parent.parent / "gui" / "components" / "model_council_panel.py"
         source = panel_path.read_text(encoding="utf-8")
         assert 'data.get("judge_analysis"' in source, (
             "model_council_panel.py must read data['judge_analysis'] to surface the structured JSON"
@@ -1264,6 +1279,7 @@ class TestFusionFixDEngineFallback:
         ``_pick_fusion_engine``) and it returns valid Judge JSON +
         Synth text.
         """
+
         async def mock_call(slot_name, messages, **kwargs):
             if slot_name == "synthesis":
                 system_content = ""
@@ -1273,30 +1289,32 @@ class TestFusionFixDEngineFallback:
                 if "JUDGE" in system_content:
                     # synthesis acts as Judge engine (Fix D fallback)
                     return {
-                        "content": json.dumps({
-                            "status": "completed",
-                            "analysis": {
-                                "consensus": ["both non-beast models agree"],
-                                "contradictions": [
-                                    {
-                                        "topic": "detail",
-                                        "stances": [
-                                            {"model": "synthesis", "stance": "high"},
-                                            {"model": "evaluation", "stance": "low"},
-                                        ],
-                                    },
+                        "content": json.dumps(
+                            {
+                                "status": "completed",
+                                "analysis": {
+                                    "consensus": ["both non-beast models agree"],
+                                    "contradictions": [
+                                        {
+                                            "topic": "detail",
+                                            "stances": [
+                                                {"model": "synthesis", "stance": "high"},
+                                                {"model": "evaluation", "stance": "low"},
+                                            ],
+                                        },
+                                    ],
+                                    "partial_coverage": [],
+                                    "unique_insights": [
+                                        {"model": "evaluation", "insight": "edge case"},
+                                    ],
+                                    "blind_spots": ["beast's view (beast timed out)"],
+                                },
+                                "responses": [
+                                    {"model": "synthesis", "content": "synth ans"},
+                                    {"model": "evaluation", "content": "eval ans"},
                                 ],
-                                "partial_coverage": [],
-                                "unique_insights": [
-                                    {"model": "evaluation", "insight": "edge case"},
-                                ],
-                                "blind_spots": ["beast's view (beast timed out)"],
-                            },
-                            "responses": [
-                                {"model": "synthesis", "content": "synth ans"},
-                                {"model": "evaluation", "content": "eval ans"},
-                            ],
-                        }),
+                            }
+                        ),
                         "model": "gpt-4",
                         "usage": {},
                         "latency_ms": 1500,
@@ -1444,24 +1462,35 @@ class TestFusionFixDEngineFallback:
 
         # Case 1: beast succeeded → beast is picked
         results_beast_ok = [
-            PerModelResult(model_slot="synthesis", model_id="gpt-4", provider="openai",
-                          status="completed", source="slot"),
-            PerModelResult(model_slot="beast", model_id="deepseek", provider="openai",
-                          status="completed", source="slot"),
-            PerModelResult(model_slot="evaluation", model_id="claude", provider="openai",
-                          status="completed", source="slot"),
+            PerModelResult(
+                model_slot="synthesis", model_id="gpt-4", provider="openai", status="completed", source="slot"
+            ),
+            PerModelResult(
+                model_slot="beast", model_id="deepseek", provider="openai", status="completed", source="slot"
+            ),
+            PerModelResult(
+                model_slot="evaluation", model_id="claude", provider="openai", status="completed", source="slot"
+            ),
         ]
         kind, eid = _pick_fusion_engine(results_beast_ok)
         assert (kind, eid) == ("slot", "beast"), "beast must be picked when it succeeded"
 
         # Case 2: beast failed, synthesis succeeded → synthesis picked
         results_beast_fail = [
-            PerModelResult(model_slot="synthesis", model_id="gpt-4", provider="openai",
-                          status="completed", source="slot"),
-            PerModelResult(model_slot="beast", model_id="deepseek", provider="openai",
-                          status="failed", error="timed out", source="slot"),
-            PerModelResult(model_slot="evaluation", model_id="claude", provider="openai",
-                          status="completed", source="slot"),
+            PerModelResult(
+                model_slot="synthesis", model_id="gpt-4", provider="openai", status="completed", source="slot"
+            ),
+            PerModelResult(
+                model_slot="beast",
+                model_id="deepseek",
+                provider="openai",
+                status="failed",
+                error="timed out",
+                source="slot",
+            ),
+            PerModelResult(
+                model_slot="evaluation", model_id="claude", provider="openai", status="completed", source="slot"
+            ),
         ]
         kind, eid = _pick_fusion_engine(results_beast_fail)
         assert (kind, eid) == ("slot", "synthesis"), (
@@ -1470,12 +1499,29 @@ class TestFusionFixDEngineFallback:
 
         # Case 3: all slots failed, library model succeeded → library picked
         results_library_only = [
-            PerModelResult(model_slot="beast", model_id="deepseek", provider="openai",
-                          status="failed", error="timed out", source="slot"),
-            PerModelResult(model_slot="synthesis", model_id="gpt-4", provider="openai",
-                          status="failed", error="timed out", source="slot"),
-            PerModelResult(model_slot="", model_id="anthropic/claude-3-opus", provider="openrouter",
-                          status="completed", source="library"),
+            PerModelResult(
+                model_slot="beast",
+                model_id="deepseek",
+                provider="openai",
+                status="failed",
+                error="timed out",
+                source="slot",
+            ),
+            PerModelResult(
+                model_slot="synthesis",
+                model_id="gpt-4",
+                provider="openai",
+                status="failed",
+                error="timed out",
+                source="slot",
+            ),
+            PerModelResult(
+                model_slot="",
+                model_id="anthropic/claude-3-opus",
+                provider="openrouter",
+                status="completed",
+                source="library",
+            ),
         ]
         kind, eid = _pick_fusion_engine(results_library_only)
         assert (kind, eid) == ("library", "anthropic/claude-3-opus"), (
@@ -1484,11 +1530,22 @@ class TestFusionFixDEngineFallback:
 
         # Case 4: no successful models → (None, None)
         results_all_fail = [
-            PerModelResult(model_slot="beast", model_id="deepseek", provider="openai",
-                          status="failed", error="timed out", source="slot"),
-            PerModelResult(model_slot="", model_id="anthropic/claude-3-opus", provider="openrouter",
-                          status="failed", error="timed out", source="library"),
+            PerModelResult(
+                model_slot="beast",
+                model_id="deepseek",
+                provider="openai",
+                status="failed",
+                error="timed out",
+                source="slot",
+            ),
+            PerModelResult(
+                model_slot="",
+                model_id="anthropic/claude-3-opus",
+                provider="openrouter",
+                status="failed",
+                error="timed out",
+                source="library",
+            ),
         ]
         kind, eid = _pick_fusion_engine(results_all_fail)
         assert (kind, eid) == (None, None), "no successful models → no engine"
-

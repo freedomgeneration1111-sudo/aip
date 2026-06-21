@@ -17,7 +17,7 @@ from nicegui import context, ui
 
 from gui.api_client import get_api_client
 from gui.components.actor_status_table import ActorStatusTable
-from gui.components.layout import build_left_nav, build_top_bar, build_right_rail
+from gui.components.layout import build_left_nav, build_right_rail, build_top_bar
 from gui.components.maintenance_jobs import MaintenanceJobs
 from gui.components.maintenance_log import MaintenanceLog
 from gui.components.maintenance_problem_panel import MaintenanceProblemPanel
@@ -561,8 +561,6 @@ def _render_warnings(state: Any) -> None:
     """
     if state.warnings:
         for w in state.warnings[:12]:
-            ui.label(f"! {w}").style(
-                f"font-size:11px; font-family:{F_MONO}; color:{C_ERR_FG}; margin-top:2px;"
-            )
+            ui.label(f"! {w}").style(f"font-size:11px; font-family:{F_MONO}; color:{C_ERR_FG}; margin-top:2px;")
     else:
         ui.label("None").style(f"font-size:11px; font-family:{F_MONO}; color:{C_MUTED}; margin-top:2px;")

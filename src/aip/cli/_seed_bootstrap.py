@@ -35,6 +35,7 @@ class SeedStatus(str, enum.Enum):
                AIP_AUTO_SEED=false). This is a *normal* outcome, not an error.
     - FAILED:  Bootstrap attempted but encountered an actual error.
     """
+
     SEEDED = "seeded"
     SKIPPED = "skipped"
     FAILED = "failed"
@@ -47,11 +48,13 @@ class SeedStatus(str, enum.Enum):
 
 # Columns that MUST exist in corpus_turns for the app to function.
 # The seed bootstrap validates these before writing the sentinel.
-_REQUIRED_CORPUS_COLUMNS = frozenset({
-    "embedded",
-    "conversation_id",
-    "tagging_version",
-})
+_REQUIRED_CORPUS_COLUMNS = frozenset(
+    {
+        "embedded",
+        "conversation_id",
+        "tagging_version",
+    }
+)
 
 
 # Paths relative to project root.
@@ -70,6 +73,7 @@ def _find_repo_root() -> Path:
         return cwd
     # Fall back to file-based calculation anyway
     return Path(__file__).resolve().parent.parent.parent.parent
+
 
 _REPO_ROOT = _find_repo_root()
 _SEED_DIR = _REPO_ROOT / "examples" / "seed_corpus"
@@ -137,7 +141,8 @@ def _validate_corpus_schema(conn: sqlite3.Connection) -> bool:
             "corpus_turns schema is missing required columns: %s. "
             "Existing columns: %s. The seed bootstrap must use the canonical "
             "schema from CorpusTurnStore, not an ad-hoc CREATE TABLE.",
-            sorted(missing), sorted(existing),
+            sorted(missing),
+            sorted(existing),
         )
         return False
     return True
@@ -156,15 +161,13 @@ def _write_sentinel(graph_nodes: int, graph_edges: int, corpus_turns: int) -> bo
     """
     if graph_nodes <= 0:
         log.error(
-            "Refusing to write sentinel: graph_nodes=%d (must be >0). "
-            "Seed bootstrap did not populate graph data.",
+            "Refusing to write sentinel: graph_nodes=%d (must be >0). Seed bootstrap did not populate graph data.",
             graph_nodes,
         )
         return False
     if graph_edges <= 0:
         log.error(
-            "Refusing to write sentinel: graph_edges=%d (must be >0). "
-            "Seed bootstrap did not populate graph edges.",
+            "Refusing to write sentinel: graph_edges=%d (must be >0). Seed bootstrap did not populate graph edges.",
             graph_edges,
         )
         return False
@@ -215,11 +218,11 @@ def _ensure_corpus_turns_schema(conn: sqlite3.Connection) -> bool:
     try:
         from aip.adapter.corpus_turn_store import (
             _DDL_CORPUS_TURNS,
+            _DDL_FTS,
             _DDL_INDEXES,
             _DDL_MIGRATIONS,
-            _DDL_FTS,
-            _DDL_TRIGGER_INSERT,
             _DDL_TRIGGER_DELETE,
+            _DDL_TRIGGER_INSERT,
             _DDL_TRIGGER_UPDATE,
         )
     except ImportError as exc:
@@ -376,7 +379,8 @@ def _ingest_conversations(db_path: Path) -> int:
                     if not pairs:
                         log.warning(
                             "No human/assistant pairs found in %s from %s",
-                            conv_name, conv_file.name,
+                            conv_name,
+                            conv_file.name,
                         )
                         continue
 
@@ -389,26 +393,20 @@ def _ingest_conversations(db_path: Path) -> int:
                         turn_id = _make_turn_id(conversation_id, turn_index)
 
                         # Check if turn already exists (idempotence)
-                        existing = conn.execute(
-                            "SELECT 1 FROM corpus_turns WHERE turn_id = ?", (turn_id,)
-                        ).fetchone()
+                        existing = conn.execute("SELECT 1 FROM corpus_turns WHERE turn_id = ?", (turn_id,)).fetchone()
                         if existing:
                             continue
 
                         user_text = human_msg.get("content", "")
                         assistant_text = assistant_msg.get("content", "")
-                        turn_timestamp = human_msg.get(
-                            "created_at", human_msg.get("timestamp", "")
-                        )
+                        turn_timestamp = human_msg.get("created_at", human_msg.get("timestamp", ""))
 
                         # Compute searchable_text and word_count
                         searchable_text = f"{user_text}\n\n{assistant_text}".strip()
                         word_count = len(searchable_text.split())
 
                         # Compute content_hash
-                        content_hash = hashlib.sha256(
-                            searchable_text.encode()
-                        ).hexdigest()[:32]
+                        content_hash = hashlib.sha256(searchable_text.encode()).hexdigest()[:32]
 
                         now = datetime.now(timezone.utc).isoformat()
 
@@ -442,10 +440,19 @@ def _ingest_conversations(db_path: Path) -> int:
                                 ?, ?, ?,
                                 ?, ?)""",
                             (
-                                turn_id, conversation_id, conv_name, turn_index,
-                                "seed_corpus", "aip_seed", export_date,
-                                content_hash, source_path, 0,
-                                user_text, assistant_text, turn_timestamp,
+                                turn_id,
+                                conversation_id,
+                                conv_name,
+                                turn_index,
+                                "seed_corpus",
+                                "aip_seed",
+                                export_date,
+                                content_hash,
+                                source_path,
+                                0,
+                                user_text,
+                                assistant_text,
+                                turn_timestamp,
                                 "",  # thinking_text
                                 "[]",  # domains
                                 "",  # primary_domain
@@ -454,14 +461,17 @@ def _ingest_conversations(db_path: Path) -> int:
                                 "[]",  # bridges
                                 0.0,  # beast_confidence
                                 0,  # tagging_version
-                                searchable_text, word_count, 0,  # embedded
+                                searchable_text,
+                                word_count,
+                                0,  # embedded
                                 "",  # embedding_model
                                 0,  # needs_reembed
                                 None,  # last_embed_at
                                 json.dumps(metadata),
                                 0,  # embed_fail_count
                                 "",  # last_embed_error
-                                now, now,
+                                now,
+                                now,
                             ),
                         )
                         total_turns += 1
@@ -575,7 +585,9 @@ def run_seed_bootstrap() -> SeedStatus:
 
     log.info(
         "=== Seed bootstrap complete: %d graph nodes, %d graph edges, %d corpus turns ===",
-        graph_nodes, graph_edges, total_turns,
+        graph_nodes,
+        graph_edges,
+        total_turns,
     )
     return SeedStatus.SEEDED
 

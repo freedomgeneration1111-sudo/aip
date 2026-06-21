@@ -37,9 +37,6 @@ import inspect
 import re
 from pathlib import Path
 
-import pytest
-
-
 # ── Path helpers ────────────────────────────────────────────────────────
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -133,8 +130,7 @@ class TestSendMulticastPassesAugmentedFlag:
         func = _extract_func(source, "_send_multicast")
         assert func is not None, "_send_multicast not found in ask.py"
         assert "state.current_mode" in func, (
-            "_send_multicast must read state.current_mode to decide whether "
-            "to pass assemble_augmented_context=True."
+            "_send_multicast must read state.current_mode to decide whether to pass assemble_augmented_context=True."
         )
 
     def test_send_multicast_passes_assemble_augmented_context_kwarg(self):
@@ -159,9 +155,9 @@ class TestSendMulticastPassesAugmentedFlag:
             "_send_multicast must compute is_augmented from state.current_mode "
             "— this is the variable that drives the assemble_augmented_context flag."
         )
-        assert "state.current_mode == \"augmented\"" in func or (
-            "state.current_mode == 'augmented'" in func
-        ), "is_augmented must be derived from state.current_mode == 'augmented'"
+        assert 'state.current_mode == "augmented"' in func or ("state.current_mode == 'augmented'" in func), (
+            "is_augmented must be derived from state.current_mode == 'augmented'"
+        )
         # The flag must be passed as assemble_augmented_context=is_augmented
         assert "assemble_augmented_context=is_augmented" in func, (
             "_send_multicast must pass assemble_augmented_context=is_augmented "
@@ -282,7 +278,7 @@ class TestEndToEndPayloadContract:
 
         # Then extract ONLY the payload dict within the method
         payload_match = re.search(
-            r'payload:\s*dict\[str,\s*Any\]\s*=\s*\{([^}]+)\}',
+            r"payload:\s*dict\[str,\s*Any\]\s*=\s*\{([^}]+)\}",
             method_body,
             re.DOTALL,
         )

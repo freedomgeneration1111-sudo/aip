@@ -26,10 +26,10 @@ forbidden import.
 
 Run:  CI=true uv run pytest tests/test_extension_import_boundary.py -v
 """
+
 from __future__ import annotations
 
 import ast
-import re
 from pathlib import Path
 
 import pytest
@@ -45,9 +45,9 @@ EXTENSIONS_ROOT = PROJECT_ROOT / "extensions"
 # ---------------------------------------------------------------------------
 
 ALLOWED_AIP_IMPORT_PREFIXES: tuple[str, ...] = (
-    "aip.foundation.protocols",   # Actor Protocol + future Protocols
-    "aip.adapter.extensions",     # public extension API (Manifest, ExtensionHost surface)
-    "aip.foundation.schemas",     # dataclasses extensions may use (e.g. WorkflowTemplate)
+    "aip.foundation.protocols",  # Actor Protocol + future Protocols
+    "aip.adapter.extensions",  # public extension API (Manifest, ExtensionHost surface)
+    "aip.foundation.schemas",  # dataclasses extensions may use (e.g. WorkflowTemplate)
 )
 
 # ---------------------------------------------------------------------------
@@ -195,8 +195,7 @@ def test_extensions_import_only_allowlist():
     assert not violations, (
         "Extensions may import from aip.* ONLY through the allowlist "
         f"({ALLOWED_AIP_IMPORT_PREFIXES}). Extensions reach the container "
-        "via ctx.container (duck-typed), not by importing platform internals.\n  "
-        + "\n  ".join(violations)
+        "via ctx.container (duck-typed), not by importing platform internals.\n  " + "\n  ".join(violations)
     )
 
 
@@ -266,8 +265,7 @@ def test_gui_does_not_import_extensions():
     assert not violations, (
         "The GUI must not import from any extension package by name. "
         "Extension GUI pages are discovered via entry points "
-        "(aip.extension_gui group), not by named imports.\n  "
-        + "\n  ".join(violations)
+        "(aip.extension_gui group), not by named imports.\n  " + "\n  ".join(violations)
     )
 
 
@@ -291,9 +289,7 @@ def test_extension_boundary_summary():
         for module, lineno, style in _collect_imports(py_file):
             if module.startswith("aip.") or module == "aip":
                 allowed = "ALLOWED" if _is_allowed_aip_import(module) else "FORBIDDEN"
-                summary.setdefault(module, []).append(
-                    f"  {rel}:{lineno} ({style}) [{allowed}]"
-                )
+                summary.setdefault(module, []).append(f"  {rel}:{lineno} ({style}) [{allowed}]")
 
     print("\n" + "=" * 72)
     print("EXTENSION IMPORT BOUNDARY SUMMARY")

@@ -63,14 +63,14 @@ _DIALOG_STYLE = (
 # same color, no matter how many times it appears.
 
 _MODEL_COLOR_PALETTE = [
-    C_AMBER,        # primary amber (slot 0)
-    "#4A9B8E",      # slate-teal (brand accent 1)
-    "#9B6B4A",      # warm copper
-    "#6B8E9B",      # steel blue
-    "#9B4A6B",      # muted rose
-    "#4A6B9B",      # dusty blue
-    "#8E9B4A",      # olive
-    "#6B4A9B",      # violet
+    C_AMBER,  # primary amber (slot 0)
+    "#4A9B8E",  # slate-teal (brand accent 1)
+    "#9B6B4A",  # warm copper
+    "#6B8E9B",  # steel blue
+    "#9B4A6B",  # muted rose
+    "#4A6B9B",  # dusty blue
+    "#8E9B4A",  # olive
+    "#6B4A9B",  # violet
 ]
 
 
@@ -132,17 +132,9 @@ class ModelCouncilPanel:
         children inside the scrollable region.
         """
         self.close()
-        dialog = (
-            ui.dialog()
-            .props("persistent=false; maximized=false")
-            .style(_DIALOG_STYLE)
-        )
+        dialog = ui.dialog().props("persistent=false; maximized=false").style(_DIALOG_STYLE)
         self._drawer = dialog
-        content_column = (
-            ui.column()
-            .classes("w-full")
-            .style("max-height:85vh; overflow-y:auto;")
-        )
+        content_column = ui.column().classes("w-full").style("max-height:85vh; overflow-y:auto;")
         self._content_container = content_column
         try:
             dialog.open()
@@ -840,8 +832,7 @@ class ModelCouncilPanel:
                             f"letter-spacing: 0.3px; flex-shrink: 0; margin-top: 1px;"
                         )
                         ui.label(insight).style(
-                            f"font-size: 11px; color: {C_CREAM}; font-family: {F_SANS}; "
-                            f"line-height: 1.5; flex: 1;"
+                            f"font-size: 11px; color: {C_CREAM}; font-family: {F_SANS}; line-height: 1.5; flex: 1;"
                         )
 
         # ── Blind spots (the most important field for the human) ──
@@ -860,13 +851,16 @@ class ModelCouncilPanel:
             raw_json = json.dumps(judge_analysis, ensure_ascii=False, indent=2)
         except (TypeError, ValueError):
             raw_json = str(judge_analysis)
-        with ui.expansion(
-            "Judge Analysis (raw JSON)",
-            icon="format_quote",
-        ).classes("w-full").style(f"padding: 4px 16px; font-family: {F_MONO};"):
+        with (
+            ui.expansion(
+                "Judge Analysis (raw JSON)",
+                icon="format_quote",
+            )
+            .classes("w-full")
+            .style(f"padding: 4px 16px; font-family: {F_MONO};")
+        ):
             ui.code(raw_json, language="json").style(
-                f"font-size: 10px; font-family: {F_MONO}; "
-                f"background: {C_GROUND}; color: {C_INK60};"
+                f"font-size: 10px; font-family: {F_MONO}; background: {C_GROUND}; color: {C_INK60};"
             )
 
     def close(self) -> None:

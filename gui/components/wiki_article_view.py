@@ -215,20 +215,21 @@ def _render_related_info_row(
     # Horizontal row of info cards
     with ui.row().classes("w-full").style("gap:12px; flex-wrap:wrap;"):
         # Backlinks
-        with (
-            ui.card()
-            .style(
-                f"background:{C_SURFACE}; border:0.5px solid {C_INK40}; "
-                f"border-radius:{R_MD}; padding:0; flex:1; min-width:200px; max-width:300px;"
-            )
+        with ui.card().style(
+            f"background:{C_SURFACE}; border:0.5px solid {C_INK40}; "
+            f"border-radius:{R_MD}; padding:0; flex:1; min-width:200px; max-width:300px;"
         ):
-            with ui.row().classes("w-full items-center").style(f"padding:8px 12px; border-bottom:0.5px solid {C_INK40};"):
+            with (
+                ui.row().classes("w-full items-center").style(f"padding:8px 12px; border-bottom:0.5px solid {C_INK40};")
+            ):
                 ui.label("BACKLINKS").style(
                     f"font-size:9px; font-weight:600; letter-spacing:1px; color:{C_AMBER}; text-transform:uppercase;"
                 )
             with ui.column().style("padding:8px 12px; min-height:40px;"):
                 if backlinks_data and not backlinks_data.get("available", False):
-                    ui.label("Graph store not available").style(f"font-size:10px; color:{C_MUTED}; font-family:{F_MONO};")
+                    ui.label("Graph store not available").style(
+                        f"font-size:10px; color:{C_MUTED}; font-family:{F_MONO};"
+                    )
                 elif backlinks_data:
                     backlinks = backlinks_data.get("backlinks", [])
                     if not backlinks:
@@ -251,14 +252,13 @@ def _render_related_info_row(
         source_docs = article.get("source_documents", [])
         related_artifacts = article.get("related_artifacts", [])
         related_turns = article.get("related_turns", [])
-        with (
-            ui.card()
-            .style(
-                f"background:{C_SURFACE}; border:0.5px solid {C_INK40}; "
-                f"border-radius:{R_MD}; padding:0; flex:1; min-width:200px; max-width:300px;"
-            )
+        with ui.card().style(
+            f"background:{C_SURFACE}; border:0.5px solid {C_INK40}; "
+            f"border-radius:{R_MD}; padding:0; flex:1; min-width:200px; max-width:300px;"
         ):
-            with ui.row().classes("w-full items-center").style(f"padding:8px 12px; border-bottom:0.5px solid {C_INK40};"):
+            with (
+                ui.row().classes("w-full items-center").style(f"padding:8px 12px; border-bottom:0.5px solid {C_INK40};")
+            ):
                 ui.label("RELATED").style(
                     f"font-size:9px; font-weight:600; letter-spacing:1px; color:{C_AMBER}; text-transform:uppercase;"
                 )
@@ -282,14 +282,13 @@ def _render_related_info_row(
 
         # Contradictions
         contradictions = article.get("contradictions", [])
-        with (
-            ui.card()
-            .style(
-                f"background:{C_SURFACE}; border:0.5px solid {C_INK40}; "
-                f"border-radius:{R_MD}; padding:0; flex:1; min-width:200px; max-width:300px;"
-            )
+        with ui.card().style(
+            f"background:{C_SURFACE}; border:0.5px solid {C_INK40}; "
+            f"border-radius:{R_MD}; padding:0; flex:1; min-width:200px; max-width:300px;"
         ):
-            with ui.row().classes("w-full items-center").style(f"padding:8px 12px; border-bottom:0.5px solid {C_INK40};"):
+            with (
+                ui.row().classes("w-full items-center").style(f"padding:8px 12px; border-bottom:0.5px solid {C_INK40};")
+            ):
                 ui.label("CONTRADICTIONS").style(
                     f"font-size:9px; font-weight:600; letter-spacing:1px; "
                     f"color:{C_ERR_FG if contradictions else C_AMBER}; text-transform:uppercase;"
@@ -299,22 +298,25 @@ def _render_related_info_row(
                     for c in contradictions[:5]:
                         severity = c.get("severity", "unknown")
                         claim = c.get("claim_a", "")[:40]
-                        ui.label(f"[{severity}] {claim}").style(f"font-size:10px; color:{C_ERR_FG}; font-family:{F_MONO};")
+                        ui.label(f"[{severity}] {claim}").style(
+                            f"font-size:10px; color:{C_ERR_FG}; font-family:{F_MONO};"
+                        )
                 else:
-                    ui.label("No contradictions detected").style(f"font-size:10px; color:{C_INK60}; font-family:{F_MONO};")
+                    ui.label("No contradictions detected").style(
+                        f"font-size:10px; color:{C_INK60}; font-family:{F_MONO};"
+                    )
 
         # Open questions
         open_questions = article.get("open_questions", [])
         if open_questions:
-            with (
-                ui.card()
-                .style(
-                    f"background:{C_SURFACE}; border:0.5px solid {C_INK40}; "
-                    f"border-radius:{R_MD}; padding:0; flex:1; min-width:200px; max-width:300px;"
-                )
+            with ui.card().style(
+                f"background:{C_SURFACE}; border:0.5px solid {C_INK40}; "
+                f"border-radius:{R_MD}; padding:0; flex:1; min-width:200px; max-width:300px;"
             ):
                 with (
-                    ui.row().classes("w-full items-center").style(f"padding:8px 12px; border-bottom:0.5px solid {C_INK40};")
+                    ui.row()
+                    .classes("w-full items-center")
+                    .style(f"padding:8px 12px; border-bottom:0.5px solid {C_INK40};")
                 ):
                     ui.label("OPEN QUESTIONS").style(
                         f"font-size:9px; font-weight:600; letter-spacing:1px; color:{C_WARN_FG}; text-transform:uppercase;"

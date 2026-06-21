@@ -97,7 +97,9 @@ async def settings_page():
                         f"font-size:11px; color:{C_ERR_FG};"
                     )
                 elif mode == "BARE":
-                    ui.label("Backend up — actors and retrieval status vary.").style(f"font-size:11px; color:{C_WARN_FG};")
+                    ui.label("Backend up — actors and retrieval status vary.").style(
+                        f"font-size:11px; color:{C_WARN_FG};"
+                    )
                 elif mode == "DEGRADED":
                     ui.label("Some subsystems down.").style(f"font-size:11px; color:{C_WARN_FG};")
                 else:

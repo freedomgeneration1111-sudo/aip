@@ -375,8 +375,7 @@ class TestAC06MigrationGate:
         stores = await registry.get_stores("definer")
         conn = stores.connection_manager.write_conn
         await conn.execute(
-            "INSERT OR REPLACE INTO applied_migrations (name, ordinal, sql_checksum, applied_at) "
-            "VALUES (?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO applied_migrations (name, ordinal, sql_checksum, applied_at) VALUES (?, ?, ?, ?)",
             ("M999_unknown_migration", 999, "fake_checksum", "2026-01-01"),
         )
         await conn.commit()

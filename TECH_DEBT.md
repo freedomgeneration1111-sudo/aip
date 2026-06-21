@@ -679,3 +679,24 @@ Two duplicated TODOs in `cli/config.py:137` and `cli/project.py:81` reference wi
 **Remediation trigger:** When CLI is used in a multi-user or production context.
 
 ---
+
+## DEBT-019 — Remaining Ruff Lint Errors (64 non-auto-fixable)
+
+**Status:** Active — low priority
+**Phase:** Code hygiene
+**Filed:** 2026-06-18
+
+**What was deferred:**
+After `ruff check --fix` (85 errors auto-fixed) + `ruff format` (43 files
+reformatted), 64 non-auto-fixable errors remain. These are primarily:
+- F841 (unused local variables) — need manual review
+- F401 (unused imports in `__init__.py` re-exports) — intentional in some cases
+- E501 (line too long) — need manual reformatting
+
+**Why deferred:** Auto-fixable errors are resolved. The remaining 64 require
+manual review to determine if the variable/import is truly unused or
+intentionally re-exported. Low priority — doesn't affect runtime.
+
+**Remediation trigger:** Next code hygiene pass or before open-sourcing.
+
+---

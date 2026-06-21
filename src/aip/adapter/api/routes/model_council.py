@@ -84,9 +84,9 @@ _STATE_DB = "db/state.db"
 # because they process the full panel context (longer prompts, more
 # reasoning work). These are upper bounds — fast models return well
 # before the timeout fires.
-_PANEL_CALL_TIMEOUT_S = 30.0   # single panel model call (Q&A)
-_JUDGE_CALL_TIMEOUT_S = 60.0   # Judge-Beast (reads all panel outputs)
-_SYNTH_CALL_TIMEOUT_S = 60.0   # Synth-Beast (reads Judge JSON)
+_PANEL_CALL_TIMEOUT_S = 30.0  # single panel model call (Q&A)
+_JUDGE_CALL_TIMEOUT_S = 60.0  # Judge-Beast (reads all panel outputs)
+_SYNTH_CALL_TIMEOUT_S = 60.0  # Synth-Beast (reads Judge JSON)
 
 
 # ---------------------------------------------------------------------------
@@ -467,10 +467,7 @@ async def _call_library_model_id(
                 "latency_ms": 0,
                 "cost_usd": 0.0,
                 "error": True,
-                "error_message": (
-                    "_call_library_model_id: either messages or "
-                    "user_prompt must be provided"
-                ),
+                "error_message": ("_call_library_model_id: either messages or user_prompt must be provided"),
             }
         messages = [{"role": "user", "content": user_prompt}]
 
@@ -494,8 +491,7 @@ async def _call_library_model_id(
             "cost_usd": 0.0,
             "error": True,
             "error_message": (
-                f"No API key configured for library model '{model_id}'. "
-                f"Set AIP_OPENAI_API_KEY in the environment."
+                f"No API key configured for library model '{model_id}'. Set AIP_OPENAI_API_KEY in the environment."
             ),
         }
 
@@ -705,8 +701,7 @@ async def compare_models(
             augmented_prefix = aug.messages
             augmented_sources = aug.sources
             logger.info(
-                "council_augmented_context_assembled "
-                "assembled=%s messages=%d sources=%d domain=%s",
+                "council_augmented_context_assembled assembled=%s messages=%d sources=%d domain=%s",
                 aug.assembled,
                 len(aug.messages),
                 len(aug.sources),
@@ -714,9 +709,7 @@ async def compare_models(
             )
         except Exception as exc:
             # The helper itself never raises, but guard defensively.
-            logger.warning(
-                "council_augmented_context_failed error=%s", str(exc)
-            )
+            logger.warning("council_augmented_context_failed error=%s", str(exc))
             augmented_prefix = []
             augmented_sources = []
 
@@ -992,9 +985,7 @@ async def compare_models(
                 )
             except Exception as exc:
                 # _compress_panel_outputs never raises, but guard defensively
-                logger.warning(
-                    "council_compression_failed error=%s", str(exc)
-                )
+                logger.warning("council_compression_failed error=%s", str(exc))
                 compressed_claims = {}
 
         # Build the per-model answers block for the Judge. Use a
@@ -1024,9 +1015,7 @@ async def compare_models(
                     claims_list = compressed_claims[label]
                     claims_text = "\n".join(f"- {c}" for c in claims_list)
                     answers_block += (
-                        f"\n## {label} ({pm.model_id})\n"
-                        f"[Compressed — {len(claims_list)} key claims]\n"
-                        f"{claims_text}\n"
+                        f"\n## {label} ({pm.model_id})\n[Compressed — {len(claims_list)} key claims]\n{claims_text}\n"
                     )
                 else:
                     answers_block += f"\n## {label} ({pm.model_id})\n{pm.answer[:2000]}\n"
@@ -1036,10 +1025,7 @@ async def compare_models(
                 # format follows the directive's contract:
                 #   {"model": "{model_id}", "content": "[DISPATCH_ERROR: {msg}]"}
                 err_summary = (pm.error or "unknown error")[:200]
-                answers_block += (
-                    f"\n## {label} ({pm.model_id})\n"
-                    f"[DISPATCH_ERROR: {err_summary}]\n"
-                )
+                answers_block += f"\n## {label} ({pm.model_id})\n[DISPATCH_ERROR: {err_summary}]\n"
 
         soul_text = _load_soul_text()
 
@@ -1083,11 +1069,11 @@ async def compare_models(
             "    ## synthesis (gpt-4o)\n"
             "    ## anthropic/claude-3-opus (anthropic/claude-3-opus)\n"
             "then a contradiction stance must be written as:\n"
-            "    {\"topic\": \"...\", \"stances\": [\n"
-            "      {\"model\": \"synthesis\", \"stance\": \"...\"},\n"
-            "      {\"model\": \"anthropic/claude-3-opus\", \"stance\": \"...\"}\n"
+            '    {"topic": "...", "stances": [\n'
+            '      {"model": "synthesis", "stance": "..."},\n'
+            '      {"model": "anthropic/claude-3-opus", "stance": "..."}\n'
             "    ]}\n"
-            "NOT as {\"model\": \"gpt-4o\", ...} and NOT as {\"model\": \"model_a\", ...}.\n\n"
+            'NOT as {"model": "gpt-4o", ...} and NOT as {"model": "model_a", ...}.\n\n'
             "Respond with a JSON object with EXACTLY this shape:\n"
             "{\n"
             '  "status": "completed" | "partial" | "insufficient",\n'
@@ -1095,18 +1081,18 @@ async def compare_models(
             '    "consensus": ["points ALL successful models agree on"],\n'
             '    "contradictions": [\n'
             '      {"topic": "...", "stances": [{"model": "<LABEL>", "stance": "..."}]}\n'
-            '    ],\n'
+            "    ],\n"
             '    "partial_coverage": [\n'
             '      {"models": ["<LABEL_A>", "<LABEL_B>"], "point": "topic only some models covered"}\n'
-            '    ],\n'
+            "    ],\n"
             '    "unique_insights": [\n'
             '      {"model": "<LABEL>", "insight": "..."}\n'
-            '    ],\n'
+            "    ],\n"
             '    "blind_spots": ["topics NO model addressed"]\n'
-            '  },\n'
+            "  },\n"
             '  "responses": [\n'
             '    {"model": "<LABEL>", "content": "brief summary of that model\'s answer"}\n'
-            '  ]\n'
+            "  ]\n"
             "}\n\n"
             "Rules:\n"
             "- consensus[] must list points where ALL successful models agree\n"
@@ -1141,7 +1127,7 @@ Return the JSON object now."""
         try:
             judge_result = await _call_fusion_engine(
                 fusion_engine_kind,  # type: ignore[arg-type]
-                fusion_engine_id,    # type: ignore[arg-type]
+                fusion_engine_id,  # type: ignore[arg-type]
                 judge_messages,
                 container,
                 _JUDGE_CALL_TIMEOUT_S,
@@ -1168,9 +1154,7 @@ Return the JSON object now."""
                         # Populate legacy fields from the new structured
                         # schema (best-effort — tolerate missing keys).
                         analysis = (
-                            judge_data.get("analysis", {})
-                            if isinstance(judge_data.get("analysis"), dict)
-                            else {}
+                            judge_data.get("analysis", {}) if isinstance(judge_data.get("analysis"), dict) else {}
                         )
                         consensus = analysis.get("consensus", [])
                         if isinstance(consensus, list) and consensus:
@@ -1232,11 +1216,14 @@ Return the JSON object now."""
                     beast_conclusion = judge_content[:500]
         except asyncio.TimeoutError:
             logger.error(
-                "council_judge_call_timed_out timeout=%ss", _JUDGE_CALL_TIMEOUT_S,
+                "council_judge_call_timed_out timeout=%ss",
+                _JUDGE_CALL_TIMEOUT_S,
             )
         except Exception as exc:
             logger.error(
-                "council_judge_call_failed error=%s", str(exc), exc_info=True,
+                "council_judge_call_failed error=%s",
+                str(exc),
+                exc_info=True,
             )
 
         # ── Stage 2: Synth-Beast — read JSON only, write final answer ──
@@ -1287,7 +1274,7 @@ Write the final fused answer now."""
             try:
                 synth_result = await _call_fusion_engine(
                     fusion_engine_kind,  # type: ignore[arg-type]
-                    fusion_engine_id,    # type: ignore[arg-type]
+                    fusion_engine_id,  # type: ignore[arg-type]
                     synth_messages,
                     container,
                     _SYNTH_CALL_TIMEOUT_S,
@@ -1314,8 +1301,11 @@ Write the final fused answer now."""
                         synth_data = json.loads(synth_json_str.strip())
                         if isinstance(synth_data, dict):
                             for key in (
-                                "fusion_answer", "answer", "fused_answer",
-                                "synthesis", "beast_conclusion",
+                                "fusion_answer",
+                                "answer",
+                                "fused_answer",
+                                "synthesis",
+                                "beast_conclusion",
                             ):
                                 val = synth_data.get(key)
                                 if val:
@@ -1329,12 +1319,15 @@ Write the final fused answer now."""
                     synthesis_status = "failed"
             except asyncio.TimeoutError:
                 logger.error(
-                    "council_synth_call_timed_out timeout=%ss", _SYNTH_CALL_TIMEOUT_S,
+                    "council_synth_call_timed_out timeout=%ss",
+                    _SYNTH_CALL_TIMEOUT_S,
                 )
                 synthesis_status = "failed"
             except Exception as exc:
                 logger.error(
-                    "council_synth_call_failed error=%s", str(exc), exc_info=True,
+                    "council_synth_call_failed error=%s",
+                    str(exc),
+                    exc_info=True,
                 )
                 synthesis_status = "failed"
         elif judge_succeeded is False and beast_conclusion:
@@ -1555,8 +1548,7 @@ def _pick_fusion_engine(
                     # The ``judge`` slot is configured with a real model.
                     # Use it for the Judge+Synth stages.
                     logger.info(
-                        "council_fusion_engine_dedicated_judge_slot "
-                        "model=%s",
+                        "council_fusion_engine_dedicated_judge_slot model=%s",
                         cfg.get("model"),
                     )
                     return ("slot", "judge")
@@ -1567,11 +1559,7 @@ def _pick_fusion_engine(
 
     # Preference 1: beast slot, if it succeeded.
     for pm in per_model_results:
-        if (
-            pm.source == "slot"
-            and pm.model_slot == "beast"
-            and pm.status == "completed"
-        ):
+        if pm.source == "slot" and pm.model_slot == "beast" and pm.status == "completed":
             return ("slot", "beast")
 
     # Preference 2: any other successful slot.
@@ -1614,9 +1602,7 @@ async def _call_fusion_engine(
                 "latency_ms": 0,
                 "cost_usd": 0.0,
                 "error": True,
-                "error_message": (
-                    f"Cannot call slot '{engine_id}' — model_provider is None"
-                ),
+                "error_message": (f"Cannot call slot '{engine_id}' — model_provider is None"),
             }
         return await asyncio.wait_for(
             container.model_provider.call(engine_id, messages),
@@ -1741,9 +1727,7 @@ async def _compress_panel_outputs(
     compressed: dict[str, list[str]] = {}
     for label, result in zip(task_labels, task_results):
         if isinstance(result, Exception):
-            logger.warning(
-                "[COMPRESS] FAILED ← %s %s", label, str(result) or result.__class__.__name__
-            )
+            logger.warning("[COMPRESS] FAILED ← %s %s", label, str(result) or result.__class__.__name__)
             continue  # caller falls back to raw answer
         if not isinstance(result, dict) or result.get("error"):
             logger.warning(
@@ -1772,8 +1756,6 @@ async def _compress_panel_outputs(
             else:
                 logger.warning("[COMPRESS] FAILED ← %s no claims in JSON", label)
         except (json.JSONDecodeError, TypeError) as exc:
-            logger.warning(
-                "[COMPRESS] FAILED ← %s JSON parse error: %s", label, str(exc)
-            )
+            logger.warning("[COMPRESS] FAILED ← %s JSON parse error: %s", label, str(exc))
 
     return compressed

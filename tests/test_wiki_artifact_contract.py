@@ -12,14 +12,10 @@ These tests verify:
 5. /wiki/articles API route matches sexton:wiki:* IDs
 """
 
-import json
-import sqlite3
-import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Test 1: Sexton writes beast_wiki, not sexton_wiki
@@ -122,9 +118,6 @@ async def test_sexton_reads_beast_wiki_for_needs_check():
 
 def test_wiki_channel_reads_beast_wiki():
     """Wiki channel must filter by artifact_type='beast_wiki'."""
-    import ast
-
-    from aip.orchestration.channels.wiki_channel import register
 
     # Verify the source code contains beast_wiki (not sexton_wiki)
     source_file = Path(__file__).parent.parent / "src" / "aip" / "orchestration" / "channels" / "wiki_channel.py"
@@ -134,9 +127,7 @@ def test_wiki_channel_reads_beast_wiki():
         "Contract violation: wiki_channel.py must read artifact_type='beast_wiki'"
     )
     # Ensure it's NOT reading the old value
-    assert "sexton_wiki" not in source, (
-        "Contract violation: wiki_channel.py should not reference 'sexton_wiki'"
-    )
+    assert "sexton_wiki" not in source, "Contract violation: wiki_channel.py should not reference 'sexton_wiki'"
 
 
 # ---------------------------------------------------------------------------
@@ -232,11 +223,11 @@ def test_no_sexton_wiki_as_artifact_type_in_production_code():
 
     # Patterns that indicate sexton_wiki being used as artifact_type VALUE
     bad_patterns = [
-        '"artifact_type": "sexton_wiki"',       # dict literal
-        "'artifact_type': 'sexton_wiki'",       # dict literal (single quotes)
-        'value="sexton_wiki"',                   # metadata query
-        "value='sexton_wiki'",                   # metadata query (single quotes)
-        'value = "sexton_wiki"',                 # with spaces
+        '"artifact_type": "sexton_wiki"',  # dict literal
+        "'artifact_type': 'sexton_wiki'",  # dict literal (single quotes)
+        'value="sexton_wiki"',  # metadata query
+        "value='sexton_wiki'",  # metadata query (single quotes)
+        'value = "sexton_wiki"',  # with spaces
     ]
 
     for root, dirs, files in os.walk(project_root / "src"):
@@ -255,7 +246,6 @@ def test_no_sexton_wiki_as_artifact_type_in_production_code():
                 pass
 
     assert not violations, (
-        f"Found 'sexton_wiki' used as artifact_type value in production code "
-        f"(should be 'beast_wiki'):\n"
-        + "\n".join(violations)
+        "Found 'sexton_wiki' used as artifact_type value in production code "
+        "(should be 'beast_wiki'):\n" + "\n".join(violations)
     )

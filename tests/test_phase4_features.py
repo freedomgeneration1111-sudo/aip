@@ -17,9 +17,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
-
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -145,11 +142,9 @@ class TestVigilConsistencyCheckerMethods:
         """_parse_consistency_response parses a valid JSON response."""
         from aip.orchestration.actors.vigil import Vigil
 
-        content = json.dumps({
-            "consistency_score": 0.9,
-            "contradictions": [],
-            "explanation": "No contradictions found."
-        })
+        content = json.dumps(
+            {"consistency_score": 0.9, "contradictions": [], "explanation": "No contradictions found."}
+        )
         result = Vigil._parse_consistency_response(content)
         assert result is not None
         assert result["consistency_score"] == 0.9

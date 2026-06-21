@@ -6,6 +6,7 @@ isinstance() validation works at registration time.
 
 Run:  CI=true uv run pytest tests/test_actor_protocol.py -v
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -13,13 +14,16 @@ from dataclasses import is_dataclass
 
 import pytest
 
-from aip.foundation.protocols.actors import Actor, ActorContext, ActorResult
 from aip.foundation.protocols import (
     Actor as ActorFromBarrel,
+)
+from aip.foundation.protocols import (
     ActorContext as ActorContextFromBarrel,
+)
+from aip.foundation.protocols import (
     ActorResult as ActorResultFromBarrel,
 )
-
+from aip.foundation.protocols.actors import Actor, ActorContext, ActorResult
 
 # --------------------------------------------------------------------------
 # Conforming actor (minimal — matches ADR-014 §5.2 contract)
@@ -224,6 +228,7 @@ def test_demo_actor_from_lifecycle_test_conforms():
     skip its scheduler and the test would silently pass without actually
     running a cycle. This test catches that regression.
     """
+
     # Recreate the _DemoActor shape here (can't import from the test file
     # because it has top-level imports that fail without the extensions package).
     class _DemoActor:

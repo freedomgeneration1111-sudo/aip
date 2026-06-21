@@ -22,7 +22,7 @@ import logging
 from nicegui import context, ui
 
 from gui.api_client import AipApiClient
-from gui.components.layout import build_left_nav, build_top_bar, build_right_rail
+from gui.components.layout import build_left_nav, build_right_rail, build_top_bar
 from gui.components.wiki_article_list import render_wiki_article_list
 from gui.components.wiki_article_view import render_wiki_article_view
 from gui.components.wiki_editor import WikiEditorDialog

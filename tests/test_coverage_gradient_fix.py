@@ -17,9 +17,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
-
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _MODEL_COUNCIL_PY = _REPO_ROOT / "src" / "aip" / "adapter" / "api" / "routes" / "model_council.py"
 
@@ -38,7 +35,7 @@ class TestJudgePromptCoverageGradientFix:
         # Find the Rules section in the Judge prompt
         rules_idx = source.find('"Rules:\\n"')
         assert rules_idx != -1, "Rules section not found in Judge prompt"
-        rules_section = source[rules_idx:rules_idx + 2000]
+        rules_section = source[rules_idx : rules_idx + 2000]
         assert "2 to N-1" in rules_section or "2 to N-1 models" in rules_section, (
             "Coverage-gradient fix: partial_coverage rule must explicitly "
             "say '2 to N-1 models' so the Judge doesn't put single-model "
@@ -50,7 +47,7 @@ class TestJudgePromptCoverageGradientFix:
         only ONE model goes in unique_insights, NOT partial_coverage."""
         source = _read_model_council_source()
         rules_idx = source.find('"Rules:\\n"')
-        rules_section = source[rules_idx:rules_idx + 2000]
+        rules_section = source[rules_idx : rules_idx + 2000]
         assert "only ONE model" in rules_section, (
             "Coverage-gradient fix: the partial_coverage rule must "
             "explicitly state that a point covered by only ONE model "
@@ -64,7 +61,7 @@ class TestJudgePromptCoverageGradientFix:
         only ONE model is a unique insight (NOT partial coverage)."""
         source = _read_model_council_source()
         rules_idx = source.find('"Rules:\\n"')
-        rules_section = source[rules_idx:rules_idx + 2500]
+        rules_section = source[rules_idx : rules_idx + 2500]
         # The unique_insights rule must cross-reference the boundary
         assert "only ONE model is a" in rules_section, (
             "Coverage-gradient fix: the unique_insights rule must "
@@ -82,7 +79,7 @@ class TestJudgePromptCoverageGradientFix:
         replaced with the explicit '2 to N-1 models' boundary."""
         source = _read_model_council_source()
         rules_idx = source.find('"Rules:\\n"')
-        rules_section = source[rules_idx:rules_idx + 2500]
+        rules_section = source[rules_idx : rules_idx + 2500]
         # The old vague language should NOT appear in the Rules section
         # (it's been replaced with the explicit boundary)
         # Note: the JSON schema example may still say "only some models"
@@ -132,14 +129,11 @@ class TestPlannedFeaturesFileExists:
             "PLANNED_FEATURES.md must mention DEBT-006 so no future "
             "agent repeats the stale 'fix DEBT-006' recommendation."
         )
-        assert "Resolved" in source or "RESOLVED" in source, (
-            "PLANNED_FEATURES.md must state DEBT-006 is resolved."
-        )
+        assert "Resolved" in source or "RESOLVED" in source, "PLANNED_FEATURES.md must state DEBT-006 is resolved."
 
     def test_planned_features_mentions_codebase_as_corpus(self):
         """The file mentions the codebase-as-corpus long-term plan."""
         source = (_REPO_ROOT / "PLANNED_FEATURES.md").read_text(encoding="utf-8")
         assert "Codebase-as-Corpus" in source or "codebase" in source.lower(), (
-            "PLANNED_FEATURES.md must mention the codebase-as-corpus "
-            "long-term plan (Phase 1.6)."
+            "PLANNED_FEATURES.md must mention the codebase-as-corpus long-term plan (Phase 1.6)."
         )

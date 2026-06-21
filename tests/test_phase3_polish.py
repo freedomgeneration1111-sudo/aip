@@ -32,10 +32,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
-
+from unittest.mock import MagicMock
 
 # ── Path helpers ────────────────────────────────────────────────────────
 
@@ -105,9 +102,11 @@ class TestModelColorHelpers:
     def test_ask_model_color_markdown_mirrors_panel_palette(self):
         """ask.py _model_color_markdown uses the same palette as the
         panel's _model_color — same label → same color in both renderers."""
-        from gui.components.model_council_panel import _model_color
         # ask.py helper is module-level; import it
         import importlib
+
+        from gui.components.model_council_panel import _model_color
+
         ask_module = importlib.import_module("gui.pages.ask")
         _model_color_markdown = ask_module._model_color_markdown
 
@@ -137,7 +136,7 @@ class TestUniqueInsightsBadges:
         ui_idx = source.find("Unique insights")
         assert ui_idx != -1, "unique_insights section not found in panel"
         # Look at the next 600 chars
-        section = source[ui_idx:ui_idx + 800]
+        section = source[ui_idx : ui_idx + 800]
         assert "_model_color" in section, (
             "Phase 3a: the unique_insights section must call _model_color() "
             "to render the model label as a colored badge"
@@ -150,7 +149,7 @@ class TestUniqueInsightsBadges:
         # Find the unique_insights section in _format_judge_analysis_markdown
         ui_idx = source.find("Unique insights")
         assert ui_idx != -1
-        section = source[ui_idx:ui_idx + 800]
+        section = source[ui_idx : ui_idx + 800]
         assert "_model_color_markdown" in section, (
             "Phase 3a: the ask.py markdown unique_insights section must call "
             "_model_color_markdown() to render the model badge"
@@ -161,7 +160,7 @@ class TestUniqueInsightsBadges:
         <span> badge with a background color."""
         source = _read_ask_source()
         ui_idx = source.find("Unique insights")
-        section = source[ui_idx:ui_idx + 1200]
+        section = source[ui_idx : ui_idx + 1200]
         # Must contain an HTML span with background style
         assert "background:" in section or "background-color:" in section, (
             "Phase 3a: the unique_insights badge must use a background color "
@@ -184,10 +183,9 @@ class TestContradictionsStanceColorCoding:
         con_idx = source.find("Contradictions stance table")
         assert con_idx != -1, "contradictions section not found in panel"
         # Use a larger window — the _model_color call is deeper in the section
-        section = source[con_idx:con_idx + 2000]
+        section = source[con_idx : con_idx + 2000]
         assert "_model_color" in section, (
-            "Phase 3b: the contradictions stance section must call "
-            "_model_color() to color-code the model label"
+            "Phase 3b: the contradictions stance section must call _model_color() to color-code the model label"
         )
 
     def test_ask_markdown_uses_model_color_for_contradictions(self):
@@ -197,7 +195,7 @@ class TestContradictionsStanceColorCoding:
         con_idx = source.find("Contradictions stance table")
         assert con_idx != -1
         # Use a larger window — the _model_color_markdown call is deeper
-        section = source[con_idx:con_idx + 2000]
+        section = source[con_idx : con_idx + 2000]
         assert "_model_color_markdown" in section, (
             "Phase 3b: the ask.py markdown contradictions section must call "
             "_model_color_markdown() to color-code the model label"
@@ -208,13 +206,10 @@ class TestContradictionsStanceColorCoding:
         HTML <span> with color for the model label."""
         source = _read_ask_source()
         con_idx = source.find("Contradictions stance table")
-        section = source[con_idx:con_idx + 1500]
-        assert "<span" in section, (
-            "Phase 3b: the contradictions stance model label must be an HTML <span>"
-        )
+        section = source[con_idx : con_idx + 1500]
+        assert "<span" in section, "Phase 3b: the contradictions stance model label must be an HTML <span>"
         assert "border-left" in section, (
-            "Phase 3b: the stance model label must have a colored border-left "
-            "(visual marker for the model's stance)"
+            "Phase 3b: the stance model label must have a colored border-left (visual marker for the model's stance)"
         )
 
 
@@ -229,14 +224,13 @@ class TestDedicatedJudgeSlot:
         from aip.adapter.api.routes.model_council import _EXCLUDED_SLOTS
 
         assert "judge" in _EXCLUDED_SLOTS, (
-            "Phase 3c: 'judge' must be in _EXCLUDED_SLOTS — it's a "
-            "dedicated synthesis-only slot, never a panelist"
+            "Phase 3c: 'judge' must be in _EXCLUDED_SLOTS — it's a dedicated synthesis-only slot, never a panelist"
         )
 
     def test_pick_fusion_engine_prefers_judge_slot_when_configured(self):
         """When the model_provider has a configured 'judge' slot,
         _pick_fusion_engine returns ('slot', 'judge') — preference 0."""
-        from aip.adapter.api.routes.model_council import _pick_fusion_engine, PerModelResult
+        from aip.adapter.api.routes.model_council import PerModelResult, _pick_fusion_engine
 
         provider = MagicMock()
         provider.list_slots.return_value = ["synthesis", "beast", "judge"]
@@ -248,21 +242,22 @@ class TestDedicatedJudgeSlot:
 
         # Even when beast succeeded in the panel, the judge slot is preferred
         per_model_results = [
-            PerModelResult(model_slot="synthesis", model_id="gpt-4", provider="openai",
-                          status="completed", source="slot"),
-            PerModelResult(model_slot="beast", model_id="deepseek", provider="openai",
-                          status="completed", source="slot"),
+            PerModelResult(
+                model_slot="synthesis", model_id="gpt-4", provider="openai", status="completed", source="slot"
+            ),
+            PerModelResult(
+                model_slot="beast", model_id="deepseek", provider="openai", status="completed", source="slot"
+            ),
         ]
         kind, eid = _pick_fusion_engine(per_model_results, model_provider=provider)
         assert (kind, eid) == ("slot", "judge"), (
-            "Phase 3c: when 'judge' slot is configured, it must be picked "
-            f"as the Fusion engine — got ({kind}, {eid})"
+            f"Phase 3c: when 'judge' slot is configured, it must be picked as the Fusion engine — got ({kind}, {eid})"
         )
 
     def test_pick_fusion_engine_falls_back_when_judge_not_configured(self):
         """When the model_provider does NOT have a 'judge' slot,
         _pick_fusion_engine falls back to the beast slot (preference 1)."""
-        from aip.adapter.api.routes.model_council import _pick_fusion_engine, PerModelResult
+        from aip.adapter.api.routes.model_council import PerModelResult, _pick_fusion_engine
 
         provider = MagicMock()
         provider.list_slots.return_value = ["synthesis", "beast"]  # no judge
@@ -272,22 +267,23 @@ class TestDedicatedJudgeSlot:
         }.get(slot, {})
 
         per_model_results = [
-            PerModelResult(model_slot="synthesis", model_id="gpt-4", provider="openai",
-                          status="completed", source="slot"),
-            PerModelResult(model_slot="beast", model_id="deepseek", provider="openai",
-                          status="completed", source="slot"),
+            PerModelResult(
+                model_slot="synthesis", model_id="gpt-4", provider="openai", status="completed", source="slot"
+            ),
+            PerModelResult(
+                model_slot="beast", model_id="deepseek", provider="openai", status="completed", source="slot"
+            ),
         ]
         kind, eid = _pick_fusion_engine(per_model_results, model_provider=provider)
         assert (kind, eid) == ("slot", "beast"), (
-            "Phase 3c: when 'judge' slot is NOT configured, must fall back "
-            f"to beast slot — got ({kind}, {eid})"
+            f"Phase 3c: when 'judge' slot is NOT configured, must fall back to beast slot — got ({kind}, {eid})"
         )
 
     def test_pick_fusion_engine_judge_slot_with_placeholder_model_skipped(self):
         """When the 'judge' slot exists but has a placeholder model
         (e.g. '<judge>'), it's treated as unconfigured — fall through
         to beast slot."""
-        from aip.adapter.api.routes.model_council import _pick_fusion_engine, PerModelResult
+        from aip.adapter.api.routes.model_council import PerModelResult, _pick_fusion_engine
 
         provider = MagicMock()
         provider.list_slots.return_value = ["synthesis", "beast", "judge"]
@@ -298,24 +294,25 @@ class TestDedicatedJudgeSlot:
         }.get(slot, {})
 
         per_model_results = [
-            PerModelResult(model_slot="beast", model_id="deepseek", provider="openai",
-                          status="completed", source="slot"),
+            PerModelResult(
+                model_slot="beast", model_id="deepseek", provider="openai", status="completed", source="slot"
+            ),
         ]
         kind, eid = _pick_fusion_engine(per_model_results, model_provider=provider)
         assert (kind, eid) == ("slot", "beast"), (
-            "Phase 3c: when 'judge' slot has a placeholder model, must "
-            f"fall through to beast — got ({kind}, {eid})"
+            f"Phase 3c: when 'judge' slot has a placeholder model, must fall through to beast — got ({kind}, {eid})"
         )
 
     def test_pick_fusion_engine_backward_compat_no_model_provider_arg(self):
         """When model_provider is None (not passed), _pick_fusion_engine
         still works — falls through to the panel-based picks. Backward
         compat with callers that don't pass the new arg."""
-        from aip.adapter.api.routes.model_council import _pick_fusion_engine, PerModelResult
+        from aip.adapter.api.routes.model_council import PerModelResult, _pick_fusion_engine
 
         per_model_results = [
-            PerModelResult(model_slot="beast", model_id="deepseek", provider="openai",
-                          status="completed", source="slot"),
+            PerModelResult(
+                model_slot="beast", model_id="deepseek", provider="openai", status="completed", source="slot"
+            ),
         ]
         # No model_provider arg — backward compat
         kind, eid = _pick_fusion_engine(per_model_results)
@@ -330,13 +327,10 @@ class TestDedicatedJudgeSlot:
         source = _read_config_source()
         # The commented example must exist
         assert "[models.judge]" in source, (
-            "Phase 3c: config/aip.config.toml must have a commented "
-            "[models.judge] example"
+            "Phase 3c: config/aip.config.toml must have a commented [models.judge] example"
         )
         # Must mention AIP_JUDGE_API_KEY env var
-        assert "AIP_JUDGE_API_KEY" in source, (
-            "Phase 3c: config must document the AIP_JUDGE_API_KEY env var override"
-        )
+        assert "AIP_JUDGE_API_KEY" in source, "Phase 3c: config must document the AIP_JUDGE_API_KEY env var override"
 
 
 # ── 3d: GUI compress_panel_outputs toggle ───────────────────────────────
@@ -351,16 +345,13 @@ class TestGuiCompressToggle:
         from gui.state import GuiState
 
         state = GuiState()
-        assert hasattr(state, "compress_panel_outputs"), (
-            "Phase 3d: GuiState must have a compress_panel_outputs field"
-        )
-        assert state.compress_panel_outputs is False, (
-            "Phase 3d: compress_panel_outputs must default to False (opt-in)"
-        )
+        assert hasattr(state, "compress_panel_outputs"), "Phase 3d: GuiState must have a compress_panel_outputs field"
+        assert state.compress_panel_outputs is False, "Phase 3d: compress_panel_outputs must default to False (opt-in)"
 
     def test_api_client_run_model_council_accepts_compress_panel_outputs(self):
         """api_client.run_model_council accepts the compress_panel_outputs param."""
         import inspect
+
         from gui.api_client import AipApiClient
 
         sig = inspect.signature(AipApiClient.run_model_council)
@@ -368,9 +359,7 @@ class TestGuiCompressToggle:
             "Phase 3d: run_model_council must accept compress_panel_outputs param"
         )
         param = sig.parameters["compress_panel_outputs"]
-        assert param.default is False, (
-            "Phase 3d: compress_panel_outputs must default to False"
-        )
+        assert param.default is False, "Phase 3d: compress_panel_outputs must default to False"
 
     def test_api_client_payload_includes_compress_panel_outputs(self):
         """The POST payload includes compress_panel_outputs."""
@@ -399,23 +388,19 @@ class TestGuiCompressToggle:
         rmc_idx = source.find("run_model_council", sm_idx)
         assert rmc_idx != -1
         # Use a larger window — the compress_panel_outputs= line is at the end
-        call_section = source[rmc_idx:rmc_idx + 900]
+        call_section = source[rmc_idx : rmc_idx + 900]
         assert "compress_panel_outputs=" in call_section, (
-            "Phase 3d: _send_multicast must pass compress_panel_outputs=... "
-            "to run_model_council"
+            "Phase 3d: _send_multicast must pass compress_panel_outputs=... to run_model_council"
         )
         assert "state.compress_panel_outputs" in call_section, (
-            "Phase 3d: _send_multicast must read state.compress_panel_outputs "
-            "so the GUI toggle controls the flag"
+            "Phase 3d: _send_multicast must read state.compress_panel_outputs so the GUI toggle controls the flag"
         )
 
     def test_ask_header_has_compress_checkbox(self):
         """The Ask page chat header has a 'Compress' checkbox."""
         source = _read_ask_source()
         # Find the Compress checkbox in the header
-        assert '"Compress"' in source, (
-            "Phase 3d: the Ask page header must have a 'Compress' checkbox"
-        )
+        assert '"Compress"' in source, "Phase 3d: the Ask page header must have a 'Compress' checkbox"
         # Verify it's bound to state.compress_panel_outputs
         assert "state.compress_panel_outputs" in source, (
             "Phase 3d: the Compress checkbox must be bound to state.compress_panel_outputs"
@@ -428,7 +413,7 @@ class TestGuiCompressToggle:
         compress_idx = source.find('"Compress"')
         assert compress_idx != -1
         # Look at the next 400 chars for the tooltip
-        section = source[compress_idx:compress_idx + 500]
+        section = source[compress_idx : compress_idx + 500]
         assert "tooltip" in section, (
             "Phase 3d: the Compress checkbox must have a tooltip explaining "
             "what compression does (so the user knows when to enable it)"
@@ -462,7 +447,7 @@ class TestEndToEndPayloadContractPhase3:
         assert method_match is not None
         method_body = method_match.group()
         payload_match = re.search(
-            r'payload:\s*dict\[str,\s*Any\]\s*=\s*\{([^}]+)\}',
+            r"payload:\s*dict\[str,\s*Any\]\s*=\s*\{([^}]+)\}",
             method_body,
             re.DOTALL,
         )
@@ -470,6 +455,5 @@ class TestEndToEndPayloadContractPhase3:
         payload_keys = set(re.findall(r'"(\w+)":\s', payload_match.group(1)))
         missing = payload_keys - backend_fields
         assert not missing, (
-            f"GUI payload keys {missing} are NOT fields on ModelCouncilRequest. "
-            f"The bug is always in the gap."
+            f"GUI payload keys {missing} are NOT fields on ModelCouncilRequest. The bug is always in the gap."
         )

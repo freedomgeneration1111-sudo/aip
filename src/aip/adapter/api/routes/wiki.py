@@ -180,7 +180,9 @@ def _row_to_article(
         # Convenience fields
         "domain": article_domain,
         "artifact_type": "wiki"
-        if artifact_id.startswith("beast:wiki:") or artifact_id.startswith("wiki:") or artifact_id.startswith("sexton:wiki:")
+        if artifact_id.startswith("beast:wiki:")
+        or artifact_id.startswith("wiki:")
+        or artifact_id.startswith("sexton:wiki:")
         else "proposal",
         "version": row["version"],
         "word_count": len(content_text.split()) if content_text else 0,
@@ -217,7 +219,9 @@ async def list_wiki_articles(
     items: list[dict] = []
 
     # Build WHERE clause
-    conditions = ["(a.id LIKE 'beast:wiki:%' OR a.id LIKE 'beast:proposal:%' OR a.id LIKE 'wiki:%' OR a.id LIKE 'sexton:wiki:%')"]
+    conditions = [
+        "(a.id LIKE 'beast:wiki:%' OR a.id LIKE 'beast:proposal:%' OR a.id LIKE 'wiki:%' OR a.id LIKE 'sexton:wiki:%')"
+    ]
     params: list[str] = []
 
     if state:

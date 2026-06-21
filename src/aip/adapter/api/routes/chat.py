@@ -21,13 +21,11 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from aip.adapter.api.dependencies import get_container
 from aip.adapter.api.routes._augmented_context import (
-    AugmentedContext,
     assemble_augmented_context,
 )
 from aip.adapter.api.routes.sessions import get_session_meta, increment_turn_count
@@ -122,8 +120,7 @@ async def chat_websocket(websocket: WebSocket, session_id: str):
                         ret_trace = None  # Retrieval trace metadata (populated in augmented mode)
 
                         if session_mode == "augmented" and (
-                            _container.corpus_turn_store is not None
-                            or _container.lexical_store is not None
+                            _container.corpus_turn_store is not None or _container.lexical_store is not None
                         ):
                             # Phase 1 retrieval bridge: call the shared
                             # ``assemble_augmented_context()`` helper that
@@ -431,9 +428,7 @@ async def chat_websocket(websocket: WebSocket, session_id: str):
                     # real response content), but the ID is deterministic and
                     # safe to surface.
                     _pre_meta_degraded = get_session_meta(session_id)
-                    _degraded_turn_index = (
-                        _pre_meta_degraded.get("turn_count", 0) if _pre_meta_degraded else 0
-                    )
+                    _degraded_turn_index = _pre_meta_degraded.get("turn_count", 0) if _pre_meta_degraded else 0
                     _degraded_turn_id = make_turn_id(session_id, _degraded_turn_index)
                     increment_turn_count(session_id, _container)
                     await websocket.send_json(

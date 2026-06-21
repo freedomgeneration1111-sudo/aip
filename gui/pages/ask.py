@@ -75,7 +75,7 @@ from nicegui import context, ui
 from gui.components.answer_card import add_answer_card
 from gui.components.beast_panel import BeastPanel
 from gui.components.chat import add_message, add_system_message, build_chat_input
-from gui.components.layout import build_left_nav, build_top_bar, build_right_rail
+from gui.components.layout import build_left_nav, build_right_rail, build_top_bar
 from gui.components.modals import show_api_key_prompt
 from gui.components.model_council_panel import ModelCouncilPanel
 from gui.components.source_panel import SourcePanel
@@ -126,12 +126,8 @@ async def ask_page():
             build_top_bar(state)
             build_left_nav(state, active_page="/ask")
             build_right_rail(state)
-            with (
-                ui.card()
-                .style(
-                    f"background:{C_ERR_BG}; border:1px solid {C_ERR_FG}; "
-                    f"border-radius:{R_SM}; padding:16px; margin:24px;"
-                )
+            with ui.card().style(
+                f"background:{C_ERR_BG}; border:1px solid {C_ERR_FG}; border-radius:{R_SM}; padding:16px; margin:24px;"
             ):
                 ui.label("Ask Workbench — Fatal Error").style(
                     f"font-size:16px; font-weight:700; color:{C_ERR_FG}; font-family:{F_SANS};"
@@ -235,12 +231,9 @@ async def _ask_page_impl():
 
     # ── Show degraded card if initialization had errors ────────
     if _init_error or _api_key_missing:
-        with (
-            ui.card()
-            .style(
-                f"background:{C_WARN_BG}; border:1px solid {C_WARN_FG}; "
-                f"border-radius:{R_SM}; padding:16px; margin:12px 16px;"
-            )
+        with ui.card().style(
+            f"background:{C_WARN_BG}; border:1px solid {C_WARN_FG}; "
+            f"border-radius:{R_SM}; padding:16px; margin:12px 16px;"
         ):
             if _api_key_missing:
                 ui.label("API Key Not Configured").style(
@@ -251,17 +244,21 @@ async def _ask_page_impl():
                     "Set your key via the Settings page or the OPENROUTER_API_KEY environment variable."
                 ).style(f"font-size:12px; color:{C_CREAM}; font-family:{F_MONO}; margin-top:4px;")
                 with ui.row().style("margin-top:8px; gap:8px;"):
+
                     async def _prompt_key():
                         try:
                             key = await show_api_key_prompt()
                             if key:
                                 state.api_client.set_openrouter_api_key(key)
-                                ui.notify("API key saved! Refresh the page to use chat.", color="positive", position="top")
+                                ui.notify(
+                                    "API key saved! Refresh the page to use chat.", color="positive", position="top"
+                                )
                         except Exception as exc:
                             log.warning("API key prompt failed: %s", exc)
-                    ui.button("Enter API Key", on_click=lambda: asyncio.create_task(_prompt_key())).props("dense").style(
-                        f"font-family:{F_SANS};"
-                    )
+
+                    ui.button("Enter API Key", on_click=lambda: asyncio.create_task(_prompt_key())).props(
+                        "dense"
+                    ).style(f"font-family:{F_SANS};")
                     ui.link("Settings", "/settings").style(
                         f"font-size:11px; color:{C_AMBER}; text-decoration:underline; align-self:center;"
                     )
@@ -269,9 +266,7 @@ async def _ask_page_impl():
                 ui.label("Ask Workbench — Degraded").style(
                     f"font-size:14px; font-weight:700; color:{C_WARN_FG}; font-family:{F_SANS};"
                 )
-                ui.label(_init_error).style(
-                    f"font-size:12px; color:{C_CREAM}; font-family:{F_MONO}; margin-top:4px;"
-                )
+                ui.label(_init_error).style(f"font-size:12px; color:{C_CREAM}; font-family:{F_MONO}; margin-top:4px;")
                 ui.label(
                     "The Ask page loaded with errors. Some features may not work. "
                     "Check that the backend is running and an API key is set."
@@ -341,8 +336,10 @@ async def _ask_page_impl():
             # the old "Multi-Cast: ON/OFF" button.
             _n = len(state.multicast_selected_model_ids)
             _count_text = (
-                f"{_n} selected · Multi-Cast Fusion" if _n >= 2
-                else f"{_n} selected · Single-model" if _n == 1
+                f"{_n} selected · Multi-Cast Fusion"
+                if _n >= 2
+                else f"{_n} selected · Single-model"
+                if _n == 1
                 else "0 selected · pick a model"
             )
             _count_color = C_AMBER if _n >= 2 else C_INK60
@@ -558,13 +555,19 @@ async def _on_chat_models_changed(
     if count_label is not None:
         if n >= 2:
             count_label.text = f"{n} selected · Multi-Cast Fusion"
-            count_label.style(f"color:{C_AMBER}; font-size:10px; font-weight:600; letter-spacing:0.5px; font-family:{F_MONO};")
+            count_label.style(
+                f"color:{C_AMBER}; font-size:10px; font-weight:600; letter-spacing:0.5px; font-family:{F_MONO};"
+            )
         elif n == 1:
             count_label.text = f"{n} selected · Single-model"
-            count_label.style(f"color:{C_INK60}; font-size:10px; font-weight:600; letter-spacing:0.5px; font-family:{F_MONO};")
+            count_label.style(
+                f"color:{C_INK60}; font-size:10px; font-weight:600; letter-spacing:0.5px; font-family:{F_MONO};"
+            )
         else:
             count_label.text = "0 selected · pick a model"
-            count_label.style(f"color:{C_INK60}; font-size:10px; font-weight:600; letter-spacing:0.5px; font-family:{F_MONO};")
+            count_label.style(
+                f"color:{C_INK60}; font-size:10px; font-weight:600; letter-spacing:0.5px; font-family:{F_MONO};"
+            )
 
     # Single-model branch: keep the synthesis slot's configured model
     # in sync with the dropdown so the WS chat route uses it. We reuse
@@ -803,8 +806,8 @@ def _format_judge_analysis_markdown(judge_analysis: dict[str, Any]) -> str:
             model_clr = _model_color_markdown(str(model))
             model_badge = (
                 f'<span style="background:{model_clr};color:#0E0E0F;'
-                f'font-family:\'Courier New\',monospace;font-size:9px;'
-                f'font-weight:700;padding:1px 6px;border-radius:3px;'
+                f"font-family:'Courier New',monospace;font-size:9px;"
+                f"font-weight:700;padding:1px 6px;border-radius:3px;"
                 f'letter-spacing:0.3px;">{model}</span>'
             )
             lines.append(f"- {model_badge} {insight}")
@@ -875,8 +878,7 @@ async def _send_multicast(
     selected_model_ids = list(state.multicast_selected_model_ids)
     total_selected = len(selected_model_ids)
     log.info(
-        "send_multicast: model_ids=%s backend_reachable=%s prompt_len=%d "
-        "skip_default_slots=True",
+        "send_multicast: model_ids=%s backend_reachable=%s prompt_len=%d skip_default_slots=True",
         selected_model_ids,
         state.backend_reachable,
         len(prompt),
@@ -886,9 +888,9 @@ async def _send_multicast(
     input_field.value = ""
 
     with chat_container:
-        thinking_label = ui.label(
-            f"Multi-Casting to {total_selected} models... (this may take 30-90s)"
-        ).style(f"color:{C_MUTED}; font-size:11px;")
+        thinking_label = ui.label(f"Multi-Casting to {total_selected} models... (this may take 30-90s)").style(
+            f"color:{C_MUTED}; font-size:11px;"
+        )
 
     try:
         session_id = await state.ensure_session()
@@ -1112,8 +1114,7 @@ async def _send_multicast(
 
     add_system_message(
         chat_container,
-        f"Multi-Cast complete — {completed_count}/{len(per_model)} models returned, "
-        f"synthesis: {synthesis_status}",
+        f"Multi-Cast complete — {completed_count}/{len(per_model)} models returned, synthesis: {synthesis_status}",
     )
 
 

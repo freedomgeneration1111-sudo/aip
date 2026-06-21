@@ -34,9 +34,6 @@ import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
-
 # ── A. Backend Status Truthfulness ──────────────────────────────────
 
 
@@ -584,6 +581,7 @@ class TestSeedBootstrapCanonicalSchema:
 
             # Apply canonical DDL
             from aip.adapter.corpus_turn_store import _DDL_CORPUS_TURNS, _DDL_MIGRATIONS
+
             conn.execute(_DDL_CORPUS_TURNS)
             for mig in _DDL_MIGRATIONS:
                 try:
@@ -725,8 +723,7 @@ class TestApiClientMethodMismatch:
 
         client = AipApiClient()
         assert hasattr(client, "get_text_generation_slots"), (
-            "AipApiClient is missing get_text_generation_slots. "
-            "Settings page calls this method."
+            "AipApiClient is missing get_text_generation_slots. Settings page calls this method."
         )
 
     def test_api_client_has_list_text_generation_slots(self):
@@ -768,9 +765,7 @@ class TestAskPageCrashBoundary:
         assert "try:" in source
         assert "_ask_page_impl" in source
         # Must have AttributeError catch for missing API methods
-        assert "AttributeError" in source, (
-            "Ask page must catch AttributeError from missing API client methods"
-        )
+        assert "AttributeError" in source, "Ask page must catch AttributeError from missing API client methods"
 
     def test_ask_page_api_key_does_not_block_render(self):
         """Ask page must not block page render on API key prompt.
@@ -818,9 +813,7 @@ class TestGraphPageVisualization:
         import gui.pages.graph
 
         source = Path(gui.pages.graph.__file__).read_text()
-        assert "sandbox" in source, (
-            "Graph iframe must have sandbox attribute for Cytoscape.js"
-        )
+        assert "sandbox" in source, "Graph iframe must have sandbox attribute for Cytoscape.js"
 
 
 # ── I. Dogfood Mode Nuanced Wording ────────────────────────────────
@@ -846,9 +839,7 @@ class TestDogfoodModeWording:
         import gui.panels.right_rail
 
         source = Path(gui.panels.right_rail.__file__).read_text()
-        assert "actors degraded" in source, (
-            "Right rail must say 'actors degraded' when actors exist but are degraded"
-        )
+        assert "actors degraded" in source, "Right rail must say 'actors degraded' when actors exist but are degraded"
 
     def test_settings_page_no_stale_no_actors_message(self):
         """Settings page must not say 'no actors or retrieval' in BARE mode."""

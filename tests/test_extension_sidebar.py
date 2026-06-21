@@ -6,9 +6,9 @@ _extension_status store.
 
 Run: pytest tests/test_extension_sidebar.py -v
 """
+
 from __future__ import annotations
 
-import asyncio
 import warnings
 from unittest.mock import AsyncMock, MagicMock, patch
 

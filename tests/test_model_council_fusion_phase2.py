@@ -33,7 +33,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ── Helpers ────────────────────────────────────────────────────────────
 
 
@@ -77,29 +76,34 @@ def _make_three_slot_container(call_fn):
 
 def _valid_judge_json() -> str:
     """Return a valid 6-field Judge JSON string (for mocking the Judge call)."""
-    return json.dumps({
-        "status": "completed",
-        "analysis": {
-            "consensus": ["AIP stands for AI Poiesis"],
-            "contradictions": [
-                {"topic": "primary use case", "stances": [
-                    {"model": "synthesis", "stance": "knowledge engine"},
-                    {"model": "beast", "stance": "corpus monitor"},
-                ]},
+    return json.dumps(
+        {
+            "status": "completed",
+            "analysis": {
+                "consensus": ["AIP stands for AI Poiesis"],
+                "contradictions": [
+                    {
+                        "topic": "primary use case",
+                        "stances": [
+                            {"model": "synthesis", "stance": "knowledge engine"},
+                            {"model": "beast", "stance": "corpus monitor"},
+                        ],
+                    },
+                ],
+                "partial_coverage": [
+                    {"models": ["synthesis", "evaluation"], "point": "ECS lifecycle"},
+                ],
+                "unique_insights": [
+                    {"model": "beast", "insight": "Sexton handles rate limiting"},
+                ],
+                "blind_spots": ["No model addressed L4 trajectory regulation"],
+            },
+            "responses": [
+                {"model": "synthesis", "content": "brief summary"},
+                {"model": "beast", "content": "brief summary"},
             ],
-            "partial_coverage": [
-                {"models": ["synthesis", "evaluation"], "point": "ECS lifecycle"},
-            ],
-            "unique_insights": [
-                {"model": "beast", "insight": "Sexton handles rate limiting"},
-            ],
-            "blind_spots": ["No model addressed L4 trajectory regulation"],
-        },
-        "responses": [
-            {"model": "synthesis", "content": "brief summary"},
-            {"model": "beast", "content": "brief summary"},
-        ],
-    })
+        }
+    )
 
 
 # ── 1. Judge JSON parse failure fallback (PDF Part IX test #5) ─────────
@@ -283,26 +287,32 @@ class TestFusionArtifactPersistence:
         container = _make_three_slot_container(panel_call)
         # Track ECS transitions
         ecs_transitions = []
+
         async def track_transition(**kwargs):
             ecs_transitions.append(kwargs)
+
         container.ecs_store.transition = AsyncMock(side_effect=track_transition)
         # Track artifact writes
         artifact_writes = []
+
         async def track_write(**kwargs):
             artifact_writes.append(kwargs)
+
         container.artifact_store.write = AsyncMock(side_effect=track_write)
 
         with (
             patch(
                 "aip.adapter.api.routes.model_council._call_fusion_engine",
-                new=AsyncMock(return_value={
-                    "content": _valid_judge_json(),
-                    "model": "fake-judge",
-                    "usage": {},
-                    "latency_ms": 10,
-                    "cost_usd": 0.0,
-                    "error": False,
-                }),
+                new=AsyncMock(
+                    return_value={
+                        "content": _valid_judge_json(),
+                        "model": "fake-judge",
+                        "usage": {},
+                        "latency_ms": 10,
+                        "cost_usd": 0.0,
+                        "error": False,
+                    }
+                ),
             ),
             patch(
                 "aip.adapter.api.routes.model_council._pick_fusion_engine",
@@ -361,21 +371,25 @@ class TestFusionArtifactPersistence:
 
         container = _make_three_slot_container(panel_call)
         ecs_transitions = []
+
         async def track_transition(**kwargs):
             ecs_transitions.append(kwargs)
+
         container.ecs_store.transition = AsyncMock(side_effect=track_transition)
 
         with (
             patch(
                 "aip.adapter.api.routes.model_council._call_fusion_engine",
-                new=AsyncMock(return_value={
-                    "content": _valid_judge_json(),
-                    "model": "fake-judge",
-                    "usage": {},
-                    "latency_ms": 10,
-                    "cost_usd": 0.0,
-                    "error": False,
-                }),
+                new=AsyncMock(
+                    return_value={
+                        "content": _valid_judge_json(),
+                        "model": "fake-judge",
+                        "usage": {},
+                        "latency_ms": 10,
+                        "cost_usd": 0.0,
+                        "error": False,
+                    }
+                ),
             ),
             patch(
                 "aip.adapter.api.routes.model_council._pick_fusion_engine",
@@ -391,8 +405,7 @@ class TestFusionArtifactPersistence:
         # Verify no transition went to APPROVED
         for t in ecs_transitions:
             assert t["to_state"] != "APPROVED", (
-                "ECS transition must NEVER be APPROVED — DEFINER gate (§1.7) "
-                "is required for all canonical promotions."
+                "ECS transition must NEVER be APPROVED — DEFINER gate (§1.7) is required for all canonical promotions."
             )
 
 
@@ -411,11 +424,11 @@ class TestFusionEndToEndWithRetrieval:
         container has a corpus_turn_store that returns results, the
         panel calls must receive the augmented system messages as a
         prefix."""
+        from aip.adapter.api.dependencies import AipContainer
         from aip.adapter.api.routes.model_council import (
             ModelCouncilRequest,
             compare_models,
         )
-        from aip.adapter.api.dependencies import AipContainer
 
         # Mock corpus_turn_store that returns one result containing "AIP"
         mock_turn = MagicMock()
@@ -438,6 +451,7 @@ class TestFusionEndToEndWithRetrieval:
         }.get(slot, {})
 
         captured_messages = []
+
         async def tracking_call(slot_name, messages, **kwargs):
             captured_messages.append((slot_name, list(messages)))
             return {
@@ -448,6 +462,7 @@ class TestFusionEndToEndWithRetrieval:
                 "cost_usd": 0.0,
                 "error": False,
             }
+
         provider.call = AsyncMock(side_effect=tracking_call)
 
         container = AipContainer({})
@@ -467,14 +482,16 @@ class TestFusionEndToEndWithRetrieval:
         with (
             patch(
                 "aip.adapter.api.routes.model_council._call_fusion_engine",
-                new=AsyncMock(return_value={
-                    "content": _valid_judge_json(),
-                    "model": "fake-judge",
-                    "usage": {},
-                    "latency_ms": 10,
-                    "cost_usd": 0.0,
-                    "error": False,
-                }),
+                new=AsyncMock(
+                    return_value={
+                        "content": _valid_judge_json(),
+                        "model": "fake-judge",
+                        "usage": {},
+                        "latency_ms": 10,
+                        "cost_usd": 0.0,
+                        "error": False,
+                    }
+                ),
             ),
             patch(
                 "aip.adapter.api.routes.model_council._pick_fusion_engine",
@@ -495,16 +512,13 @@ class TestFusionEndToEndWithRetrieval:
         for slot_name, msgs in captured_messages:
             # The augmented corpus context must be in one of the system messages
             corpus_msgs = [
-                m for m in msgs
-                if m["role"] == "system" and "Corpus turns retrieved" in m.get("content", "")
+                m for m in msgs if m["role"] == "system" and "Corpus turns retrieved" in m.get("content", "")
             ]
             assert len(corpus_msgs) >= 1, (
-                f"panel call for {slot_name} must include the augmented corpus "
-                f"context as a system message prefix"
+                f"panel call for {slot_name} must include the augmented corpus context as a system message prefix"
             )
             assert "AIP stands for AI Poiesis" in corpus_msgs[0]["content"], (
-                f"panel call for {slot_name}: augmented context must contain the "
-                f"corpus turn content"
+                f"panel call for {slot_name}: augmented context must contain the corpus turn content"
             )
 
 
@@ -524,11 +538,11 @@ class TestFusionWithNoCorpus:
         - panel calls receive [system (behavioral), user] (no augmented prefix)
         - fusion still runs and produces a synthesis
         """
+        from aip.adapter.api.dependencies import AipContainer
         from aip.adapter.api.routes.model_council import (
             ModelCouncilRequest,
             compare_models,
         )
-        from aip.adapter.api.dependencies import AipContainer
 
         # Mock corpus_turn_store that returns NO results
         mock_corpus_store = AsyncMock()
@@ -542,6 +556,7 @@ class TestFusionWithNoCorpus:
         }.get(slot, {})
 
         captured_messages = []
+
         async def tracking_call(slot_name, messages, **kwargs):
             captured_messages.append((slot_name, list(messages)))
             return {
@@ -552,6 +567,7 @@ class TestFusionWithNoCorpus:
                 "cost_usd": 0.0,
                 "error": False,
             }
+
         provider.call = AsyncMock(side_effect=tracking_call)
 
         container = AipContainer({})
@@ -571,14 +587,16 @@ class TestFusionWithNoCorpus:
         with (
             patch(
                 "aip.adapter.api.routes.model_council._call_fusion_engine",
-                new=AsyncMock(return_value={
-                    "content": _valid_judge_json(),
-                    "model": "fake-judge",
-                    "usage": {},
-                    "latency_ms": 10,
-                    "cost_usd": 0.0,
-                    "error": False,
-                }),
+                new=AsyncMock(
+                    return_value={
+                        "content": _valid_judge_json(),
+                        "model": "fake-judge",
+                        "usage": {},
+                        "latency_ms": 10,
+                        "cost_usd": 0.0,
+                        "error": False,
+                    }
+                ),
             ),
             patch(
                 "aip.adapter.api.routes.model_council._pick_fusion_engine",
@@ -599,18 +617,14 @@ class TestFusionWithNoCorpus:
         # IS injected by the helper, so we expect at least 2 system messages:
         # the "no sources" message + the behavioral panel prompt.
         for slot_name, msgs in captured_messages:
-            assert msgs[-1]["role"] == "user", (
-                f"panel call for {slot_name}: last message must be user (the question)"
-            )
+            assert msgs[-1]["role"] == "user", f"panel call for {slot_name}: last message must be user (the question)"
             # There must NOT be a "Corpus turns retrieved" system message
             # (because the corpus was empty)
             corpus_msgs = [
-                m for m in msgs
-                if m["role"] == "system" and "Corpus turns retrieved" in m.get("content", "")
+                m for m in msgs if m["role"] == "system" and "Corpus turns retrieved" in m.get("content", "")
             ]
             assert len(corpus_msgs) == 0, (
-                f"panel call for {slot_name}: no augmented corpus context when "
-                f"the corpus is empty"
+                f"panel call for {slot_name}: no augmented corpus context when the corpus is empty"
             )
         # Fusion still ran
         assert result.synthesis_status == "completed"
@@ -632,7 +646,6 @@ class TestHelperExtractsCorpusWikiGraph:
         for the query domain, the helper injects a 'DOMAIN CONTEXT'
         system message containing the wiki overview_text."""
         from aip.adapter.api.routes._augmented_context import (
-            AugmentedContext,
             assemble_augmented_context,
         )
 
@@ -651,17 +664,19 @@ class TestHelperExtractsCorpusWikiGraph:
 
         # Mock artifact_store returns an APPROVED wiki artifact
         mock_artifact_store = AsyncMock()
-        mock_artifact_store.list_artifacts_by_metadata = AsyncMock(return_value=[
-            {
-                "id": "wiki-artifact-1",
-                "metadata": {
-                    "artifact_type": "beast_wiki",
-                    "domain": "ai-poiesis",
-                    "overview_text": "AIP is a local-first sovereign knowledge engine.",
-                },
-                "created_at": "2026-06-01T00:00:00Z",
-            }
-        ])
+        mock_artifact_store.list_artifacts_by_metadata = AsyncMock(
+            return_value=[
+                {
+                    "id": "wiki-artifact-1",
+                    "metadata": {
+                        "artifact_type": "beast_wiki",
+                        "domain": "ai-poiesis",
+                        "overview_text": "AIP is a local-first sovereign knowledge engine.",
+                    },
+                    "created_at": "2026-06-01T00:00:00Z",
+                }
+            ]
+        )
 
         # Mock ecs_store returns APPROVED state
         mock_ecs_store = AsyncMock()
@@ -689,10 +704,7 @@ class TestHelperExtractsCorpusWikiGraph:
 
         assert result.assembled is True
         # A "DOMAIN CONTEXT" system message must be present
-        wiki_msgs = [
-            m for m in result.messages
-            if m["role"] == "system" and "DOMAIN CONTEXT" in m.get("content", "")
-        ]
+        wiki_msgs = [m for m in result.messages if m["role"] == "system" and "DOMAIN CONTEXT" in m.get("content", "")]
         assert len(wiki_msgs) == 1, "helper must inject a DOMAIN CONTEXT system message"
         assert "local-first sovereign knowledge engine" in wiki_msgs[0]["content"], (
             "DOMAIN CONTEXT must contain the wiki overview_text"
@@ -703,7 +715,6 @@ class TestHelperExtractsCorpusWikiGraph:
         """When the graph_store returns neighbors for the query domain,
         the helper injects a 'GRAPH CONNECTIONS' system message."""
         from aip.adapter.api.routes._augmented_context import (
-            AugmentedContext,
             assemble_augmented_context,
         )
 
@@ -754,8 +765,7 @@ class TestHelperExtractsCorpusWikiGraph:
         assert result.assembled is True
         # A "GRAPH CONNECTIONS" system message must be present
         graph_msgs = [
-            m for m in result.messages
-            if m["role"] == "system" and "GRAPH CONNECTIONS" in m.get("content", "")
+            m for m in result.messages if m["role"] == "system" and "GRAPH CONNECTIONS" in m.get("content", "")
         ]
         assert len(graph_msgs) == 1, "helper must inject a GRAPH CONNECTIONS system message"
         # The neighbor must be in the message (the self-reference filtered out)
