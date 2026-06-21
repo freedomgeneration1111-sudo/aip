@@ -248,7 +248,7 @@ Environment variable overrides:
 ## Running Tests
 
 ```bash
-# Full suite (1000+ tests)
+# Full suite (2251 tests collected; 87 collection errors in sandbox without full deps — CI runs all)
 uv run pytest
 
 # Extension platform tests
