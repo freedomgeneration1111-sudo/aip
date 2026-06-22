@@ -75,7 +75,7 @@ from nicegui import context, ui
 from gui.components.answer_card import add_answer_card
 from gui.components.beast_panel import BeastPanel
 from gui.components.chat import add_message, add_system_message, build_chat_input
-from gui.components.layout import build_left_nav, build_right_rail, build_top_bar
+from gui.components.layout import build_left_nav, build_right_rail, build_top_bar, clear_active_extension, set_active_extension
 from gui.components.modals import show_api_key_prompt
 from gui.components.model_council_panel import ModelCouncilPanel
 from gui.components.source_panel import SourcePanel
@@ -115,9 +115,26 @@ log = logging.getLogger("gui.pages.ask")
 
 @ui.page("/ask")
 async def ask_page():
-    """Ask Workbench — chat interface with backend or direct model fallback."""
+    """Ask Workbench — chat interface with backend or direct model fallback.
+
+    Also serves as the ARISTOTLE tutoring interface when loaded with
+    ?extension=aristotle. In ARISTOTLE mode the student sees only
+    SOCRATES — no model selector, no state labels, no internal terminology.
+    """
+    # Detect ARISTOTLE mode from query param
+    from nicegui import context as _ctx
     try:
-        await _ask_page_impl()
+        client = _ctx.get_client()
+        query_params = client.query_params
+        is_aristotle = query_params.get("extension") == "aristotle"
+    except Exception:
+        is_aristotle = False
+
+    try:
+        if is_aristotle:
+            await _ask_page_aristotle()
+        else:
+            await _ask_page_impl()
     except Exception as exc:
         log.exception("ask_page_crash: %s", exc)
         # Render minimal shell so the user sees something instead of blank white
@@ -1525,3 +1542,202 @@ async def _handle_gate_response(approved: bool, state: GuiState, chat_container)
         return
 
     state.pending_gate = None
+
+
+# ============================================================
+# ARISTOTLE Tutoring Mode — student-facing interface
+# ============================================================
+
+
+async def _ask_page_aristotle():
+    """ARISTOTLE tutoring mode — the student sees only SOCRATES.
+
+    One-voice principle (ADR-001 §1): no state labels, no model selector,
+    no internal terminology. The student enters their name, sends a message
+    about what they want to learn, and the tutoring loop runs to completion.
+
+    Uses the existing API routes:
+      POST /aristotle/session/start → creates session, returns {session, prompt}
+      POST /aristotle/session/step  → advances session, returns {session, output}
+      POST /aristotle/session/run   → full non-interactive run
+    """
+    import httpx
+    import os
+
+    state = get_session_state()
+    _BACKEND_URL = os.getenv("AIP_BACKEND_URL", "http://127.0.0.1:8000")
+
+    # Activate extension context (top bar badge + right rail)
+    set_active_extension("aristotle", "Tutoring")
+
+    # Build shell
+    build_top_bar(state)
+    build_left_nav(state, active_page="/ask")
+
+    # Session state (in-memory for this page instance)
+    _session: dict[str, Any] = {}
+    _session_started: bool = False
+    _student_name: str = ""
+    _concept_id: str = ""
+
+    with (
+        ui.column()
+        .classes("flex-1")
+        .style(
+            f"background:{C_GROUND}; overflow-y:auto; min-height:calc(100vh - 44px); "
+            f"display:flex; flex-direction:column;"
+        )
+    ):
+        # Chat header — student name (replaces model selector)
+        with (
+            ui.row()
+            .classes("w-full items-center")
+            .style(f"padding:8px 16px; background:{C_SURFACE}; border-bottom:0.5px solid {C_INK40};")
+        ):
+            ui.label("ARISTOTLE").style(
+                f"font-size:12px; font-weight:700; color:{C_AMBER}; letter-spacing:1px; margin-right:12px;"
+            )
+            name_input = ui.input(
+                placeholder="Your name",
+                value="",
+            ).props("dense dark").style("max-width:180px; font-size:14px;")
+
+        # Chat container
+        chat_container = ui.column().classes("w-full flex-1").style(
+            f"padding:16px; gap:12px; overflow-y:auto;"
+        )
+
+        # Welcome message
+        with chat_container:
+            ui.label("Hi! I'm Aristotle. What would you like to learn today?").style(
+                f"font-size:16px; color:{C_CREAM}; font-family:{F_MONO}; "
+                f"background:{C_SURFACE}; padding:12px 16px; border-radius:8px; "
+                f"max-width:80%;"
+            )
+
+        # Input row
+        with ui.row().classes("w-full").style(
+            f"padding:8px 16px; background:{C_SURFACE}; border-top:0.5px solid {C_INK40};"
+        ):
+            input_field = ui.input(
+                placeholder="Type your message...",
+            ).props("dense dark outlined").classes("flex-1").style("font-size:15px;")
+
+            async def _on_aristotle_send():
+                nonlocal _session_started, _student_name, _concept_id, _session
+
+                text = input_field.value.strip()
+                if not text:
+                    return
+                input_field.value = ""
+
+                # Show student message
+                with chat_container:
+                    ui.label(text).style(
+                        f"font-size:15px; color:{C_CREAM}; font-family:{F_MONO}; "
+                        f"background:{C_INK40}; padding:10px 14px; border-radius:8px; "
+                        f"max-width:80%; align-self:flex-end; text-align:right;"
+                    )
+
+                try:
+                    if not _session_started:
+                        # First message — start the session
+                        _student_name = name_input.value.strip() or "Student"
+                        _concept_id = text  # The first message IS the concept/topic
+
+                        async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=60.0) as client:
+                            resp = await client.post(
+                                "/aristotle/session/start",
+                                json={"concept_id": _concept_id},
+                            )
+                            resp.raise_for_status()
+                            data = resp.json()
+                            _session = data
+                            _session_started = True
+
+                            # Show the first prompt (PREDICT prompt — no label)
+                            prompt = _session.get("last_explanation", "") or \
+                                     _session.get("last_probe_question", "") or \
+                                     "Let's begin. What do you think about this topic?"
+
+                            with chat_container:
+                                ui.label(prompt).style(
+                                    f"font-size:16px; color:{C_CREAM}; font-family:{F_MONO}; "
+                                    f"background:{C_SURFACE}; padding:12px 16px; border-radius:8px; "
+                                    f"max-width:80%;"
+                                )
+                    else:
+                        # Subsequent messages — advance the session
+                        async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=60.0) as client:
+                            resp = await client.post(
+                                "/aristotle/session/step",
+                                json={
+                                    "session": _session,
+                                    "student_input": text,
+                                },
+                            )
+                            resp.raise_for_status()
+                            data = resp.json()
+                            _session = data.get("session", _session)
+
+                            # Show the response (the prompt/output — no state label)
+                            output = data.get("output", "")
+                            if output:
+                                with chat_container:
+                                    ui.label(output).style(
+                                        f"font-size:16px; color:{C_CREAM}; font-family:{F_MONO}; "
+                                        f"background:{C_SURFACE}; padding:12px 16px; border-radius:8px; "
+                                        f"max-width:80%;"
+                                    )
+
+                            # Check if session is complete
+                            if _session.get("state") == "SESSION_COMPLETE":
+                                with chat_container:
+                                    ui.label(
+                                        f"Great work, {_student_name}! 🎓"
+                                    ).style(
+                                        f"font-size:20px; color:{C_AMBER}; font-family:{F_MONO}; "
+                                        f"font-weight:700; padding:16px; text-align:center; "
+                                        f"background:{C_SURFACE}; border-radius:12px; max-width:90%;"
+                                    )
+                                clear_active_extension()
+                                input_field.set_enabled(False)
+
+                except httpx.ConnectError:
+                    with chat_container:
+                        ui.label("I can't reach my brain right now. Please make sure the server is running.").style(
+                            f"font-size:14px; color:{C_ERR_FG}; font-family:{F_MONO}; padding:8px;"
+                        )
+                except Exception as exc:
+                    with chat_container:
+                        ui.label(f"Something went wrong: {exc}").style(
+                            f"font-size:14px; color:{C_ERR_FG}; font-family:{F_MONO}; padding:8px;"
+                        )
+
+            # Send button + Enter key
+            ui.button("Send", on_click=lambda: asyncio.create_task(_on_aristotle_send())).props(
+                "dense"
+            ).style(f"background:{C_AMBER}; color:#0d1117; font-family:{F_MONO};")
+
+            input_field.on("keydown.enter", lambda: asyncio.create_task(_on_aristotle_send()))
+
+    # Debug panel (if ?debug=true)
+    try:
+        from nicegui import context as _ctx2
+        client2 = _ctx2.get_client()
+        if client2.query_params.get("debug") == "true":
+            with ui.right_drawer(value=True).props("width=300"):
+                ui.label("ARISTOTLE Debug").style(
+                    f"font-size:12px; font-weight:700; color:{C_AMBER}; padding:8px;"
+                )
+                debug_label = ui.label("Session not started").style(
+                    f"font-size:10px; color:{C_MUTED}; font-family:{F_MONO}; padding:4px 8px; white-space:pre-wrap;"
+                )
+
+                async def _refresh_debug():
+                    if _session:
+                        debug_label.text = json.dumps(_session, indent=2, default=str)
+
+                ui.timer(1.0, _refresh_debug)
+    except Exception:
+        pass
