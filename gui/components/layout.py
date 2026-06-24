@@ -363,7 +363,7 @@ def build_left_nav(state: GuiState, active_page: str = "") -> None:
     try:
         _base_url = os.getenv("AIP_BACKEND_URL", "http://127.0.0.1:8000")
         try:
-            _resp = httpx.get(f"{_base_url}/health/extensions", timeout=2.0)
+            _resp = httpx.get(f"{_base_url}/api/v1/health/extensions", timeout=2.0)
             if _resp.status_code == 200:
                 _data = _resp.json()
                 for _ext in _data.get("extensions", []):
