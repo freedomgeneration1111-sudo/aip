@@ -1320,3 +1320,27 @@ Files changed:
 - ROADMAP.md (appended Phase 0 section + Version History entry + Last Updated)
 - worklog.md (this entry)
 
+
+---
+Task ID: 20
+Agent: Super Z (main)
+Task: Fix broken query-param detection in /ask page — ARISTOTLE mode never triggered
+
+Work Log:
+- User screenshot showed /ask?extension=aristotle rendering the GENERIC ask page (Normal/NORMAL/AUGMENTED toggles, "Ask anything…" placeholder) — not the ARISTOTLE tutoring UI. Welcome message and right rail from commit d233442 were never visible because _ask_page_aristotle() was never called.
+- Root cause: ask_page() used `from nicegui import context as _ctx; client = _ctx.get_client(); query_params = client.query_params`. In NiceGUI 3.12.1, `context.get_client()` does NOT exist (it's `context.client`) and `Client.query_params` does NOT exist either (it's `client.request.query_params`). The try/except caught the AttributeError and silently fell back to is_aristotle=False, so the generic page always rendered.
+- Verified against installed NiceGUI 3.12.1: dir(context) shows ['client', 'slot', 'slot_stack'] (no get_client); dir(context.client) shows ['request', 'environ', …] (no query_params on Client itself).
+- Fix: switched to FastAPI's automatic query-param injection (the idiomatic NiceGUI pattern). Changed `async def ask_page()` → `async def ask_page(extension: str = "", debug: str = "")`. NiceGUI's @ui.page decorator (which wraps FastAPI) extracts ?extension=… and ?debug=… from the query string and passes them as kwargs based on the function signature.
+- Removed the broken try/except — replaced with `is_aristotle = extension == "aristotle"` and `is_debug = debug == "true"` (no exception possible).
+- Updated `_ask_page_aristotle()` signature to accept `is_debug: bool = False` and removed its own broken `context.get_client()` call at the end (for the debug panel). Now uses the injected `is_debug` flag directly.
+- Syntax-checked with ast.parse — OK. Import-tested — OK. Signature inspected — ask_page(extension, debug) and _ask_page_aristotle(is_debug) both correct.
+
+Stage Summary:
+- The two previously-committed ARISTOTLE UI pieces (welcome message lines 1610-1623 + right rail with extension links lines 1741-1759, both from commit d233442) will now actually render when the user navigates to /ask?extension=aristotle.
+- No more silent fallback to the generic Ask page when the ARISTOTLE query param is present.
+- No more swallowed AttributeError masking the broken API call — the routing is now direct, no try/except.
+- Debug panel via ?debug=true now works too (was broken by the same root cause).
+
+Files changed:
+- gui/pages/ask.py (ask_page signature + _ask_page_aristotle signature + debug panel block)
+

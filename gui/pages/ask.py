@@ -114,25 +114,24 @@ log = logging.getLogger("gui.pages.ask")
 
 
 @ui.page("/ask")
-async def ask_page():
+async def ask_page(extension: str = "", debug: str = ""):
     """Ask Workbench — chat interface with backend or direct model fallback.
 
     Also serves as the ARISTOTLE tutoring interface when loaded with
     ?extension=aristotle. In ARISTOTLE mode the student sees only
     SOCRATES — no model selector, no state labels, no internal terminology.
+
+    Query params (auto-injected by FastAPI):
+      extension: "aristotle" → ARISTOTLE tutoring mode
+      debug:     "true"       → show debug panel in ARISTOTLE mode
     """
-    # Detect ARISTOTLE mode from query param
-    from nicegui import context as _ctx
-    try:
-        client = _ctx.get_client()
-        query_params = client.query_params
-        is_aristotle = query_params.get("extension") == "aristotle"
-    except Exception:
-        is_aristotle = False
+    # Detect ARISTOTLE mode from query param (FastAPI injects ?extension=… as kwarg)
+    is_aristotle = extension == "aristotle"
+    is_debug = debug == "true"
 
     try:
         if is_aristotle:
-            await _ask_page_aristotle()
+            await _ask_page_aristotle(is_debug=is_debug)
         else:
             await _ask_page_impl()
     except Exception as exc:
@@ -1549,7 +1548,7 @@ async def _handle_gate_response(approved: bool, state: GuiState, chat_container)
 # ============================================================
 
 
-async def _ask_page_aristotle():
+async def _ask_page_aristotle(is_debug: bool = False):
     """ARISTOTLE tutoring mode — the student sees only SOCRATES.
 
     One-voice principle (ADR-001 §1): no state labels, no model selector,
@@ -1759,22 +1758,17 @@ async def _ask_page_aristotle():
             ).on("click", lambda: ui.navigate.to("/aristotle/settings", new_tab=True))
 
     # Debug panel (if ?debug=true)
-    try:
-        from nicegui import context as _ctx2
-        client2 = _ctx2.get_client()
-        if client2.query_params.get("debug") == "true":
-            with ui.right_drawer(value=True).props("width=300"):
-                ui.label("ARISTOTLE Debug").style(
-                    f"font-size:12px; font-weight:700; color:{C_AMBER}; padding:8px;"
-                )
-                debug_label = ui.label("Session not started").style(
-                    f"font-size:10px; color:{C_MUTED}; font-family:{F_MONO}; padding:4px 8px; white-space:pre-wrap;"
-                )
+    if is_debug:
+        with ui.right_drawer(value=True).props("width=300"):
+            ui.label("ARISTOTLE Debug").style(
+                f"font-size:12px; font-weight:700; color:{C_AMBER}; padding:8px;"
+            )
+            debug_label = ui.label("Session not started").style(
+                f"font-size:10px; color:{C_MUTED}; font-family:{F_MONO}; padding:4px 8px; white-space:pre-wrap;"
+            )
 
-                async def _refresh_debug():
-                    if _session:
-                        debug_label.text = json.dumps(_session, indent=2, default=str)
+            async def _refresh_debug():
+                if _session:
+                    debug_label.text = json.dumps(_session, indent=2, default=str)
 
-                ui.timer(1.0, _refresh_debug)
-    except Exception:
-        pass
+            ui.timer(1.0, _refresh_debug)
