@@ -1607,12 +1607,19 @@ async def _ask_page_aristotle():
             f"padding:16px; gap:12px; overflow-y:auto;"
         )
 
-        # Welcome message
+        # Welcome message + brief instructions
         with chat_container:
             ui.label("Hi! I'm Aristotle. What would you like to learn today?").style(
                 f"font-size:16px; color:{C_CREAM}; font-family:{F_MONO}; "
                 f"background:{C_SURFACE}; padding:12px 16px; border-radius:8px; "
                 f"max-width:80%;"
+            )
+            ui.label(
+                "Type what you want to learn. I'll ask what you already think, "
+                "then teach you, then check your understanding."
+            ).style(
+                f"font-size:13px; color:{C_MUTED}; font-family:{F_MONO}; "
+                f"padding:4px 16px; max-width:80%; line-height:1.4;"
             )
 
         # Input row
@@ -1730,6 +1737,26 @@ async def _ask_page_aristotle():
             ).style(f"background:{C_AMBER}; color:#0d1117; font-family:{F_MONO};")
 
             input_field.on("keydown.enter", lambda: asyncio.create_task(_on_aristotle_send()))
+
+    # Right rail — extension links (Teacher Dashboard, Stats, Map, Settings)
+    with ui.right_drawer(value=True).props("width=200 bordered"):
+        with ui.column().classes("w-full").style(f"padding:12px; gap:8px;"):
+            ui.label("ARISTOTLE").style(
+                f"font-size:10px; font-weight:700; letter-spacing:1px; "
+                f"color:{C_AMBER}; text-transform:uppercase; margin-bottom:4px;"
+            )
+            ui.link("Teacher Dashboard", "/aristotle/teacher").style(
+                f"font-size:12px; color:{C_CREAM}; font-family:{F_MONO}; text-decoration:none; padding:4px 0;"
+            ).on("click", lambda: ui.navigate.to("/aristotle/teacher", new_tab=True))
+            ui.link("Session Stats", "/aristotle/stats").style(
+                f"font-size:12px; color:{C_CREAM}; font-family:{F_MONO}; text-decoration:none; padding:4px 0;"
+            ).on("click", lambda: ui.navigate.to("/aristotle/stats", new_tab=True))
+            ui.link("Curriculum Map", "/aristotle/map").style(
+                f"font-size:12px; color:{C_CREAM}; font-family:{F_MONO}; text-decoration:none; padding:4px 0;"
+            ).on("click", lambda: ui.navigate.to("/aristotle/map", new_tab=True))
+            ui.link("Settings", "/aristotle/settings").style(
+                f"font-size:12px; color:{C_CREAM}; font-family:{F_MONO}; text-decoration:none; padding:4px 0;"
+            ).on("click", lambda: ui.navigate.to("/aristotle/settings", new_tab=True))
 
     # Debug panel (if ?debug=true)
     try:
