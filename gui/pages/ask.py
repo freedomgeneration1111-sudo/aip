@@ -1655,17 +1655,27 @@ async def _ask_page_aristotle():
                             _session = data
                             _session_started = True
 
-                            # Show the first prompt (PREDICT prompt — no label)
-                            prompt = _session.get("last_explanation", "") or \
-                                     _session.get("last_probe_question", "") or \
-                                     "Let's begin. What do you think about this topic?"
+                            # Immediately trigger Phase 1 of PREDICT —
+                            # session/start creates state=PREDICT but generates
+                            # no prompt. session/step with empty student_input
+                            # generates the actual "what do you think?" question.
+                            step_resp = await client.post(
+                                "/aristotle/session/step",
+                                json={"session": _session, "student_input": ""},
+                            )
+                            step_resp.raise_for_status()
+                            step_data = step_resp.json()
+                            _session = step_data.get("session", _session)
+                            predict_prompt = step_data.get("output", "")
 
+                            # Show the actual PREDICT prompt (not a hardcoded fallback)
                             with chat_container:
-                                ui.label(prompt).style(
-                                    f"font-size:16px; color:{C_CREAM}; font-family:{F_MONO}; "
-                                    f"background:{C_SURFACE}; padding:12px 16px; border-radius:8px; "
-                                    f"max-width:80%;"
-                                )
+                                if predict_prompt:
+                                    ui.label(predict_prompt).style(
+                                        f"font-size:16px; color:{C_CREAM}; font-family:{F_MONO}; "
+                                        f"background:{C_SURFACE}; padding:12px 16px; border-radius:8px; "
+                                        f"max-width:80%;"
+                                    )
                     else:
                         # Subsequent messages — advance the session
                         async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=60.0) as client:
