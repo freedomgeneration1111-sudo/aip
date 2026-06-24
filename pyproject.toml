@@ -79,3 +79,14 @@ dev-dependencies = [
     "ruff>=0.4",
     "uvicorn>=0.48.0",
 ]
+
+# AIP_Aristotle is installed via `uv pip install -e ../AIP_Aristotle` after
+# `uv sync`. It is NOT listed in dev-dependencies because:
+# 1. uv path dependencies require a fixed relative path (not portable)
+# 2. The extension boundary means Brain's pyproject.toml should not
+#    reference extension packages by path
+# 3. The startup script (scripts/start.sh) does NOT run uv sync — it
+#    uses `uv run` which preserves the existing venv state
+#
+# If `uv sync` wipes aristotle, re-run: uv pip install -e ../AIP_Aristotle
+# The user's update-and-start.sh script already does this correctly.
