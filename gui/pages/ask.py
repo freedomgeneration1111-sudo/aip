@@ -1622,6 +1622,26 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
         chat_container = ui.column().classes("w-full flex-1").style(
             f"padding:16px; gap:12px; overflow-y:auto; flex:1; min-height:300px;"
         )
+        # Onboarding message — rendered synchronously as the first child of
+        # chat_container so (a) the chat surface is visually present on load
+        # instead of an empty dark void, and (b) the student sees the full
+        # intended flow before any interaction. Stays in place as the first
+        # message in the conversation when the session starts.
+        with chat_container:
+            ui.label(
+                "Welcome. I'm Aristotle.\n\n"
+                "Here's how a tutoring session works:\n\n"
+                "  1. Pick a subject to study from the cards below.\n"
+                "  2. Share any textbooks or curriculum materials you want me to learn from.\n"
+                "  3. I'll build a tutoring plan from those materials.\n"
+                "  4. Then we begin — I ask what you think first, then teach, then check your understanding.\n\n"
+                "Choose a concept to get started."
+            ).style(
+                f"font-size:14px; color:{C_CREAM}; font-family:{F_MONO}; "
+                f"background:{C_SURFACE}; padding:16px 20px; border-radius:8px; "
+                f"max-width:80%; white-space:pre-wrap; line-height:1.6; "
+                f"border-left:3px solid {C_AMBER};"
+            )
 
         # Input area (hidden until session starts)
         input_area = ui.row().classes("w-full items-center gap-2").style(
@@ -1873,23 +1893,10 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
 
         asyncio.create_task(_load_concepts())
 
-    # Right rail — shared layout component (renders extension context panel
-    # for ARISTOTLE mode with Teacher Dashboard / Session Stats /
-    # Curriculum Map / Settings links via _right_extension_panel).
+    # Right rail — the SINGLE global right sidebar. Shared layout component
+    # renders the extension context panel via _right_extension_panel(), which
+    # branches on _active_extension["name"] to expose context-relevant nav
+    # (ARISTOTLE: Teacher Dashboard / Session Stats / Curriculum Map /
+    # Settings). Other pages with no active extension render the drawer
+    # hidden (value=False), so it is simply absent rather than blank.
     build_right_rail(state)
-
-    # Debug panel (if ?debug=true)
-    if is_debug:
-        with ui.right_drawer(value=True).props("width=300"):
-            ui.label("ARISTOTLE Debug").style(
-                f"font-size:12px; font-weight:700; color:{C_AMBER}; padding:8px;"
-            )
-            debug_label = ui.label("Session not started").style(
-                f"font-size:10px; color:{C_MUTED}; font-family:{F_MONO}; padding:4px 8px; white-space:pre-wrap;"
-            )
-
-            async def _refresh_debug():
-                if _session:
-                    debug_label.text = json.dumps(_session, indent=2, default=str)
-
-            ui.timer(1.0, _refresh_debug)
