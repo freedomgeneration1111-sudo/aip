@@ -1550,12 +1550,31 @@ async def _handle_gate_response(approved: bool, state: GuiState, chat_container)
 
 
 async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False):
-    """ARISTOTLE tutoring session — replaces the normal /ask flow.
+    """ARISTOTLE onboarding + tutoring — chat-primary surface.
 
-    Entered when the map navigates to /ask?extension=aristotle&concept=<id>.
-    Two paths:
-      1. concept_from_url non-empty: show concept name + START button.
-      2. concept_from_url empty: show concept selector list.
+    Per ADR-002 §9 + PLANNED_FEATURES.md (AIP_Aristotle): the INTAKE
+    interview runs in the main Brain chat — NOT a separate /intake page.
+    Chat IS the intake surface. The learner sees one prompt at a time
+    and types their reply in the chat bar; the underlying state machine
+    drives them through:
+
+      INTAKE  (5 stages: GREETING → SUBJECT → PRIOR_KNOWLEDGE →
+               GOALS → SCHEDULE → GENERATING_PLAN → COMPLETE)
+        ↓ produces a learning plan with concept_ids
+      PLACER  (samples concepts from the plan, probes each to calibrate
+               where to start tutoring)
+        ↓ sets starting_concept_idx on the plan
+      TUTORING (PREDICT → TEACH → PROBE → QUIZ → EVALUATE →
+                HINT_1/HINT_2 → REMEDIATE → NEXT_CONCEPT)
+
+    The chat bar is visible from the first render. The first chat
+    bubble is Aristotle's greeting from /aristotle/intake/start.
+
+    ?concept=<id> deep-link (per design decision 2a): if a learning
+    plan already exists containing that concept, skip intake+placer
+    and jump straight to /aristotle/session/start. Otherwise fall
+    through to intake — the learner will reach that concept naturally
+    through the plan.
     """
     import httpx
     import os
@@ -1570,12 +1589,21 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
     build_top_bar(state)
     build_left_nav(state, active_page="/ask")
 
-    # Shared mutable state for the session
-    _session: dict[str, Any] = {}
-    _session_started: bool = False
-    _student_name: str = ""
+    # Shared mutable state across the three phases.
+    #   _phase:             "INTAKE" | "PLACER" | "TUTORING" | "COMPLETE"
+    #   _intake_session:    IntakeSession dict (carried between /intake/step calls)
+    #   _placer_session:    PlacerSession dict (carried between /placer/step calls)
+    #   _tutor_session:     SessionContext dict (carried between /session/step calls)
+    #   _plan_id:           set when intake returns COMPLETE
+    #   _concept_id:        set when tutoring starts (first concept from plan
+    #                       or from ?concept= deep-link)
+    _phase: str = "INTAKE"
+    _intake_session: dict[str, Any] = {}
+    _placer_session: dict[str, Any] = {}
+    _tutor_session: dict[str, Any] = {}
+    _plan_id: str = ""
     _concept_id: str = concept_from_url
-    _concept_name: str = ""
+    _student_name: str = "Student"
 
     with (
         ui.column()
@@ -1585,7 +1613,10 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
             f"display:flex; flex-direction:column;"
         )
     ):
-        # Header bar
+        # Header bar — minimal. Aristotle is the only voice the learner
+        # meets; the header carries just the extension badge + the
+        # current phase so the operator (not the learner) can see where
+        # they are in the state machine.
         with (
             ui.row()
             .classes("w-full items-center")
@@ -1599,69 +1630,56 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                 f"background:{C_AMBER}; padding:2px 8px; border-radius:{R_SM}; "
                 f"letter-spacing:0.5px;"
             )
-            header_label = ui.label("").style(
-                f"font-size:14px; color:{C_CREAM}; font-weight:600; margin-left:12px;"
+            phase_label = ui.label("Onboarding").style(
+                f"font-size:12px; color:{C_MUTED}; font-family:{F_MONO}; "
+                f"margin-left:12px; letter-spacing:0.3px;"
             )
             ui.space()
 
-        # Instruction line
-        ui.label(
-            "I'll ask what you think first, then teach you, "
-            "then check your understanding."
-        ).style(f"font-size:12px; color:{C_MUTED}; padding:8px 16px;")
-
-        # Placeholder for concept selector / START button — created synchronously
-        # inside the column context so that dynamic UI from _load_concepts()
-        # (launched via asyncio.create_task) lands inside the dark panel instead
-        # of at page root. Placed ABOVE chat_container so concept cards are
-        # visible immediately on load instead of being pushed below the fold
-        # by the flex:1 chat container.
-        concept_area = ui.column().classes("w-full").style("padding:8px 16px;")
-
-        # Chat container for Aristotle messages
+        # Chat container — the single conversation surface. Holds every
+        # message from intake, placer, and tutoring. flex:1 so it fills
+        # the viewport between header and chat bar.
         chat_container = ui.column().classes("w-full flex-1").style(
             f"padding:16px; gap:12px; overflow-y:auto; flex:1; min-height:300px;"
         )
-        # Onboarding message — rendered synchronously as the first child of
-        # chat_container so (a) the chat surface is visually present on load
-        # instead of an empty dark void, and (b) the student sees the full
-        # intended flow before any interaction. Stays in place as the first
-        # message in the conversation when the session starts.
-        with chat_container:
-            ui.label(
-                "Welcome. I'm Aristotle.\n\n"
-                "Here's how a tutoring session works:\n\n"
-                "  1. Pick a subject to study from the cards below.\n"
-                "  2. Share any textbooks or curriculum materials you want me to learn from.\n"
-                "  3. I'll build a tutoring plan from those materials.\n"
-                "  4. Then we begin — I ask what you think first, then teach, then check your understanding.\n\n"
-                "Choose a concept to get started."
-            ).style(
-                f"font-size:14px; color:{C_CREAM}; font-family:{F_MONO}; "
-                f"background:{C_SURFACE}; padding:16px 20px; border-radius:8px; "
-                f"max-width:80%; white-space:pre-wrap; line-height:1.6; "
-                f"border-left:3px solid {C_AMBER};"
-            )
 
-        # Input area (hidden until session starts)
-        input_area = ui.row().classes("w-full items-center gap-2").style(
-            f"padding:8px 16px; background:{C_SURFACE}; "
-            f"border-top:0.5px solid {C_INK40}; display:none;"
-        )
-        with input_area:
+        # Chat bar — VISIBLE from the first render. The learner types
+        # every reply here: subject, prior knowledge, goals, schedule,
+        # placement answers, and tutoring answers. No separate forms,
+        # no START button, no concept cards. Chat IS the surface.
+        with (
+            ui.row()
+            .classes("w-full items-center gap-2")
+            .style(
+                f"padding:8px 16px; background:{C_SURFACE}; "
+                f"border-top:0.5px solid {C_INK40};"
+            )
+        ):
             input_field = ui.input(
-                placeholder="Your answer...",
+                placeholder="Type your reply to Aristotle...",
             ).props("dense dark outlined").classes("flex-1").style("font-size:15px;")
 
-            async def _on_aristotle_send():
-                nonlocal _session_started, _student_name, _concept_id, _session
-
-                text = input_field.value.strip()
+            async def _render_aristotle_message(text: str) -> None:
+                """Append an Aristotle chat bubble to chat_container."""
                 if not text:
                     return
-                input_field.value = ""
+                with chat_container:
+                    ui.label(text).style(
+                        f"font-size:15px; color:{C_CREAM}; font-family:{F_MONO}; "
+                        f"background:{C_SURFACE}; padding:12px 16px; "
+                        f"border-radius:8px; max-width:80%; "
+                        f"border-left:3px solid {C_AMBER}; "
+                        f"white-space:pre-wrap; line-height:1.5;"
+                    )
+                # Auto-scroll to bottom so the latest message is visible.
+                await ui.run_javascript(
+                    f"document.getElementById('{chat_container.id}')"
+                    f".scrollTop = document.getElementById('{chat_container.id}').scrollHeight;",
+                    respond=False,
+                )
 
-                # Show student message
+            async def _render_student_message(text: str) -> None:
+                """Append a right-aligned student chat bubble."""
                 with chat_container:
                     ui.label(text).style(
                         f"font-size:15px; color:{C_CREAM}; font-family:{F_MONO}; "
@@ -1669,229 +1687,291 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                         f"max-width:80%; align-self:flex-end; text-align:right;"
                     )
 
+            async def _render_error(msg: str) -> None:
+                """Append a red error bubble — backend unreachable, etc."""
+                with chat_container:
+                    ui.label(msg).style(
+                        f"font-size:13px; color:{C_ERR_FG}; font-family:{F_MONO}; "
+                        f"padding:8px;"
+                    )
+
+            async def _set_phase(new_phase: str) -> None:
+                """Update the phase label in the header (operator visibility)."""
+                nonlocal _phase
+                _phase = new_phase
+                labels = {
+                    "INTAKE": "Onboarding",
+                    "PLACER": "Placement",
+                    "TUTORING": "Tutoring",
+                    "COMPLETE": "Complete",
+                }
+                phase_label.set_text(labels.get(new_phase, new_phase))
+
+            async def _start_intake() -> None:
+                """Kick off the intake conversation by calling /intake/start.
+
+                No plan_id yet (first visit). Returns a greeting prompt
+                that we render as the first chat bubble.
+                """
+                nonlocal _intake_session
                 try:
-                    if not _session_started:
-                        # First message — start the session
-                        _student_name = "Student"
-                        _session_started = True
-
-                        async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=60.0) as client:
-                            resp = await client.post(
-                                "/aristotle/session/start",
-                                json={"concept_id": _concept_id},
-                            )
-                            resp.raise_for_status()
-                            data = resp.json()
-                            _session = data
-
-                            # Immediately trigger Phase 1 of PREDICT —
-                            # session/start creates state=PREDICT but generates
-                            # no prompt. session/step with empty student_input
-                            # generates the actual "what do you think?" question.
-                            step_resp = await client.post(
-                                "/aristotle/session/step",
-                                json={"session": _session, "student_input": text},
-                            )
-                            step_resp.raise_for_status()
-                            step_data = step_resp.json()
-                            _session = step_data.get("session", _session)
-                            predict_prompt = step_data.get("output", "")
-
-                            # Show the actual PREDICT prompt (not a hardcoded fallback)
-                            with chat_container:
-                                if predict_prompt:
-                                    ui.label(predict_prompt).style(
-                                        f"font-size:16px; color:{C_CREAM}; font-family:{F_MONO}; "
-                                        f"background:{C_SURFACE}; padding:12px 16px; border-radius:8px; "
-                                        f"max-width:80%;"
-                                    )
-                    else:
-                        # Subsequent messages — advance the session
-                        async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=60.0) as client:
-                            resp = await client.post(
-                                "/aristotle/session/step",
-                                json={
-                                    "session": _session,
-                                    "student_input": text,
-                                },
-                            )
-                            resp.raise_for_status()
-                            data = resp.json()
-                            _session = data.get("session", _session)
-
-                            # Show the response (the prompt/output — no state label)
-                            output = data.get("output", "")
-                            if output:
-                                with chat_container:
-                                    ui.label(output).style(
-                                        f"font-size:16px; color:{C_CREAM}; font-family:{F_MONO}; "
-                                        f"background:{C_SURFACE}; padding:12px 16px; border-radius:8px; "
-                                        f"max-width:80%;"
-                                    )
-
-                            # Check if session is complete
-                            if _session.get("state") == "SESSION_COMPLETE":
-                                with chat_container:
-                                    ui.label(
-                                        f"Great work, {_student_name}!"
-                                    ).style(
-                                        f"font-size:20px; color:{C_AMBER}; font-family:{F_MONO}; "
-                                        f"font-weight:700; padding:16px; text-align:center; "
-                                        f"background:{C_SURFACE}; border-radius:12px; max-width:90%;"
-                                    )
-                                clear_active_extension()
-                                input_field.set_enabled(False)
-
+                    async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=60.0) as client:
+                        resp = await client.post(
+                            "/aristotle/intake/start",
+                            json={"plan_id": None},
+                        )
+                        resp.raise_for_status()
+                        data = resp.json()
+                        _intake_session = data.get("session") or {}
+                        prompt = data.get("prompt") or ""
+                        if prompt:
+                            await _render_aristotle_message(prompt)
                 except httpx.ConnectError:
-                    with chat_container:
-                        ui.label("I can't reach my brain right now. Please make sure the server is running.").style(
-                            f"font-size:14px; color:{C_ERR_FG}; font-family:{F_MONO}; padding:8px;"
-                        )
-                except Exception as exc:
-                    with chat_container:
-                        ui.label(f"Something went wrong: {exc}").style(
-                            f"font-size:14px; color:{C_ERR_FG}; font-family:{F_MONO}; padding:8px;"
-                        )
-
-            ui.button("Send", on_click=lambda: asyncio.create_task(_on_aristotle_send())).props(
-                "dense"
-            ).style(f"background:{C_AMBER}; color:#0d1117; font-family:{F_MONO};")
-
-            input_field.on("keydown.enter", lambda: asyncio.create_task(_on_aristotle_send()))
-
-        async def _start_session() -> None:
-            """Autostart path — called by START button and concept card clicks.
-            Does not require any text input from the student.
-            Calls session/start then one session/step with empty student_input
-            to generate the initial PREDICT prompt.
-            """
-            nonlocal _session_started, _session
-
-            if _session_started:
-                return  # Guard against double-start
-
-            _session_started = True
-            input_area.style("display:flex;")
-
-            try:
-                async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=60.0) as client:
-                    resp = await client.post(
-                        "/aristotle/session/start",
-                        json={"concept_id": _concept_id},
-                    )
-                    resp.raise_for_status()
-                    _session = resp.json()
-
-                    step_resp = await client.post(
-                        "/aristotle/session/step",
-                        json={"session": _session, "student_input": ""},
-                    )
-                    step_resp.raise_for_status()
-                    step_data = step_resp.json()
-                    _session = step_data.get("session", _session)
-                    predict_prompt = step_data.get("output", "")
-
-                    with chat_container:
-                        if predict_prompt:
-                            ui.label(predict_prompt).style(
-                                f"font-size:16px; color:{C_CREAM}; font-family:{F_MONO}; "
-                                f"background:{C_SURFACE}; padding:12px 16px; "
-                                f"border-radius:8px; max-width:80%;"
-                            )
-                        else:
-                            ui.label("(Session started — waiting for Aristotle...)").style(
-                                f"font-size:14px; color:{C_MUTED}; font-family:{F_MONO}; "
-                                f"padding:8px;"
-                            )
-
-            except httpx.ConnectError:
-                with chat_container:
-                    ui.label(
+                    await _render_error(
                         "I can't reach my brain right now. "
-                        "Please make sure the server is running."
-                    ).style(
-                        f"font-size:14px; color:{C_ERR_FG}; font-family:{F_MONO}; padding:8px;"
+                        "Please make sure the AIP backend is running."
                     )
-            except Exception as exc:
-                with chat_container:
-                    ui.label(f"Something went wrong: {exc}").style(
-                        f"font-size:14px; color:{C_ERR_FG}; font-family:{F_MONO}; padding:8px;"
+                except Exception as exc:
+                    await _render_error(f"Something went wrong: {exc}")
+
+            async def _step_intake(student_input: str) -> None:
+                """Advance intake one turn with the learner's reply."""
+                nonlocal _intake_session, _plan_id
+                try:
+                    async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=60.0) as client:
+                        resp = await client.post(
+                            "/aristotle/intake/step",
+                            json={
+                                "session": _intake_session,
+                                "student_input": student_input,
+                            },
+                        )
+                        resp.raise_for_status()
+                        data = resp.json()
+                        _intake_session = data.get("session", _intake_session)
+                        prompt = data.get("prompt")
+                        if prompt:
+                            await _render_aristotle_message(prompt)
+
+                        # Intake complete → auto-transition to PLACER.
+                        if data.get("state") == "COMPLETE":
+                            _plan_id = data.get("plan_id", "")
+                            await _set_phase("PLACER")
+                            await _start_placer()
+                except httpx.ConnectError:
+                    await _render_error(
+                        "I can't reach my brain right now. "
+                        "Please make sure the AIP backend is running."
                     )
+                except Exception as exc:
+                    await _render_error(f"Something went wrong: {exc}")
 
-        # Concept loading + UI branching
-        async def _load_concepts():
-            nonlocal _concept_name
-            concepts = []
-            try:
-                async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=5.0) as client:
-                    r = await client.get("/aristotle/concepts")
-                    r.raise_for_status()
-                    concepts = r.json()
-            except Exception:
-                pass
-
-            if _concept_id:
-                # Path 1: concept pre-selected from map click
-                for c in concepts:
-                    cid = c.get("id", c.get("concept_id", ""))
-                    if cid == _concept_id:
-                        _concept_name = c.get("topic", c.get("name", _concept_id))
-                        break
-                header_label.set_text(f"Let's cover: {_concept_name}")
-                with concept_area:
-                    ui.button(
-                        "START",
-                        on_click=lambda: asyncio.create_task(_start_session()),
-                    ).props("dense").style(
-                        f"background:{C_AMBER}; color:{C_GROUND}; "
-                        f"font-weight:700; font-size:14px; "
-                        f"padding:8px 24px; margin:8px 16px;"
+            async def _start_placer() -> None:
+                """Begin placement calibration for the completed plan."""
+                nonlocal _placer_session
+                if not _plan_id:
+                    await _render_error(
+                        "Cannot start placement — no learning plan was produced."
                     )
-            else:
-                # Path 2: no concept param — show clickable concept selector
-                header_label.set_text("Choose a concept to study")
-                with concept_area:
-                    selector_col = ui.column().classes("w-full gap-2")
-                    with selector_col:
-                        if not concepts:
-                            ui.label(
-                                "No concepts loaded. Ingest course material first."
-                            ).style(f"color:{C_MUTED}; font-size:12px;")
-                            return
+                    return
+                # Brief orientation message before the first probe.
+                await _render_aristotle_message(
+                    "Before we start, I'd like to get a sense of where you are. "
+                    "I'll ask a few quick questions — answer in your own words. "
+                    "This just helps me meet you where you are."
+                )
+                try:
+                    async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=60.0) as client:
+                        resp = await client.post(
+                            "/aristotle/placer/start",
+                            json={"plan_id": _plan_id},
+                        )
+                        resp.raise_for_status()
+                        data = resp.json()
+                        _placer_session = data.get("session", {})
+                        question = data.get("question", "")
+                        if question:
+                            await _render_aristotle_message(question)
+                except httpx.ConnectError:
+                    await _render_error(
+                        "I can't reach my brain right now. "
+                        "Please make sure the AIP backend is running."
+                    )
+                except Exception as exc:
+                    await _render_error(f"Something went wrong: {exc}")
 
-                        for concept in concepts:
-                            cid = concept.get("id", concept.get("concept_id", ""))
-                            name = concept.get("topic", concept.get("name", cid))
+            async def _step_placer(student_input: str) -> None:
+                """Advance placement one turn with the learner's answer."""
+                nonlocal _placer_session, _concept_id
+                try:
+                    async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=60.0) as client:
+                        resp = await client.post(
+                            "/aristotle/placer/step",
+                            json={
+                                "session": _placer_session,
+                                "student_input": student_input,
+                            },
+                        )
+                        resp.raise_for_status()
+                        data = resp.json()
+                        _placer_session = data.get("session", _placer_session)
+                        question = data.get("question")
 
-                            def _select_concept(c_id=cid, c_name=name):
-                                nonlocal _concept_id, _concept_name
-                                _concept_id = c_id
-                                _concept_name = c_name
-                                selector_col.clear()
-                                header_label.set_text(
-                                    f"Let's cover: {c_name}"
+                        if data.get("state") == "COMPLETE":
+                            # Placement done → transition to tutoring.
+                            await _set_phase("TUTORING")
+                            # Pick the first concept from the plan's concept list.
+                            # (The placer's _finalize_placement sets
+                            # current_concept_idx on the plan row; we read
+                            # it back via /aristotle/concepts and pick the
+                            # first concept we don't already have mastery on.
+                            # For now, simplest: read concept_ids_json from
+                            # the plan and take the first one.)
+                            await _start_tutoring()
+                        elif question:
+                            await _render_aristotle_message(question)
+                except httpx.ConnectError:
+                    await _render_error(
+                        "I can't reach my brain right now. "
+                        "Please make sure the AIP backend is running."
+                    )
+                except Exception as exc:
+                    await _render_error(f"Something went wrong: {exc}")
+
+            async def _start_tutoring() -> None:
+                """Begin the tutoring loop with the first concept from the plan."""
+                nonlocal _tutor_session, _concept_id
+                # If we don't have a concept_id yet (?concept= absent and
+                # placer didn't set one), read the plan and take the first
+                # concept from its sequence.
+                if not _concept_id:
+                    try:
+                        async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=30.0) as client:
+                            # /concepts returns all ingested concepts; the
+                            # plan's concept_sequence_json would be the
+                            # authoritative source, but /concepts is what
+                            # the existing API exposes. Take the first.
+                            r = await client.get("/aristotle/concepts")
+                            r.raise_for_status()
+                            concepts = r.json()
+                            if concepts:
+                                _concept_id = concepts[0].get(
+                                    "id",
+                                    concepts[0].get("concept_id", ""),
                                 )
-                                # Show input area and start the session
-                                input_area.style("display:flex;")
-                                asyncio.create_task(_start_session())
+                    except Exception:
+                        pass
 
-                            with (
-                                ui.row()
-                                .classes("w-full items-center gap-3 cursor-pointer")
-                                .style(
-                                    f"background:{C_SURFACE}; "
-                                    f"border:0.5px solid {C_INK40}; "
-                                    f"border-left:3px solid {C_AMBER}; "
-                                    f"border-radius:{R_LG}; padding:10px 14px; "
-                                    f"max-width:640px; transition:background 0.15s;"
-                                )
-                                .on("click", lambda sc=_select_concept: sc())
-                            ):
-                                ui.label(name).style(
-                                    f"font-size:13px; color:{C_CREAM}; font-weight:500;"
-                                )
+                if not _concept_id:
+                    await _render_error(
+                        "No concept available to start tutoring. "
+                        "Ingest course material first."
+                    )
+                    return
 
-        asyncio.create_task(_load_concepts())
+                await _render_aristotle_message(
+                    f"Great — let's begin. I'll ask what you think first, "
+                    f"then teach, then check your understanding."
+                )
+                try:
+                    async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=60.0) as client:
+                        resp = await client.post(
+                            "/aristotle/session/start",
+                            json={"concept_id": _concept_id},
+                        )
+                        resp.raise_for_status()
+                        _tutor_session = resp.json()
+
+                        # session/start creates state=PREDICT but no prompt.
+                        # session/step with empty student_input generates the
+                        # initial PREDICT question.
+                        step_resp = await client.post(
+                            "/aristotle/session/step",
+                            json={"session": _tutor_session, "student_input": ""},
+                        )
+                        step_resp.raise_for_status()
+                        step_data = step_resp.json()
+                        _tutor_session = step_data.get("session", _tutor_session)
+                        predict_prompt = step_data.get("output", "")
+                        if predict_prompt:
+                            await _render_aristotle_message(predict_prompt)
+                except httpx.ConnectError:
+                    await _render_error(
+                        "I can't reach my brain right now. "
+                        "Please make sure the AIP backend is running."
+                    )
+                except Exception as exc:
+                    await _render_error(f"Something went wrong: {exc}")
+
+            async def _step_tutoring(student_input: str) -> None:
+                """Advance the tutoring loop one turn with the learner's answer."""
+                nonlocal _tutor_session
+                try:
+                    async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=60.0) as client:
+                        resp = await client.post(
+                            "/aristotle/session/step",
+                            json={
+                                "session": _tutor_session,
+                                "student_input": student_input,
+                            },
+                        )
+                        resp.raise_for_status()
+                        data = resp.json()
+                        _tutor_session = data.get("session", _tutor_session)
+                        output = data.get("output", "")
+                        if output:
+                            await _render_aristotle_message(output)
+
+                        # Session complete → end of tutoring.
+                        if _tutor_session.get("state") == "SESSION_COMPLETE":
+                            await _set_phase("COMPLETE")
+                            await _render_aristotle_message(
+                                f"Great work, {_student_name}. "
+                                f"That's the end of this session."
+                            )
+                            clear_active_extension()
+                            input_field.set_enabled(False)
+                except httpx.ConnectError:
+                    await _render_error(
+                        "I can't reach my brain right now. "
+                        "Please make sure the AIP backend is running."
+                    )
+                except Exception as exc:
+                    await _render_error(f"Something went wrong: {exc}")
+
+            async def _on_aristotle_send() -> None:
+                """Main chat dispatch — routes the learner's input to the
+                correct backend endpoint based on the current phase.
+                """
+                text = input_field.value.strip()
+                if not text:
+                    return
+                input_field.value = ""
+                await _render_student_message(text)
+
+                if _phase == "INTAKE":
+                    await _step_intake(text)
+                elif _phase == "PLACER":
+                    await _step_placer(text)
+                elif _phase == "TUTORING":
+                    await _step_tutoring(text)
+                # COMPLETE → no-op (chat bar disabled)
+
+            ui.button(
+                "Send",
+                on_click=lambda: asyncio.create_task(_on_aristotle_send()),
+            ).props("dense").style(
+                f"background:{C_AMBER}; color:#0d1117; font-family:{F_MONO};"
+            )
+
+            input_field.on(
+                "keydown.enter",
+                lambda: asyncio.create_task(_on_aristotle_send()),
+            )
+
+        # Kick off the intake conversation on page load. The greeting
+        # from /intake/start appears as the first chat bubble.
+        asyncio.create_task(_start_intake())
 
     # Right rail — the SINGLE global right sidebar. Shared layout component
     # renders the extension context panel via _right_extension_panel(), which
