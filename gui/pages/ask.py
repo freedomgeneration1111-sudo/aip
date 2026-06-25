@@ -1608,6 +1608,11 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
     # Cleared after each successful intake step (the backend attaches them
     # to the session on receipt).
     _pending_material_ids: list[str] = []
+    # Guard: True while _start_intake() is in flight. Prevents the
+    # resilience retry in _on_aristotle_send from firing a duplicate
+    # /intake/start call when the user types + sends before the initial
+    # page-load _start_intake() has completed.
+    _intake_starting: bool = False
 
     with (
         ui.column()
@@ -1812,8 +1817,15 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
 
                 No plan_id yet (first visit). Returns a greeting prompt
                 that we render as the first chat bubble.
+
+                Guard: sets _intake_starting=True while in flight so the
+                resilience retry in _on_aristotle_send doesn't fire a
+                duplicate call.
                 """
-                nonlocal _intake_session
+                nonlocal _intake_session, _intake_starting
+                if _intake_starting:
+                    return  # Already in flight — don't fire a duplicate.
+                _intake_starting = True
                 try:
                     async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=60.0) as client:
                         resp = await client.post(
@@ -1828,6 +1840,8 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                             await _render_aristotle_message(prompt)
                 except Exception as exc:
                     await _render_http_error(exc, "/aristotle/intake/start")
+                finally:
+                    _intake_starting = False
 
             async def _step_intake(student_input: str) -> None:
                 """Advance intake one turn with the learner's reply.
@@ -2045,9 +2059,31 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                 await _render_student_message(text)
 
                 if _phase == "INTAKE":
-                    if not _intake_session:
-                        # Start failed previously — retry start, then
-                        # feed the learner's text as the first step.
+                    if _intake_starting:
+                        # _start_intake is in flight (page load hasn't
+                        # completed yet). Wait for it to finish, then
+                        # step with the learner's text. This prevents
+                        # the duplicate-call race that was producing
+                        # 3 "trouble" messages on a single Send.
+                        await _render_aristotle_message(
+                            "Let me get ready... one moment."
+                        )
+                        # Poll until _intake_starting is False (max ~10s).
+                        import asyncio as _aio
+
+                        for _ in range(50):
+                            if not _intake_starting:
+                                break
+                            await _aio.sleep(0.2)
+                        if _intake_session:
+                            await _step_intake(text)
+                        else:
+                            await _render_error(
+                                "I couldn't start the intake conversation. "
+                                "Please check the backend and try again."
+                            )
+                    elif not _intake_session:
+                        # Start failed previously (not in flight) — retry.
                         await _start_intake()
                         if _intake_session:
                             await _step_intake(text)
