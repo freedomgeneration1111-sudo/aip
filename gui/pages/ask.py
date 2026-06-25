@@ -114,7 +114,7 @@ log = logging.getLogger("gui.pages.ask")
 
 
 @ui.page("/ask")
-async def ask_page(extension: str = "", debug: str = ""):
+async def ask_page(extension: str = "", debug: str = "", concept: str = ""):
     """Ask Workbench — chat interface with backend or direct model fallback.
 
     Also serves as the ARISTOTLE tutoring interface when loaded with
@@ -123,6 +123,7 @@ async def ask_page(extension: str = "", debug: str = ""):
 
     Query params (auto-injected by FastAPI):
       extension: "aristotle" → ARISTOTLE tutoring mode
+      concept:   "<id>"       → pre-selected concept from concept map click
       debug:     "true"       → show debug panel in ARISTOTLE mode
     """
     # Detect ARISTOTLE mode from query param (FastAPI injects ?extension=… as kwarg)
@@ -131,7 +132,7 @@ async def ask_page(extension: str = "", debug: str = ""):
 
     try:
         if is_aristotle:
-            await _ask_page_aristotle(is_debug=is_debug)
+            await _ask_page_aristotle(concept_from_url=concept, is_debug=is_debug)
         else:
             await _ask_page_impl()
     except Exception as exc:
@@ -1548,17 +1549,13 @@ async def _handle_gate_response(approved: bool, state: GuiState, chat_container)
 # ============================================================
 
 
-async def _ask_page_aristotle(is_debug: bool = False):
-    """ARISTOTLE tutoring mode — the student sees only SOCRATES.
+async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False):
+    """ARISTOTLE tutoring session — replaces the normal /ask flow.
 
-    One-voice principle (ADR-001 §1): no state labels, no model selector,
-    no internal terminology. The student enters their name, sends a message
-    about what they want to learn, and the tutoring loop runs to completion.
-
-    Uses the existing API routes:
-      POST /aristotle/session/start → creates session, returns {session, prompt}
-      POST /aristotle/session/step  → advances session, returns {session, output}
-      POST /aristotle/session/run   → full non-interactive run
+    Entered when the map navigates to /ask?extension=aristotle&concept=<id>.
+    Two paths:
+      1. concept_from_url non-empty: show concept name + START button.
+      2. concept_from_url empty: show concept selector list.
     """
     import httpx
     import os
@@ -1573,11 +1570,12 @@ async def _ask_page_aristotle(is_debug: bool = False):
     build_top_bar(state)
     build_left_nav(state, active_page="/ask")
 
-    # Session state (in-memory for this page instance)
+    # Shared mutable state for the session
     _session: dict[str, Any] = {}
     _session_started: bool = False
     _student_name: str = ""
-    _concept_id: str = ""
+    _concept_id: str = concept_from_url
+    _concept_name: str = ""
 
     with (
         ui.column()
@@ -1587,46 +1585,44 @@ async def _ask_page_aristotle(is_debug: bool = False):
             f"display:flex; flex-direction:column;"
         )
     ):
-        # Chat header — student name (replaces model selector)
+        # Header bar
         with (
             ui.row()
             .classes("w-full items-center")
-            .style(f"padding:8px 16px; background:{C_SURFACE}; border-bottom:0.5px solid {C_INK40};")
+            .style(
+                f"padding:8px 16px; background:{C_SURFACE}; "
+                f"border-bottom:0.5px solid {C_INK40};"
+            )
         ):
             ui.label("ARISTOTLE").style(
-                f"font-size:12px; font-weight:700; color:{C_AMBER}; letter-spacing:1px; margin-right:12px;"
+                f"font-size:10px; font-weight:700; color:{C_GROUND}; "
+                f"background:{C_AMBER}; padding:2px 8px; border-radius:{R_SM}; "
+                f"letter-spacing:0.5px;"
             )
-            name_input = ui.input(
-                placeholder="Your name",
-                value="",
-            ).props("dense dark").style("max-width:180px; font-size:14px;")
+            header_label = ui.label("").style(
+                f"font-size:14px; color:{C_CREAM}; font-weight:600; margin-left:12px;"
+            )
+            ui.space()
 
-        # Chat container
+        # Instruction line
+        ui.label(
+            "I'll ask what you think first, then teach you, "
+            "then check your understanding."
+        ).style(f"font-size:12px; color:{C_MUTED}; padding:8px 16px;")
+
+        # Chat container for Aristotle messages
         chat_container = ui.column().classes("w-full flex-1").style(
-            f"padding:16px; gap:12px; overflow-y:auto;"
+            f"padding:16px; gap:12px; overflow-y:auto; flex:1; min-height:300px;"
         )
 
-        # Welcome message + brief instructions
-        with chat_container:
-            ui.label("Hi! I'm Aristotle. What would you like to learn today?").style(
-                f"font-size:16px; color:{C_CREAM}; font-family:{F_MONO}; "
-                f"background:{C_SURFACE}; padding:12px 16px; border-radius:8px; "
-                f"max-width:80%;"
-            )
-            ui.label(
-                "Type what you want to learn. I'll ask what you already think, "
-                "then teach you, then check your understanding."
-            ).style(
-                f"font-size:13px; color:{C_MUTED}; font-family:{F_MONO}; "
-                f"padding:4px 16px; max-width:80%; line-height:1.4;"
-            )
-
-        # Input row
-        with ui.row().classes("w-full").style(
-            f"padding:8px 16px; background:{C_SURFACE}; border-top:0.5px solid {C_INK40};"
-        ):
+        # Input area (hidden until session starts)
+        input_area = ui.row().classes("w-full items-center gap-2").style(
+            f"padding:8px 16px; background:{C_SURFACE}; "
+            f"border-top:0.5px solid {C_INK40}; display:none;"
+        )
+        with input_area:
             input_field = ui.input(
-                placeholder="Type your message...",
+                placeholder="Your answer...",
             ).props("dense dark outlined").classes("flex-1").style("font-size:15px;")
 
             async def _on_aristotle_send():
@@ -1648,8 +1644,8 @@ async def _ask_page_aristotle(is_debug: bool = False):
                 try:
                     if not _session_started:
                         # First message — start the session
-                        _student_name = name_input.value.strip() or "Student"
-                        _concept_id = text  # The first message IS the concept/topic
+                        _student_name = "Student"
+                        _session_started = True
 
                         async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=60.0) as client:
                             resp = await client.post(
@@ -1659,7 +1655,6 @@ async def _ask_page_aristotle(is_debug: bool = False):
                             resp.raise_for_status()
                             data = resp.json()
                             _session = data
-                            _session_started = True
 
                             # Immediately trigger Phase 1 of PREDICT —
                             # session/start creates state=PREDICT but generates
@@ -1667,7 +1662,7 @@ async def _ask_page_aristotle(is_debug: bool = False):
                             # generates the actual "what do you think?" question.
                             step_resp = await client.post(
                                 "/aristotle/session/step",
-                                json={"session": _session, "student_input": ""},
+                                json={"session": _session, "student_input": text},
                             )
                             step_resp.raise_for_status()
                             step_data = step_resp.json()
@@ -1710,7 +1705,7 @@ async def _ask_page_aristotle(is_debug: bool = False):
                             if _session.get("state") == "SESSION_COMPLETE":
                                 with chat_container:
                                     ui.label(
-                                        f"Great work, {_student_name}! 🎓"
+                                        f"Great work, {_student_name}!"
                                     ).style(
                                         f"font-size:20px; color:{C_AMBER}; font-family:{F_MONO}; "
                                         f"font-weight:700; padding:16px; text-align:center; "
@@ -1730,12 +1725,88 @@ async def _ask_page_aristotle(is_debug: bool = False):
                             f"font-size:14px; color:{C_ERR_FG}; font-family:{F_MONO}; padding:8px;"
                         )
 
-            # Send button + Enter key
             ui.button("Send", on_click=lambda: asyncio.create_task(_on_aristotle_send())).props(
                 "dense"
             ).style(f"background:{C_AMBER}; color:#0d1117; font-family:{F_MONO};")
 
             input_field.on("keydown.enter", lambda: asyncio.create_task(_on_aristotle_send()))
+
+        # Concept loading + UI branching
+        async def _load_concepts():
+            nonlocal _concept_name
+            concepts = []
+            try:
+                async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=5.0) as client:
+                    r = await client.get("/aristotle/concepts")
+                    r.raise_for_status()
+                    concepts = r.json()
+            except Exception:
+                pass
+
+            if _concept_id:
+                # Path 1: concept pre-selected from map click
+                for c in concepts:
+                    cid = c.get("id", c.get("concept_id", ""))
+                    if cid == _concept_id:
+                        _concept_name = c.get("topic", c.get("name", _concept_id))
+                        break
+                header_label.set_text(f"Let's cover: {_concept_name}")
+
+                ui.button(
+                    "START",
+                    on_click=lambda: asyncio.create_task(_on_aristotle_send()),
+                ).props("dense").style(
+                    f"background:{C_AMBER}; color:{C_GROUND}; "
+                    f"font-weight:700; font-size:14px; "
+                    f"padding:8px 24px; margin:8px 16px;"
+                )
+            else:
+                # Path 2: no concept param — show clickable concept selector
+                header_label.set_text("Choose a concept to study")
+
+                selector_col = ui.column().classes("w-full gap-2").style(
+                    "padding:8px 16px;"
+                )
+                with selector_col:
+                    if not concepts:
+                        ui.label(
+                            "No concepts loaded. Ingest course material first."
+                        ).style(f"color:{C_MUTED}; font-size:12px;")
+                        return
+
+                    for concept in concepts:
+                        cid = concept.get("id", concept.get("concept_id", ""))
+                        name = concept.get("topic", concept.get("name", cid))
+
+                        def _select_concept(c_id=cid, c_name=name):
+                            nonlocal _concept_id, _concept_name
+                            _concept_id = c_id
+                            _concept_name = c_name
+                            selector_col.clear()
+                            header_label.set_text(
+                                f"Let's cover: {c_name}"
+                            )
+                            # Show input area and start the session
+                            input_area.style("display:flex;")
+                            asyncio.create_task(_on_aristotle_send())
+
+                        with (
+                            ui.row()
+                            .classes("w-full items-center gap-3 cursor-pointer")
+                            .style(
+                                f"background:{C_SURFACE}; "
+                                f"border:0.5px solid {C_INK40}; "
+                                f"border-left:3px solid {C_AMBER}; "
+                                f"border-radius:{R_LG}; padding:10px 14px; "
+                                f"max-width:640px; transition:background 0.15s;"
+                            )
+                            .on("click", lambda c=cid: _select_concept())
+                        ):
+                            ui.label(name).style(
+                                f"font-size:13px; color:{C_CREAM}; font-weight:500;"
+                            )
+
+        asyncio.create_task(_load_concepts())
 
     # Right rail — extension links (Teacher Dashboard, Stats, Map, Settings)
     with ui.right_drawer(value=True).props("width=200 bordered"):
