@@ -243,7 +243,22 @@ def _right_extension_panel() -> None:
         f"font-size:10px; font-weight:700; letter-spacing:1px; "
         f"color:{C_AMBER}; text-transform:uppercase; margin-bottom:8px;"
     )
-    ui.label("Session active").style(f"font-size:11px; color:{C_MUTED}; font-family:{F_MONO};")
+    if name == "aristotle":
+        ui.separator().style(f"margin:8px 0; border-color:{C_INK40};")
+        for link_text, link_path in [
+            ("Teacher Dashboard", "/aristotle/teacher"),
+            ("Session Stats", "/aristotle/stats"),
+            ("Curriculum Map", "/aristotle/map"),
+            ("Settings", "/aristotle/settings"),
+        ]:
+            ui.link(link_text, link_path).style(
+                f"font-size:12px; color:{C_CREAM}; font-family:{F_MONO}; "
+                f"text-decoration:none; padding:4px 0; display:block;"
+            ).on("click", lambda p=link_path: ui.navigate.to(p, new_tab=True))
+    else:
+        ui.label("Session active").style(
+            f"font-size:11px; color:{C_MUTED}; font-family:{F_MONO};"
+        )
 
 
 @ui.refreshable

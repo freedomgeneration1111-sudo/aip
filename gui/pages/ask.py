@@ -1610,16 +1610,18 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
             "then check your understanding."
         ).style(f"font-size:12px; color:{C_MUTED}; padding:8px 16px;")
 
+        # Placeholder for concept selector / START button — created synchronously
+        # inside the column context so that dynamic UI from _load_concepts()
+        # (launched via asyncio.create_task) lands inside the dark panel instead
+        # of at page root. Placed ABOVE chat_container so concept cards are
+        # visible immediately on load instead of being pushed below the fold
+        # by the flex:1 chat container.
+        concept_area = ui.column().classes("w-full").style("padding:8px 16px;")
+
         # Chat container for Aristotle messages
         chat_container = ui.column().classes("w-full flex-1").style(
             f"padding:16px; gap:12px; overflow-y:auto; flex:1; min-height:300px;"
         )
-
-        # Placeholder for concept selector / START button — created synchronously
-        # inside the column context so that dynamic UI from _load_concepts()
-        # (launched via asyncio.create_task) lands inside the dark panel instead
-        # of at page root.
-        concept_area = ui.column().classes("w-full").style("padding:8px 16px;")
 
         # Input area (hidden until session starts)
         input_area = ui.row().classes("w-full items-center gap-2").style(
@@ -1871,25 +1873,10 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
 
         asyncio.create_task(_load_concepts())
 
-    # Right rail — extension links (Teacher Dashboard, Stats, Map, Settings)
-    with ui.right_drawer(value=True).props("width=200 bordered"):
-        with ui.column().classes("w-full").style(f"padding:12px; gap:8px;"):
-            ui.label("ARISTOTLE").style(
-                f"font-size:10px; font-weight:700; letter-spacing:1px; "
-                f"color:{C_AMBER}; text-transform:uppercase; margin-bottom:4px;"
-            )
-            ui.link("Teacher Dashboard", "/aristotle/teacher").style(
-                f"font-size:12px; color:{C_CREAM}; font-family:{F_MONO}; text-decoration:none; padding:4px 0;"
-            ).on("click", lambda: ui.navigate.to("/aristotle/teacher", new_tab=True))
-            ui.link("Session Stats", "/aristotle/stats").style(
-                f"font-size:12px; color:{C_CREAM}; font-family:{F_MONO}; text-decoration:none; padding:4px 0;"
-            ).on("click", lambda: ui.navigate.to("/aristotle/stats", new_tab=True))
-            ui.link("Curriculum Map", "/aristotle/map").style(
-                f"font-size:12px; color:{C_CREAM}; font-family:{F_MONO}; text-decoration:none; padding:4px 0;"
-            ).on("click", lambda: ui.navigate.to("/aristotle/map", new_tab=True))
-            ui.link("Settings", "/aristotle/settings").style(
-                f"font-size:12px; color:{C_CREAM}; font-family:{F_MONO}; text-decoration:none; padding:4px 0;"
-            ).on("click", lambda: ui.navigate.to("/aristotle/settings", new_tab=True))
+    # Right rail — shared layout component (renders extension context panel
+    # for ARISTOTLE mode with Teacher Dashboard / Session Stats /
+    # Curriculum Map / Settings links via _right_extension_panel).
+    build_right_rail(state)
 
     # Debug panel (if ?debug=true)
     if is_debug:
