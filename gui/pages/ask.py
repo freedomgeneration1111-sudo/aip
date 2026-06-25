@@ -1695,6 +1695,40 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                         f"padding:8px;"
                     )
 
+            async def _render_http_error(exc: Exception, route: str) -> None:
+                """Render an actionable error for HTTP failures.
+
+                Distinguishes 404 (route missing — AIP_Aristotle out of
+                date) from other status codes and from connection errors.
+                """
+                if isinstance(exc, httpx.HTTPStatusError):
+                    status = exc.response.status_code
+                    if status == 404:
+                        await _render_error(
+                            f"The Aristotle backend returned 404 for {route}. "
+                            f"This usually means AIP_Aristotle is out of date — "
+                            f"run 'git pull origin main' in ~/AIP_Aristotle "
+                            f"and restart ./start.sh."
+                        )
+                    else:
+                        body = ""
+                        try:
+                            body = exc.response.text[:200]
+                        except Exception:
+                            pass
+                        await _render_error(
+                            f"Backend returned HTTP {status} for {route}."
+                            + (f" Response: {body}" if body else "")
+                        )
+                elif isinstance(exc, httpx.ConnectError):
+                    await _render_error(
+                        "I can't reach my brain right now. "
+                        "Please make sure the AIP backend is running "
+                        "(./start.sh from ~/AIP_Brain)."
+                    )
+                else:
+                    await _render_error(f"Something went wrong: {exc}")
+
             async def _set_phase(new_phase: str) -> None:
                 """Update the phase label in the header (operator visibility)."""
                 nonlocal _phase
@@ -1726,13 +1760,8 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                         prompt = data.get("prompt") or ""
                         if prompt:
                             await _render_aristotle_message(prompt)
-                except httpx.ConnectError:
-                    await _render_error(
-                        "I can't reach my brain right now. "
-                        "Please make sure the AIP backend is running."
-                    )
                 except Exception as exc:
-                    await _render_error(f"Something went wrong: {exc}")
+                    await _render_http_error(exc, "/aristotle/intake/start")
 
             async def _step_intake(student_input: str) -> None:
                 """Advance intake one turn with the learner's reply."""
@@ -1758,13 +1787,8 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                             _plan_id = data.get("plan_id", "")
                             await _set_phase("PLACER")
                             await _start_placer()
-                except httpx.ConnectError:
-                    await _render_error(
-                        "I can't reach my brain right now. "
-                        "Please make sure the AIP backend is running."
-                    )
                 except Exception as exc:
-                    await _render_error(f"Something went wrong: {exc}")
+                    await _render_http_error(exc, "/aristotle/intake/step")
 
             async def _start_placer() -> None:
                 """Begin placement calibration for the completed plan."""
@@ -1792,13 +1816,8 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                         question = data.get("question", "")
                         if question:
                             await _render_aristotle_message(question)
-                except httpx.ConnectError:
-                    await _render_error(
-                        "I can't reach my brain right now. "
-                        "Please make sure the AIP backend is running."
-                    )
                 except Exception as exc:
-                    await _render_error(f"Something went wrong: {exc}")
+                    await _render_http_error(exc, "/aristotle/placer/start")
 
             async def _step_placer(student_input: str) -> None:
                 """Advance placement one turn with the learner's answer."""
@@ -1830,13 +1849,8 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                             await _start_tutoring()
                         elif question:
                             await _render_aristotle_message(question)
-                except httpx.ConnectError:
-                    await _render_error(
-                        "I can't reach my brain right now. "
-                        "Please make sure the AIP backend is running."
-                    )
                 except Exception as exc:
-                    await _render_error(f"Something went wrong: {exc}")
+                    await _render_http_error(exc, "/aristotle/placer/step")
 
             async def _start_tutoring() -> None:
                 """Begin the tutoring loop with the first concept from the plan."""
@@ -1895,13 +1909,8 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                         predict_prompt = step_data.get("output", "")
                         if predict_prompt:
                             await _render_aristotle_message(predict_prompt)
-                except httpx.ConnectError:
-                    await _render_error(
-                        "I can't reach my brain right now. "
-                        "Please make sure the AIP backend is running."
-                    )
                 except Exception as exc:
-                    await _render_error(f"Something went wrong: {exc}")
+                    await _render_http_error(exc, "/aristotle/session/start")
 
             async def _step_tutoring(student_input: str) -> None:
                 """Advance the tutoring loop one turn with the learner's answer."""
@@ -1931,17 +1940,20 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                             )
                             clear_active_extension()
                             input_field.set_enabled(False)
-                except httpx.ConnectError:
-                    await _render_error(
-                        "I can't reach my brain right now. "
-                        "Please make sure the AIP backend is running."
-                    )
                 except Exception as exc:
-                    await _render_error(f"Something went wrong: {exc}")
+                    await _render_http_error(exc, "/aristotle/session/step")
 
             async def _on_aristotle_send() -> None:
                 """Main chat dispatch — routes the learner's input to the
                 correct backend endpoint based on the current phase.
+
+                Resilience: if a phase's session state is empty (meaning
+                the phase's /start call failed or hasn't succeeded yet),
+                retry the /start call with the learner's text as a
+                follow-up rather than calling /step with an empty
+                session (which would 404 or error). This prevents
+                cascading failures when the backend is temporarily
+                unreachable or a route is missing.
                 """
                 text = input_field.value.strip()
                 if not text:
@@ -1950,11 +1962,24 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                 await _render_student_message(text)
 
                 if _phase == "INTAKE":
-                    await _step_intake(text)
+                    if not _intake_session:
+                        # Start failed previously — retry start, then
+                        # feed the learner's text as the first step.
+                        await _start_intake()
+                        if _intake_session:
+                            await _step_intake(text)
+                    else:
+                        await _step_intake(text)
                 elif _phase == "PLACER":
-                    await _step_placer(text)
+                    if not _placer_session:
+                        await _start_placer()
+                    else:
+                        await _step_placer(text)
                 elif _phase == "TUTORING":
-                    await _step_tutoring(text)
+                    if not _tutor_session:
+                        await _start_tutoring()
+                    else:
+                        await _step_tutoring(text)
                 # COMPLETE → no-op (chat bar disabled)
 
             ui.button(
