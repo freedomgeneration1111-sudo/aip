@@ -367,6 +367,14 @@ provider = "openai_compatible"
 model = "nvidia/nemotron-3-super-120b-a12b"
 base_url = "https://openrouter.ai/api"
 # api_key = ""   # Set your key here, or use AIP_BEAST_API_KEY / AIP_OPENAI_API_KEY env var
+# Fallback model — tried when the primary times out or returns empty
+# content (common with OpenRouter free models under load). The fallback
+# uses a different model so a single-model outage doesn't brick the
+# IntakeActor / Beast actor.
+fallback_provider = "openai_compatible"
+fallback_model = "meta-llama/llama-4-maverick"
+fallback_base_url = "https://openrouter.ai/api"
+# fallback_api_key = ""  # Defaults to the primary api_key if unset
 
 # ── Phase 3c: dedicated Judge slot (optional) ──────────────────────────
 # Uncomment to use a dedicated model for the Fusion pipeline's Judge+Synth

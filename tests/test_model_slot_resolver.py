@@ -481,3 +481,160 @@ async def test_ollama_prefers_explicit_num_predict(real_config):
     call_args = mock_client.post.call_args
     payload = call_args[1].get("json", {})
     assert payload["options"]["num_predict"] == 512
+
+
+# ----------------------------------------------------------------
+# Fallback model tests (Phase D — OpenRouter reliability)
+# ----------------------------------------------------------------
+
+
+@pytest.fixture
+def fallback_config():
+    """Config with a fallback model configured for the synthesis slot."""
+    return {
+        "models": {
+            "ci_mode": False,
+            "synthesis": {
+                "provider": "openai_compatible",
+                "model": "nvidia/nemotron-primary",
+                "base_url": "https://openrouter.ai/api",
+                "api_key": "test-key",
+                "fallback_provider": "openai_compatible",
+                "fallback_model": "meta-llama/llama-backup",
+                "fallback_base_url": "https://openrouter.ai/api",
+                "fallback_api_key": "test-key",
+            },
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_fallback_triggered_on_empty_content(fallback_config):
+    """When primary returns empty content (OpenRouter timeout), fallback is tried."""
+    resolver = ModelSlotResolver(fallback_config)
+
+    # First call (primary) returns empty content, second call (fallback) returns real content
+    empty_response = MagicMock()
+    empty_response.status_code = 200
+    empty_response.raise_for_status = MagicMock()
+    empty_response.json.return_value = {
+        "model": "nvidia/nemotron-primary",
+        "choices": [{"message": {"content": ""}}],  # empty — OpenRouter timeout
+    }
+    fallback_response = MagicMock()
+    fallback_response.status_code = 200
+    fallback_response.raise_for_status = MagicMock()
+    fallback_response.json.return_value = {
+        "model": "meta-llama/llama-backup",
+        "choices": [{"message": {"content": "Hello from fallback!"}}],
+    }
+
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(side_effect=[empty_response, fallback_response])
+
+    with patch.object(resolver, "_get_http_client", return_value=mock_client):
+        result = await resolver.call(
+            "synthesis",
+            [{"role": "user", "content": "Hello"}],
+        )
+
+    # Fallback content is returned
+    assert result["content"] == "Hello from fallback!"
+    assert result["error"] is False
+    # Two HTTP calls were made (primary + fallback)
+    assert mock_client.post.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_fallback_triggered_on_exception(fallback_config):
+    """When primary raises (connection error), fallback is tried."""
+    resolver = ModelSlotResolver(fallback_config)
+
+    fallback_response = MagicMock()
+    fallback_response.status_code = 200
+    fallback_response.raise_for_status = MagicMock()
+    fallback_response.json.return_value = {
+        "model": "meta-llama/llama-backup",
+        "choices": [{"message": {"content": "Fallback OK"}}],
+    }
+
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(side_effect=[ConnectionError("timeout"), fallback_response])
+
+    with patch.object(resolver, "_get_http_client", return_value=mock_client):
+        result = await resolver.call(
+            "synthesis",
+            [{"role": "user", "content": "Hello"}],
+        )
+
+    assert result["content"] == "Fallback OK"
+    assert result["error"] is False
+    assert mock_client.post.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_no_fallback_when_not_configured(real_config):
+    """When no fallback is configured, primary failure returns error (no retry)."""
+    resolver = ModelSlotResolver(real_config)
+
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(side_effect=ConnectionError("primary down"))
+
+    with patch.object(resolver, "_get_http_client", return_value=mock_client):
+        result = await resolver.call(
+            "synthesis",
+            [{"role": "user", "content": "Hello"}],
+        )
+
+    assert result["error"] is True
+    # Only one call (no fallback configured)
+    assert mock_client.post.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_fallback_also_fails_returns_error(fallback_config):
+    """When both primary and fallback fail, the fallback's error is returned."""
+    resolver = ModelSlotResolver(fallback_config)
+
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(side_effect=[
+        ConnectionError("primary timeout"),
+        ConnectionError("fallback also down"),
+    ])
+
+    with patch.object(resolver, "_get_http_client", return_value=mock_client):
+        result = await resolver.call(
+            "synthesis",
+            [{"role": "user", "content": "Hello"}],
+        )
+
+    assert result["error"] is True
+    assert "fallback also down" in result["error_message"]
+    assert mock_client.post.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_no_fallback_when_primary_succeeds(fallback_config):
+    """When primary succeeds, fallback is NOT tried (no wasted calls)."""
+    resolver = ModelSlotResolver(fallback_config)
+
+    primary_response = MagicMock()
+    primary_response.status_code = 200
+    primary_response.raise_for_status = MagicMock()
+    primary_response.json.return_value = {
+        "model": "nvidia/nemotron-primary",
+        "choices": [{"message": {"content": "Primary OK"}}],
+    }
+
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(return_value=primary_response)
+
+    with patch.object(resolver, "_get_http_client", return_value=mock_client):
+        result = await resolver.call(
+            "synthesis",
+            [{"role": "user", "content": "Hello"}],
+        )
+
+    assert result["content"] == "Primary OK"
+    # Only one call — fallback not tried
+    assert mock_client.post.call_count == 1
