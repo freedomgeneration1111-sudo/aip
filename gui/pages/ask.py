@@ -1604,6 +1604,10 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
     _plan_id: str = ""
     _concept_id: str = concept_from_url
     _student_name: str = "Student"
+    # material_ids from uploads that haven't been sent to /intake/step yet.
+    # Cleared after each successful intake step (the backend attaches them
+    # to the session on receipt).
+    _pending_material_ids: list[str] = []
 
     with (
         ui.column()
@@ -1692,6 +1696,63 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                         f"max-width:80%; align-self:flex-end; text-align:right;"
                     )
 
+            async def _render_draft_plan(draft_plan: list) -> None:
+                """Render the model's proposed concept sequence as a structured block.
+
+                Shown when the IntakeActor returns next_focus=PLAN_DRAFT.
+                The learner reviews the list and types "looks good" or
+                "add more about X" in the chat bar — their reply goes back
+                through /intake/step and the model amends the draft.
+                """
+                if not draft_plan:
+                    return
+                with chat_container:
+                    with ui.column().style(
+                        f"background:{C_SURFACE}; padding:16px 20px; "
+                        f"border-radius:8px; max-width:80%; gap:8px; "
+                        f"border-left:3px solid {C_AMBER};"
+                    ):
+                        ui.label("Proposed Learning Plan").style(
+                            f"font-size:14px; font-weight:700; color:{C_AMBER}; "
+                            f"font-family:{F_MONO}; letter-spacing:0.3px;"
+                        )
+                        ui.label(
+                            "Here's the concept sequence I'm proposing. "
+                            "Type 'looks good' to confirm, or tell me what to change."
+                        ).style(
+                            f"font-size:12px; color:{C_MUTED}; font-family:{F_MONO};"
+                        )
+                        for i, concept in enumerate(draft_plan, 1):
+                            topic = concept.get("topic", f"Concept {i}")
+                            subtopic = concept.get("subtopic", "")
+                            bloom = concept.get("bloom_target", 3)
+                            content = concept.get("content_primary", "")
+                            with ui.row().style("align-items:flex-start; gap:8px;"):
+                                ui.label(f"{i}.").style(
+                                    f"font-size:13px; font-weight:700; color:{C_AMBER}; "
+                                    f"font-family:{F_MONO}; min-width:20px;"
+                                )
+                                with ui.column().style("gap:2px; flex:1;"):
+                                    ui.label(topic).style(
+                                        f"font-size:13px; font-weight:600; color:{C_CREAM}; "
+                                        f"font-family:{F_MONO};"
+                                    )
+                                    if subtopic:
+                                        ui.label(subtopic).style(
+                                            f"font-size:11px; color:{C_MUTED}; "
+                                            f"font-family:{F_MONO};"
+                                        )
+                                    if content:
+                                        ui.label(content).style(
+                                            f"font-size:12px; color:{C_CREAM}; "
+                                            f"font-family:{F_MONO}; opacity:0.85; "
+                                            f"line-height:1.4;"
+                                        )
+                                    ui.label(f"Bloom level: {bloom}").style(
+                                        f"font-size:10px; color:{C_MUTED}; "
+                                        f"font-family:{F_MONO};"
+                                    )
+
             async def _render_error(msg: str) -> None:
                 """Append a red error bubble — backend unreachable, etc."""
                 with chat_container:
@@ -1769,8 +1830,14 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                     await _render_http_error(exc, "/aristotle/intake/start")
 
             async def _step_intake(student_input: str) -> None:
-                """Advance intake one turn with the learner's reply."""
-                nonlocal _intake_session, _plan_id
+                """Advance intake one turn with the learner's reply.
+
+                Includes any pending material_ids (from uploads since the
+                last step) in the request body so the backend can attach
+                them to the session and the IntakeActor can read their
+                extracted text into the model context.
+                """
+                nonlocal _intake_session, _plan_id, _pending_material_ids
                 try:
                     async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=60.0) as client:
                         resp = await client.post(
@@ -1778,14 +1845,25 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                             json={
                                 "session": _intake_session,
                                 "student_input": student_input,
+                                "material_ids": list(_pending_material_ids),
                             },
                         )
                         resp.raise_for_status()
                         data = resp.json()
                         _intake_session = data.get("session", _intake_session)
+                        # Clear pending material_ids — they're now attached
+                        # to the session on the backend.
+                        _pending_material_ids = []
                         prompt = data.get("prompt")
                         if prompt:
                             await _render_aristotle_message(prompt)
+
+                        # If the backend returned a draft_plan in the session,
+                        # render it as a structured block so the learner can
+                        # review before confirming.
+                        draft_plan = _intake_session.get("draft_plan") or []
+                        if draft_plan and _intake_session.get("current_focus") == "PLAN_DRAFT":
+                            await _render_draft_plan(draft_plan)
 
                         # Intake complete → auto-transition to PLACER.
                         if data.get("state") == "COMPLETE":
@@ -2039,6 +2117,14 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                         extracted = data.get("extracted_text", "")
                         source_type = data.get("source_type", "file")
                         char_count = data.get("char_count", len(extracted))
+                        material_id = data.get("material_id", "")
+
+                        # Track the material_id so it gets attached to the
+                        # next /intake/step call. The backend persists the
+                        # extracted text and the IntakeActor reads it into
+                        # the model context.
+                        if material_id:
+                            _pending_material_ids.append(material_id)
 
                         if extracted.strip():
                             # Show a truncated preview in chat (first 500
