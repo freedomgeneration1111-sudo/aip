@@ -1608,11 +1608,12 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
     # Cleared after each successful intake step (the backend attaches them
     # to the session on receipt).
     _pending_material_ids: list[str] = []
-    # Guard: True while _start_intake() is in flight. Prevents the
-    # resilience retry in _on_aristotle_send from firing a duplicate
-    # /intake/start call when the user types + sends before the initial
-    # page-load _start_intake() has completed.
-    _intake_starting: bool = False
+    # The page-load _start_intake() task. Stored so _on_aristotle_send
+    # can await it if the user sends before it completes (instead of
+    # polling with a short timeout that gives up before the model call
+    # finishes — the old polling approach produced "I couldn't start
+    # the intake conversation" when the model was slow but working).
+    _intake_start_task: Any = None
 
     with (
         ui.column()
@@ -1817,15 +1818,8 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
 
                 No plan_id yet (first visit). Returns a greeting prompt
                 that we render as the first chat bubble.
-
-                Guard: sets _intake_starting=True while in flight so the
-                resilience retry in _on_aristotle_send doesn't fire a
-                duplicate call.
                 """
-                nonlocal _intake_session, _intake_starting
-                if _intake_starting:
-                    return  # Already in flight — don't fire a duplicate.
-                _intake_starting = True
+                nonlocal _intake_session
                 try:
                     async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=60.0) as client:
                         resp = await client.post(
@@ -1840,8 +1834,6 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                             await _render_aristotle_message(prompt)
                 except Exception as exc:
                     await _render_http_error(exc, "/aristotle/intake/start")
-                finally:
-                    _intake_starting = False
 
             async def _step_intake(student_input: str) -> None:
                 """Advance intake one turn with the learner's reply.
@@ -2052,6 +2044,7 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                 cascading failures when the backend is temporarily
                 unreachable or a route is missing.
                 """
+                nonlocal _intake_start_task
                 text = input_field.value.strip()
                 if not text:
                     return
@@ -2059,35 +2052,21 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                 await _render_student_message(text)
 
                 if _phase == "INTAKE":
-                    if _intake_starting:
-                        # _start_intake is in flight (page load hasn't
-                        # completed yet). Wait for it to finish, then
-                        # step with the learner's text. This prevents
-                        # the duplicate-call race that was producing
-                        # 3 "trouble" messages on a single Send.
+                    # If the page-load _start_intake() task is still in
+                    # flight, await it (instead of polling with a short
+                    # timeout). The model call can take 30-60s on
+                    # OpenRouter — the old 10s poll gave up prematurely.
+                    if _intake_start_task is not None and not _intake_start_task.done():
                         await _render_aristotle_message(
-                            "Let me get ready... one moment."
+                            "Let me think for a moment..."
                         )
-                        # Poll until _intake_starting is False (max ~10s).
-                        import asyncio as _aio
+                        await _intake_start_task
+                    _intake_start_task = None
 
-                        for _ in range(50):
-                            if not _intake_starting:
-                                break
-                            await _aio.sleep(0.2)
-                        if _intake_session:
-                            await _step_intake(text)
-                        else:
-                            await _render_error(
-                                "I couldn't start the intake conversation. "
-                                "Please check the backend and try again."
-                            )
-                    elif not _intake_session:
-                        # Start failed previously (not in flight) — retry.
+                    if not _intake_session:
+                        # Start failed or never ran — retry.
                         await _start_intake()
-                        if _intake_session:
-                            await _step_intake(text)
-                    else:
+                    if _intake_session:
                         await _step_intake(text)
                 elif _phase == "PLACER":
                     if not _placer_session:
@@ -2203,8 +2182,10 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
             )
 
         # Kick off the intake conversation on page load. The greeting
-        # from /intake/start appears as the first chat bubble.
-        asyncio.create_task(_start_intake())
+        # from /intake/start appears as the first chat bubble. Store the
+        # task so _on_aristotle_send can await it if the user sends
+        # before it completes (model calls can take 30-60s on OpenRouter).
+        _intake_start_task = asyncio.create_task(_start_intake())
 
     # Right rail — the SINGLE global right sidebar. Shared layout component
     # renders the extension context panel via _right_extension_panel(), which
