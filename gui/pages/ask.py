@@ -1615,6 +1615,12 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
             f"padding:16px; gap:12px; overflow-y:auto; flex:1; min-height:300px;"
         )
 
+        # Placeholder for concept selector / START button — created synchronously
+        # inside the column context so that dynamic UI from _load_concepts()
+        # (launched via asyncio.create_task) lands inside the dark panel instead
+        # of at page root.
+        concept_area = ui.column().classes("w-full").style("padding:8px 16px;")
+
         # Input area (hidden until session starts)
         input_area = ui.row().classes("w-full items-center gap-2").style(
             f"padding:8px 16px; background:{C_SURFACE}; "
@@ -1731,6 +1737,65 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
 
             input_field.on("keydown.enter", lambda: asyncio.create_task(_on_aristotle_send()))
 
+        async def _start_session() -> None:
+            """Autostart path — called by START button and concept card clicks.
+            Does not require any text input from the student.
+            Calls session/start then one session/step with empty student_input
+            to generate the initial PREDICT prompt.
+            """
+            nonlocal _session_started, _session
+
+            if _session_started:
+                return  # Guard against double-start
+
+            _session_started = True
+            input_area.style("display:flex;")
+
+            try:
+                async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=60.0) as client:
+                    resp = await client.post(
+                        "/aristotle/session/start",
+                        json={"concept_id": _concept_id},
+                    )
+                    resp.raise_for_status()
+                    _session = resp.json()
+
+                    step_resp = await client.post(
+                        "/aristotle/session/step",
+                        json={"session": _session, "student_input": ""},
+                    )
+                    step_resp.raise_for_status()
+                    step_data = step_resp.json()
+                    _session = step_data.get("session", _session)
+                    predict_prompt = step_data.get("output", "")
+
+                    with chat_container:
+                        if predict_prompt:
+                            ui.label(predict_prompt).style(
+                                f"font-size:16px; color:{C_CREAM}; font-family:{F_MONO}; "
+                                f"background:{C_SURFACE}; padding:12px 16px; "
+                                f"border-radius:8px; max-width:80%;"
+                            )
+                        else:
+                            ui.label("(Session started — waiting for Aristotle...)").style(
+                                f"font-size:14px; color:{C_MUTED}; font-family:{F_MONO}; "
+                                f"padding:8px;"
+                            )
+
+            except httpx.ConnectError:
+                with chat_container:
+                    ui.label(
+                        "I can't reach my brain right now. "
+                        "Please make sure the server is running."
+                    ).style(
+                        f"font-size:14px; color:{C_ERR_FG}; font-family:{F_MONO}; padding:8px;"
+                    )
+            except Exception as exc:
+                with chat_container:
+                    ui.label(f"Something went wrong: {exc}").style(
+                        f"font-size:14px; color:{C_ERR_FG}; font-family:{F_MONO}; padding:8px;"
+                    )
+
         # Concept loading + UI branching
         async def _load_concepts():
             nonlocal _concept_name
@@ -1751,60 +1816,58 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                         _concept_name = c.get("topic", c.get("name", _concept_id))
                         break
                 header_label.set_text(f"Let's cover: {_concept_name}")
-
-                ui.button(
-                    "START",
-                    on_click=lambda: asyncio.create_task(_on_aristotle_send()),
-                ).props("dense").style(
-                    f"background:{C_AMBER}; color:{C_GROUND}; "
-                    f"font-weight:700; font-size:14px; "
-                    f"padding:8px 24px; margin:8px 16px;"
-                )
+                with concept_area:
+                    ui.button(
+                        "START",
+                        on_click=lambda: asyncio.create_task(_start_session()),
+                    ).props("dense").style(
+                        f"background:{C_AMBER}; color:{C_GROUND}; "
+                        f"font-weight:700; font-size:14px; "
+                        f"padding:8px 24px; margin:8px 16px;"
+                    )
             else:
                 # Path 2: no concept param — show clickable concept selector
                 header_label.set_text("Choose a concept to study")
+                with concept_area:
+                    selector_col = ui.column().classes("w-full gap-2")
+                    with selector_col:
+                        if not concepts:
+                            ui.label(
+                                "No concepts loaded. Ingest course material first."
+                            ).style(f"color:{C_MUTED}; font-size:12px;")
+                            return
 
-                selector_col = ui.column().classes("w-full gap-2").style(
-                    "padding:8px 16px;"
-                )
-                with selector_col:
-                    if not concepts:
-                        ui.label(
-                            "No concepts loaded. Ingest course material first."
-                        ).style(f"color:{C_MUTED}; font-size:12px;")
-                        return
+                        for concept in concepts:
+                            cid = concept.get("id", concept.get("concept_id", ""))
+                            name = concept.get("topic", concept.get("name", cid))
 
-                    for concept in concepts:
-                        cid = concept.get("id", concept.get("concept_id", ""))
-                        name = concept.get("topic", concept.get("name", cid))
+                            def _select_concept(c_id=cid, c_name=name):
+                                nonlocal _concept_id, _concept_name
+                                _concept_id = c_id
+                                _concept_name = c_name
+                                selector_col.clear()
+                                header_label.set_text(
+                                    f"Let's cover: {c_name}"
+                                )
+                                # Show input area and start the session
+                                input_area.style("display:flex;")
+                                asyncio.create_task(_start_session())
 
-                        def _select_concept(c_id=cid, c_name=name):
-                            nonlocal _concept_id, _concept_name
-                            _concept_id = c_id
-                            _concept_name = c_name
-                            selector_col.clear()
-                            header_label.set_text(
-                                f"Let's cover: {c_name}"
-                            )
-                            # Show input area and start the session
-                            input_area.style("display:flex;")
-                            asyncio.create_task(_on_aristotle_send())
-
-                        with (
-                            ui.row()
-                            .classes("w-full items-center gap-3 cursor-pointer")
-                            .style(
-                                f"background:{C_SURFACE}; "
-                                f"border:0.5px solid {C_INK40}; "
-                                f"border-left:3px solid {C_AMBER}; "
-                                f"border-radius:{R_LG}; padding:10px 14px; "
-                                f"max-width:640px; transition:background 0.15s;"
-                            )
-                            .on("click", lambda c=cid: _select_concept())
-                        ):
-                            ui.label(name).style(
-                                f"font-size:13px; color:{C_CREAM}; font-weight:500;"
-                            )
+                            with (
+                                ui.row()
+                                .classes("w-full items-center gap-3 cursor-pointer")
+                                .style(
+                                    f"background:{C_SURFACE}; "
+                                    f"border:0.5px solid {C_INK40}; "
+                                    f"border-left:3px solid {C_AMBER}; "
+                                    f"border-radius:{R_LG}; padding:10px 14px; "
+                                    f"max-width:640px; transition:background 0.15s;"
+                                )
+                                .on("click", lambda sc=_select_concept: sc())
+                            ):
+                                ui.label(name).style(
+                                    f"font-size:13px; color:{C_CREAM}; font-weight:500;"
+                                )
 
         asyncio.create_task(_load_concepts())
 
