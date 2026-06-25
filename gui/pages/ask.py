@@ -1672,11 +1672,16 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                         f"white-space:pre-wrap; line-height:1.5;"
                     )
                 # Auto-scroll to bottom so the latest message is visible.
-                await ui.run_javascript(
-                    f"document.getElementById('{chat_container.id}')"
-                    f".scrollTop = document.getElementById('{chat_container.id}').scrollHeight;",
-                    respond=False,
-                )
+                # ui.run_javascript returns an AwaitableResponse; awaiting it
+                # waits for the JS to execute on the client (fast for a scroll
+                # command). No `respond` kwarg exists in this NiceGUI version.
+                try:
+                    await ui.run_javascript(
+                        f"getHtmlElement('{chat_container.id}').scrollTop = "
+                        f"getHtmlElement('{chat_container.id}').scrollHeight;"
+                    )
+                except Exception:
+                    pass  # auto-scroll is best-effort — don't fail the message
 
             async def _render_student_message(text: str) -> None:
                 """Append a right-aligned student chat bubble."""
@@ -1981,6 +1986,87 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                     else:
                         await _step_tutoring(text)
                 # COMPLETE → no-op (chat bar disabled)
+
+            # Upload button — paperclip icon. Opens a file picker; the
+            # selected file is POSTed to /aristotle/upload which extracts
+            # text (PDF via pypdf, images via pytesseract OCR, txt/html/
+            # json as text). The extracted text is shown in chat as a
+            # student-uploaded-material bubble so Aristotle can reference
+            # it in the intake/tutoring conversation.
+            async def _handle_aristotle_upload(e) -> None:
+                """Handle a file upload from the ARISTOTLE chat bar."""
+                import os as _os
+
+                filename = getattr(e, "name", "file")
+                content = e.content.read()
+                ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+                _ext_types = {
+                    "pdf": "application/pdf",
+                    "png": "image/png",
+                    "jpg": "image/jpeg",
+                    "jpeg": "image/jpeg",
+                    "gif": "image/gif",
+                    "webp": "image/webp",
+                    "bmp": "image/bmp",
+                    "tiff": "image/tiff",
+                    "tif": "image/tiff",
+                    "txt": "text/plain",
+                    "md": "text/plain",
+                    "csv": "text/plain",
+                    "html": "text/html",
+                    "htm": "text/html",
+                    "json": "application/json",
+                    "yaml": "text/plain",
+                    "yml": "text/plain",
+                }
+                content_type = _ext_types.get(ext, "application/octet-stream")
+
+                # Show a "uploading" bubble so the learner sees feedback.
+                await _render_aristotle_message(f"Uploading {filename}...")
+
+                try:
+                    async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=60.0) as client:
+                        upload_resp = await client.post(
+                            "/aristotle/upload",
+                            content=content,
+                            headers={
+                                "Content-Type": content_type,
+                                "Content-Disposition": f'attachment; filename="{filename}"',
+                            },
+                        )
+                        upload_resp.raise_for_status()
+                        data = upload_resp.json()
+                        extracted = data.get("extracted_text", "")
+                        source_type = data.get("source_type", "file")
+                        char_count = data.get("char_count", len(extracted))
+
+                        if extracted.strip():
+                            # Show a truncated preview in chat (first 500
+                            # chars) so the learner sees what was extracted.
+                            preview = extracted[:500]
+                            if len(extracted) > 500:
+                                preview += f"\n\n... ({char_count} chars total, {source_type})"
+                            await _render_aristotle_message(
+                                f"Got it — I've read {filename} "
+                                f"({source_type}, {char_count} chars). "
+                                f"I'll use this as context for our tutoring.\n\n"
+                                f"Preview:\n{preview}"
+                            )
+                        else:
+                            await _render_aristotle_message(
+                                f"Uploaded {filename} but couldn't extract any text. "
+                                f"If it's a scanned PDF, try a higher-resolution scan."
+                            )
+                except Exception as exc:
+                    await _render_http_error(exc, "/aristotle/upload")
+
+            ui.upload(
+                on_upload=lambda e: asyncio.create_task(_handle_aristotle_upload(e)),
+                auto_upload=True,
+                max_file_size=10_000_000,
+            ).props("flat dense dark").style(
+                f"max-width:40px; min-width:40px;"
+            ).tooltip("Upload textbook, paper, or notes")
 
             ui.button(
                 "Send",
