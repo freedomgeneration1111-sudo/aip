@@ -162,5 +162,16 @@ find relevant prior turns automatically.
 - ADR-006: Beast Wiki Architecture (wiki overview injection)
 - ADR-007: Knowledge Graph Architecture (graph neighbor injection)
 - ADR-009: Cohort Synthesis (turns from cohort responses enter same loop)
+- ADR-015: Professional Agent Fleet — introduces `trajectory` as a new
+  corpus type (Layer 3, trajectory memory). Platform-level (not
+  per-extension). Trust-tiered: raw_trajectory_events → candidate_tips
+  → approved_tips → domain_tips → agent_tips. Read: all agents via
+  state-conditioned retrieval. Write: CURATOR actor only. See ADR-015
+  §5.1 for the trajectory corpus spec.
+
+  **NOTE:** The multi-corpus architecture is governed by ADR-004
+  (multi-corpus-architecture). The trajectory corpus type will be
+  registered in the corpus type registry when ADR-015 Layer 3 is
+  implemented (Phase 3C).
 - ROADMAP.md: Phase 3 (Semantic Context Assembler), Phase 4.1 (Thread Log)
 - src/aip/orchestration/context_advisory.py

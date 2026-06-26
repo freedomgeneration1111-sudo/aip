@@ -179,9 +179,16 @@ the appropriate section; do NOT duplicate.
 |-----|------|------|
 | Planned Features | `PLANNED_FEATURES.md` | Canonical tracker: Already Built / Near-Term / Long-Term |
 | Tech Debt | `TECH_DEBT.md` | Debt items with resolution status |
-| Roadmap | `ROADMAP.md` | Phase plan (Phase 0-5 + long-term) |
+| Roadmap | `ROADMAP.md` | Phase plan (Phase 0-5 + fleet phases per ADR-015) |
 | Status | `STATUS.md` | Current operational state |
 | Dogfood Ready | `DOGFOOD_READY.md` | Dogfood readiness criteria + status |
+
+**Fleet architecture:** `docs/decisions/ADR-015-professional-agent-fleet.md`
+(when accepted) is the architectural contract for all fleet work. Fleet
+invariants (AgentRun required, fail-closed gate, no autonomous
+cross-domain delegation, trajectory untrusted until approved) are
+governance invariants that compose with — do not relax — the existing
+invariants above.
 
 
 # ============================================================
