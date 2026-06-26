@@ -1,7 +1,7 @@
 # AIP Technical Debt Register
 
 **Owner:** B. Moses Jorgensen  
-**Last Updated:** 2026-06-18 (DEBT-011: branham deprecated aliases — one release cycle)
+**Last Updated:** 2026-06-26 (DEBT-020 through DEBT-023: ADR-015 fleet debt items — BLOCKING + HIGH + MEDIUM)
 
 Each entry records a deliberate deferral — what was skipped, why, and what triggers remediation.
 
@@ -698,5 +698,158 @@ manual review to determine if the variable/import is truly unused or
 intentionally re-exported. Low priority — doesn't affect runtime.
 
 **Remediation trigger:** Next code hygiene pass or before open-sourcing.
+
+---
+
+## DEBT-020 — cadence=0 Startup Execution Runs Write-Capable Actors at Boot (ADR-015 §0)
+
+**Status:** Active — BLOCKING for Phase 3A-0
+**Phase:** Phase 3A-0 (pre-fleet)
+**Filed:** 2026-06-26
+**Source:** ADR-015 §0 (AgentRun Primitive — start_policy fix)
+
+**What is broken:**
+`src/aip/adapter/extensions/host.py:179-180` runs one cycle immediately
+for ALL registered actors, including cadence=0 (manual-only) actors:
+```python
+# Run one cycle immediately (so manual-only actors do something on start).
+await _run_one_cycle(actor, ctx, registration)
+```
+This is safe for read-only actors (SOCRATES, EXAMINER, MENTOR in
+ARISTOTLE — they just log a health check). It is NOT safe for
+write-capable agents (CODEFORGE with filesystem write, HERALD with web
+search + corpus write). A write-capable agent running at boot before
+DEFINER has issued any directive is a governance incident.
+
+**Required fix (per ADR-015 §0):**
+Add `start_policy` field to the Actor Protocol
+(`src/aip/foundation/protocols/actors.py`) and to `register_actor()`
+in `host.py`. Values: `scheduled` (run at startup + on cadence) |
+`manual_only` (never run at startup; only via AgentRun). Default:
+`manual_only` for safety. Change `host.py:179-180` to skip the startup
+cycle when `start_policy == "manual_only"`.
+
+**Remediation trigger:** Before Phase 3A-0 (before 2nd extension / any
+write-capable agent). ADR-015 §0: "the fail-closed gate cannot be
+retrofitted after agents are running."
+
+---
+
+## DEBT-021 — autonomy_gate=None Bypass in Container (ADR-015 §0)
+
+**Status:** Active — HIGH for Phase 3D
+**Phase:** Phase 3D
+**Filed:** 2026-06-26
+**Source:** ADR-015 §0 (fail-closed CapabilityGate)
+
+**What is deferred:**
+The `autonomy_gate` in the container can be None, which bypasses
+capability checks. This is acceptable for local-first single-user
+operation (current state) but must be closed before Phase 3D (full
+MCP/tool integration behind CapabilityGate). ADR-015 §0: "Missing
+AgentRun, capability, approval policy, trace_id, or budget = DENY. No
+exceptions." A None autonomy_gate violates the fail-closed principle.
+
+**Related:** DEBT-018 (AutonomyGate CLI Wiring) — the CLI-side bypass.
+This debt item covers the container-level None bypass.
+
+**Remediation trigger:** Before Phase 3D (full MCP/tool integration).
+
+---
+
+## DEBT-022 — AdaptiveRouter + update_weights() Dead Code (ADR-015 §5.7)
+
+**Status:** Active — HIGH (documentation-vs-code discrepancy, settled)
+**Phase:** Phase 3C (CURATOR + trajectory memory)
+**Filed:** 2026-06-26
+**Source:** ADR-015 §5.7 (Closing Loop 5)
+**Verification:** 2026-06-26 — DEFINER-confirmed + codebase-verified
+
+**What is wrong:**
+ADR-015 §5.7 states: "`update_weights()` in `orchestration/adaptive_budget.py`
+is currently a no-op stub (Loop 5 — dormant adaptive routing)." This claim
+is **wrong on three counts**, all verified by codebase inspection:
+
+1. **Wrong file:** `update_weights()` does NOT exist in
+   `adaptive_budget.py`. That file contains `AdaptiveBudgetTuner` with
+   `tune()` and `apply()` methods. The actual `update_weights()` lives in
+   `src/aip/orchestration/router.py:104-164`.
+
+2. **Wrong implementation status:** `router.py:104-164`
+   `AdaptiveRouter.update_weights()` is **FULLY IMPLEMENTED but DEAD CODE**
+   — 60 lines of recency-weighted exponential decay logic (70% success
+   rate + 30% latency score). The function is never called: zero call
+   sites exist anywhere in the codebase.
+
+3. **Deeper than missing call site:** `AdaptiveRouter` is never
+   instantiated. `container.adaptive_router` is declared as `Any = None`
+   in `dependencies.py:73` and nothing ever sets it. `admin.py:182` reads
+   it with an `if container.adaptive_router:` guard — always None, always
+   skipped. `plugins.py:36` accepts it as a constructor param but the
+   comment at line 58-60 says "AdaptiveRouter does not yet support
+   register_provider(); skip silently." The entire router is unwired.
+
+**Six documentation locations falsely describe the effect as "no-op":**
+- `STATUS.md:409` — "update_weights() is no-op"
+- `STATUS.md:453` — "Adaptive router does not adapt"
+- `docs/implementation_status.md:160` — "'Adaptive' router is not adaptive"
+- `docs/implementation_status.md:431` — "update_weights() is [pass]"
+- `docs/hardening/CURRENT_STATE_BASELINE.md:149`
+- `docs/hardening/CODE_DEBT_REGISTER.md:237`
+
+These describe the **effect** (dead = effectively no-op) not the code.
+The substance — "Loop 5 is dormant" — is correct.
+
+**Required resolution (the good news):**
+The heavy lifting is already written. Closing Loop 5 is NOT a
+reimplementation — it is wiring:
+1. Instantiate `AdaptiveRouter()` and assign to `container.adaptive_router`
+   in `app.py` lifespan (alongside other orchestration components).
+2. Add one call site: `await router.update_weights()` at the end of each
+   CURATOR cycle (Phase 3C). This feeds trajectory marginal-utility
+   scores into the adaptive router — ADR-015 §5.7's "close both gaps
+   simultaneously" requirement.
+3. Update the 6 stale doc locations to reflect "dead code, not stub" so
+   future readers don't waste time looking for a stub to implement.
+
+**ADR-015 §5.7 correction (before ADR-015 enters repo):**
+Change: "`update_weights()` in `orchestration/adaptive_budget.py` is
+currently a no-op stub"
+To: "`update_weights()` in `orchestration/router.py:104` is fully
+implemented but never called — `AdaptiveRouter` is never instantiated
+and the function has no call site anywhere in the codebase. Loop 5 is
+dormant not for lack of implementation but for lack of invocation.
+Closing it requires: (1) instantiate AdaptiveRouter in the container,
+(2) one call: `await router.update_weights()` at the end of each
+CURATOR cycle."
+
+**Remediation trigger:** Before CURATOR implementation (Phase 3C).
+
+---
+
+## DEBT-023 — trajectory/ Directory Naming Collision Risk (ADR-015 §Related)
+
+**Status:** Active — MEDIUM (before Phase 3C)
+**Phase:** Phase 3C (Trajectory Memory)
+**Filed:** 2026-06-26
+**Source:** ADR-015 §Related
+
+**What is at risk:**
+`src/aip/orchestration/trajectory/` currently contains L4 trajectory
+*regulation* (monitoring/intervention): `context_reset.py`,
+`regulator.py`, `__init__.py`. Its docstring confirms: "L4 trajectory
+regulation and context reset."
+
+ADR-015 §5 introduces a new trajectory *corpus* (trajectory memory
+storage — a completely different concern). If both exist under
+`trajectory/`, the naming collision will cause confusion: "trajectory
+package" could mean regulation (existing) or storage (new).
+
+**Required fix:**
+Rename `src/aip/orchestration/trajectory/` to
+`src/aip/orchestration/l4_regulation/` before beginning Layer 3
+(trajectory corpus) implementation. Update all import sites.
+
+**Remediation trigger:** Before Phase 3C work begins.
 
 ---
