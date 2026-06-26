@@ -1,7 +1,7 @@
 # AIP Technical Debt Register
 
 **Owner:** B. Moses Jorgensen  
-**Last Updated:** 2026-06-26 (DEBT-020 through DEBT-023: ADR-015 fleet debt items — BLOCKING + HIGH + MEDIUM)
+**Last Updated:** 2026-06-26 (DEBT-020 through DEBT-024: ADR-015 fleet debt items + Type E substance score traceability)
 
 Each entry records a deliberate deferral — what was skipped, why, and what triggers remediation.
 
@@ -851,5 +851,44 @@ Rename `src/aip/orchestration/trajectory/` to
 (trajectory corpus) implementation. Update all import sites.
 
 **Remediation trigger:** Before Phase 3C work begins.
+
+---
+
+## DEBT-024 — Type E Substance Score Silent Fix (Documentation Traceability)
+
+**Status:** Resolved — fix is live, this entry is for traceability
+**Phase:** L4 Trajectory Regulation
+**Filed:** 2026-06-26
+**Discovered:** ADR-015 consistency check (ANOMALY-3)
+
+**What was broken:**
+The `FailureStreakDetector` (Type E — False Success Reporting) was
+completely non-functional. Trace events that lacked a `substance_score`
+field fell back to a hardcoded default of `0.5`. The detection threshold
+was also `0.4`. Since `0.5 >= 0.4`, every outcome without an explicit
+substance_score was treated as "high substance" — Type E detection could
+never fire on missing data, which was the common case.
+
+**What was fixed (silently, no debt entry at the time):**
+The default `substance_score` was changed from hardcoded `0.5` to a
+configurable `0.3` (below the `0.4` threshold). Both the default and
+the threshold are now constructor parameters on `FailureStreakDetector`.
+
+**Files documenting the fix:**
+- `src/aip/orchestration/trajectory/regulator.py:15-18` — module docstring
+  + `_DEFAULT_SUBSTANCE_SCORE = 0.3` at line 42
+- `src/aip/orchestration/l4/failure_streak.py:6-11` — module docstring
+  + `default_substance_score: float = 0.3` at line 41
+- `tests/test_failure_streak.py:35-51` — `test_default_substance_score_below_threshold`
+  explicitly tests the missing-field case (the regression guard)
+
+**Why this entry exists:**
+The fix was applied without a corresponding TECH_DEBT entry, so there
+was no traceability from the debt register to the bug. A future reader
+looking at the `0.3` default + the "previously hardcoded at 0.5" comment
+had no debt item to cross-reference. This entry closes that gap.
+
+**No action needed.** The fix is live, tested, and documented in three
+places. This entry is purely for audit trail completeness.
 
 ---
