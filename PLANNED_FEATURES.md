@@ -83,6 +83,22 @@ These are genuine gaps worth pursuing. They are NOT yet implemented.
 
 ---
 
+## Status: Near-Term — Fleet Primitives (ADR-015 Phase 3A-0)
+
+Architectural contract: `docs/decisions/ADR-015-professional-agent-fleet.md`
+(when accepted). These are the pre-fleet primitives that must ship before
+the 2nd domain extension.
+
+| Feature | Why it matters | Effort | Dependencies |
+|---------|----------------|--------|--------------|
+| **AgentRun primitive** | Execution law for all agent work. No agent operates outside an AgentRun. Table + schema in state.db. | ~1 day | ADR-015 acceptance. |
+| **start_policy manifest field** | `scheduled` vs `manual_only`. Fixes cadence=0 startup-run-once (DEBT-020). Default: `manual_only` for safety. | ~half day | Actor Protocol amendment (ADR-014 §5.2). |
+| **Fail-closed CapabilityGate** | Missing AgentRun, capability, approval, trace_id, or budget = DENY. No exceptions. | ~1 day | AgentRun table exists. |
+| **cadence=0 startup fix (DEBT-020)** | Stop running write-capable actors at boot. Gate on start_policy. | ~half day | start_policy field added. |
+| **MCP scaffold wiring** | v1.2 register_mcp_tool pulled forward to 3A-0 per ADR-015. Stub only — no tools yet. | ~half day | McpToolRegistry exists (v1.0). |
+
+---
+
 ## Status: In Progress (ADR-014 Phase 0 Extension Platform)
 
 ADR-014 (build target, PROPOSED) defines the `ExtensionHost` lifecycle, manifest v1
@@ -163,6 +179,39 @@ queries get more vector weight) would be an enhancement over the existing
 The 22-entry alias registry is static. A learned, context-aware resolver
 that can map "Moses" / "Musa" / "M." based on surrounding context would
 be an enhancement over the current PersonalizedPageRank approach.
+
+### Professional Agent Fleet (ADR-015)
+
+Architectural contract: `docs/decisions/ADR-015-professional-agent-fleet.md`
+(when accepted). Seven domain extensions, each an ADR-014 extension with
+fleet-compliant manifest (capability_card + agent capability isolation +
+context_contract). Build order is DEFINER-decided; HERALD is first.
+
+| Extension | Domain | Model tier | Status |
+|-----------|--------|------------|--------|
+| **HERALD** | Research / field awareness | balanced | 🔲 Planned — Phase 3A-1 (first fleet member) |
+| **LOOM** | Writing / long-form synthesis | balanced | 🔲 Planned — Phase 3B+ |
+| **CODEFORGE** | Code / engineering | balanced | 🔲 Planned — parallel_safe: false (write lock) |
+| **STUDIO** | Multimedia / design | balanced | 🔲 Planned |
+| **CHRONICLE** | History / temporal knowledge | balanced | 🔲 Planned |
+| **PRAXIS** | Practice / skill building | balanced | 🔲 Planned |
+| **ORACLE** | Forecasting / analysis | frontier | 🔲 Planned |
+
+**Trajectory Memory (Layer 3):** New `trajectory` corpus type + CURATOR
+actor (4th platform actor, every 6h cycle). Trust-tiered: raw → candidate
+→ approved → domain → agent. Forgetting policy (90-day decay +
+contradiction cascade). State-conditioned retrieval key. See ADR-015 §5.
+
+**CURATOR Actor:** Platform-level background actor (not
+extension-contributed). Exclusive writer to trajectory corpus. Implements
+IBM four-component framework (extraction + attribution + learning +
+contradiction detection). Closes Loop 5 simultaneously with
+`update_weights()` wiring (DEBT-022). See ADR-015 §5.4.
+
+**Fleet Coordinator (Layer 2):** Deterministic dispatch infrastructure
+(intent classification → DispatchPlan → AgentRun creation → parallel
+dispatch → cost governance). NOT an agent — does not synthesize over
+content. Dry-run mode before parallel real model spend. See ADR-015 §4.
 
 ---
 

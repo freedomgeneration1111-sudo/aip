@@ -83,13 +83,30 @@ See `PLANNED_FEATURES.md` → "GUI Phase — Brain Core Shell Features" for the 
 
 - Self-registration protocol (ADR-014 Amendment A1 — deferred until third-party extensions)
 - Desktop shell migration (NiceGUI → PyWebView → Tauri)
-- Loom as extension
-- CodeForge as extension
-- Agent Studio, Company Brain, Federation, Praxis, Chronicle, Astra (not yet specced)
+- Loom as extension → see ADR-015 (Phase 3B+, fleet extension)
+- CodeForge as extension → see ADR-015 (Phase 3B+, parallel_safe: false)
+- Praxis, Chronicle → see ADR-015 (fleet extensions, Phase 3B+)
+- Agent Studio, Company Brain, Federation, Astra → not yet specced
 - Third-party extension support
 - Multi-tenant / enterprise features
 - Per-exception HTTP handlers (nice-to-have)
 - MCP tools (ADR-014 step 7, v1.2 — not needed for ARISTOTLE)
+
+---
+
+## Fleet Phases (ADR-015 — when accepted)
+
+| Phase | Trigger | Work | Status |
+|-------|---------|------|--------|
+| **3A-0** | Before 2nd extension | AgentRun table + schema. `start_policy` manifest field. Fail-closed CapabilityGate. Fix cadence=0 startup (DEBT-020). MCP scaffold wiring. | 🔲 Planned |
+| **3A-1** | 3A-0 complete | HERALD as first domain extension. Read-mostly (no write tools). Validates manifest discipline + corpus isolation + actor registration at fleet scale. | 🔲 Planned |
+| **3A-2** | HERALD stable | Dry-run mode. Tiered auto-approve config. Fleet Coordinator prototype (intent classification + DispatchPlan + cost estimation). | 🔲 Planned |
+| **3B** | 2 domain agents live | Full Fleet Coordinator. Fleet Synthesizer as separate agent. Cost ledger. Daily dashboard. Budget hard stop. | 🔲 Planned |
+| **3C** | 10+ completed dispatches | Trajectory corpus with temporal bounds. CURATOR v1. Forgetting policy. State-conditioned retrieval. Close Loop 5 (DEBT-022 — wire AdaptiveRouter + update_weights call site). | 🔲 Planned |
+| **3D** | Trajectory memory stable | Full MCP/tool integration behind CapabilityGate. Workspace sandboxing. autonomy_gate closure (DEBT-021). | 🔲 Planned |
+| **4** | Fleet stable at 5+ agents | PublicAgentCard exporter. A2A Task mapping. External federation readiness. | 🔲 Planned |
+
+Architectural contract: `docs/decisions/ADR-015-professional-agent-fleet.md`
 
 ---
 
