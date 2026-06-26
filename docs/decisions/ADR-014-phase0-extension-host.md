@@ -53,7 +53,7 @@ This ADR is the contract for the `ExtensionHost` that drives them.
 | Progress store location | **Tables in the `definer` corpus** with `aristotle_*` naming convention (e.g. `aristotle_progress`, `aristotle_mastery`, `aristotle_struggle_pattern`). The definer corpus already carries extension-contributed tables (`review_queue_fanin`, `corpus_audit_log`, `review_fanin_outbox`); ARISTOTLE's tables follow the same pattern. | Avoids a new `CorpusConnectionManager` and migration runner for the progress store. Revisit at Phase B (teacher dashboard) when cross-student aggregation matters. |
 | Sensitivity | Per-corpus `sensitive` flag (the generalized branham model). Unrelated to student data. | The §4 generalization is real; no `corpus_id == "branham"` branch remains. The flag is data, not code. |
 | Manifest | **Hybrid** — YAML is the contract; one optional sandboxed `hooks.py::on_load(host)` is the escape hatch. | YAML gives declarative validation + JSON Schema generation. The escape hatch handles dynamic registration (e.g. conditional on a feature flag) without making the manifest Turing-complete. |
-| Manifest v1 scope | `manifest_version, id, name, version, depends, corpora, actors, channels, workflows_dir, migrations, config`. **Defer `tools`, `expose_as_mcp` to v1.2** (MCP transport is a stub). **`gui` lands in v1.1** — the very next increment — because `register_page` is built as part of this host. | v1.0 ships the backend contract. v1.1 ships GUI mount. v1.2 ships MCP generalization. Each increment is independently useful; the manifest version is reserved now so v1.1 / v1.2 don't break v1.0 extensions. |
+| Manifest v1 scope | `manifest_version, id, name, version, depends, corpora, actors, channels, workflows_dir, migrations, config`. **Defer `tools`, `expose_as_mcp` to v1.2** (MCP transport is a stub). **`gui` lands in v1.1** — the very next increment — because `register_page` is built as part of this host. **NOTE (ADR-015):** MCP scaffold wiring is pulled forward to Phase 3A-0 priority per ADR-015 §Consequences. The `McpToolRegistry` exists in v1.0 so v1.2 is additive, but the scaffold wiring (register_mcp_tool stub) should land in Phase 3A-0 before HERALD. | v1.0 ships the backend contract. v1.1 ships GUI mount. v1.2 ships MCP generalization. Each increment is independently useful; the manifest version is reserved now so v1.1 / v1.2 don't break v1.0 extensions. |
 | Actors | Define an `Actor` Protocol (§5.2); **new** actors conform. **Do not** migrate Beast/Vigil/Sexton — adapt them at the boundary with a thin `Actor`-conforming wrapper. Startup-only registration; hot-load is a v2 problem. | God classes (1998 / 1808 / 2345 LOC) can't be migrated in pre-alpha. The Protocol is the contract new actors code against; the wrapper is the bridge for legacy. |
 | Migration failure | SQLite has no transactional DDL — do not fake rollback. A failed migration marks the extension `DEGRADED` and surfaces it. | The runner already records `applied_migrations` per-statement; a half-applied migration is visible. Rollback would require per-migration down-scripts, which is out of scope. |
 | Bilingual schema | `content_primary` + `content_alt` + `content_alt_lang` (ISO 639-1), not `content_urdu`. | Generalizes to any bilingual pair (English/Spanish, English/Urdu) without being unbounded JSON. ARISTOTLE sets `content_alt_lang='ur'`. |
@@ -227,6 +227,9 @@ manager) so `self.config` and `self.manifest` resolve to the right extension.
 class Actor(Protocol):
     name: str
     cadence: float   # seconds between cycles; 0 = manual only
+    # start_policy: str  # ADR-015 §0 — "scheduled" | "manual_only"
+                          # Default: "manual_only" (safe). To be added
+                          # in Phase 3A-0 per ADR-015.
 
     async def run_cycle(self, ctx: ActorContext) -> ActorResult: ...
     def health(self) -> dict: ...
@@ -244,6 +247,21 @@ class ActorResult:
     error: str | None = None
     next_run_at: float | None = None   # override cadence for next cycle (epoch)
 ```
+
+**Actor ≠ Agent (ADR-015 §0):** Registering an actor via
+`host.register_actor()` does NOT grant agent authority. An actor is a
+scheduled service; an agent is an actor executing inside an AgentRun
+envelope with a CapabilityGate. The distinction is enforced by ADR-015's
+fail-closed gate: no agent work outside an AgentRun. This ADR (ADR-014)
+defines the Actor Protocol; ADR-015 defines the AgentRun primitive that
+wraps actors when agent capability is needed.
+
+**start_policy (ADR-015 §0, Phase 3A-0):** The current cadence=0 behavior
+runs one cycle at startup (host.py:179-180). This is safe for read-only
+actors but unsafe for write-capable agents. ADR-015 introduces
+`start_policy: "scheduled" | "manual_only"` to control startup execution.
+`manual_only` actors never run at startup — only via AgentRun. This field
+will be added to the Actor Protocol in Phase 3A-0 (DEBT-020).
 
 The host's `ActorScheduler` runs one `asyncio.Task` per registered actor, gated
 on `CorpusRegistry.migration_ready` (existing pattern from §A5). Each task is

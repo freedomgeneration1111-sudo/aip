@@ -208,7 +208,13 @@ regeneration) but not for routine maintenance.
 
 - ADR-003: Beast Context Advisory
 - ADR-008: Semantic Session Context
-- ROADMAP.md: Phase 3 (Actor refactor)
+- ADR-015: Professional Agent Fleet — adds CURATOR as a 4th platform
+  actor (trajectory memory curator, every 6h cycle). CURATOR's role
+  boundaries are defined in ADR-015 §5.4. This ADR (ADR-011) covers
+  Beast/Sexton/Vigil only; CURATOR is NOT a replacement for any of
+  them — it is a new concern (trajectory memory curation).
+- ROADMAP.md: Phase 3 (Actor refactor) + Fleet Phases (ADR-015)
 - src/aip/orchestration/actors/beast.py
 - src/aip/orchestration/actors/sexton.py
 - src/aip/orchestration/actors/vigil.py (to be properly implemented)
+- src/aip/orchestration/actors/curator.py (to be built — ADR-015 §5.4, Phase 3C)
