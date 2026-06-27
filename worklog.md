@@ -1378,3 +1378,30 @@ Files changed in AIP_Aristotle (commit e4f9e28 on main):
 - tests/test_aristotle_routes.py — added regression test
 - tests/test_aristotle_intake_e2e.py (NEW — pytest version of the smoke test)
 - worklog.md (Task ID 9 entry)
+
+---
+Task ID: aristotle-paper-recognition-fix
+Agent: Super Z (main)
+Task: GUI side of the "LLM doesn't recognize the uploaded paper" fix — auto-trigger intake step after upload + explicit error on persistence failure
+
+Work Log:
+- User reported: uploaded a paper via the ARISTOTLE chat, Aristotle responded asking for the paper's title/description — proving the model KNEW a paper was attached but didn't have its content.
+- Root cause on the GUI side: _handle_aristotle_upload succeeded in uploading + appending material_id to _pending_material_ids, but the LLM only saw the paper content when the user NEXT typed something and triggered _step_intake. If the user uploaded then typed "paper attached", the LLM's first response after upload wouldn't acknowledge the paper's content specifically.
+- Fix in gui/pages/ask.py::_handle_aristotle_upload:
+  1. After a successful upload (material_id is non-empty) during INTAKE phase, auto-call _step_intake("") with empty student_input. This forces the LLM to immediately see the paper content via _fetch_material_texts and respond with a specific acknowledgment (e.g., "I see this paper covers Newton's three laws..."). The learner's next typed reply then drives the conversation forward with the paper already in context.
+  2. If material_id is empty (the upload route returned 200 but the DB INSERT failed silently — the bug fixed in AIP_Aristotle commit e4f9e28), now show an explicit red error bubble telling the learner the server couldn't persist the paper. Previously this failed silently and the learner had no idea Aristotle wouldn't see the paper.
+- Only auto-triggers during INTAKE phase — during PLACER/TUTORING the upload is for reference and the learner drives the next step.
+- Verified: AIP_Aristotle test suite (164 pass / 5 xfail) and standalone smoke test (21 stages) both still pass after the GUI change.
+
+Stage Summary:
+- The GUI now proactively pushes uploaded paper content to the LLM immediately after upload, instead of waiting for the learner's next typed message. This eliminates the "I see you uploaded a paper, what's it about?" failure mode — the LLM reads the paper's actual content and acknowledges it specifically.
+- The explicit error on empty material_id makes the next upload-route regression immediately visible to the learner (red error bubble) instead of silently degrading the intake quality.
+
+Files changed:
+- gui/pages/ask.py — _handle_aristotle_upload: auto-trigger _step_intake("") after successful upload during INTAKE + explicit error on empty material_id
+- worklog.md (this entry)
+
+Companion fix in AIP_Aristotle (commit ad58a1b on main):
+- aristotle/config.py — added material_preview_chars (default 20000)
+- aristotle/actors/intake.py — strengthened system prompt + improved _build_intake_user_prompt + added material-fetch logging
+- tests/test_aristotle_intake.py — 3 new regression tests

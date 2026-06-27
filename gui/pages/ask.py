@@ -2140,6 +2140,19 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                         # the model context.
                         if material_id:
                             _pending_material_ids.append(material_id)
+                        else:
+                            # material_id empty → upload route failed to persist
+                            # (DB error caught silently server-side). Tell the
+                            # learner so they know Aristotle won't see the paper.
+                            await _render_error(
+                                f"Upload of {filename} succeeded but the server "
+                                f"couldn't persist it for Aristotle to read. "
+                                f"Check the backend logs — this is usually a DB "
+                                f"schema or INSERT bug. The LLM will NOT see "
+                                f"this paper's content until the upload route "
+                                f"is fixed."
+                            )
+                            return
 
                         if extracted.strip():
                             # Show a truncated preview in chat (first 500
@@ -2153,6 +2166,19 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                                 f"I'll use this as context for our tutoring.\n\n"
                                 f"Preview:\n{preview}"
                             )
+
+                            # AUTO-TRIGGER an intake step with empty student_input
+                            # so the LLM immediately sees the paper content and
+                            # can acknowledge it specifically (instead of waiting
+                            # for the learner to type something). The learner's
+                            # next typed reply then drives the conversation
+                            # forward with the paper already in context.
+                            #
+                            # Only auto-trigger during INTAKE phase — during
+                            # PLACER/TUTORING the upload is for reference and
+                            # the learner drives the next step.
+                            if _phase == "INTAKE" and _intake_session:
+                                await _step_intake("")
                         else:
                             await _render_aristotle_message(
                                 f"Uploaded {filename} but couldn't extract any text. "
