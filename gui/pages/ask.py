@@ -1799,7 +1799,16 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                         "(./start.sh from ~/AIP_Brain)."
                     )
                 else:
-                    await _render_error(f"Something went wrong: {exc}")
+                    # BUG-004 fix: surface the exception detail + HTTP status
+                    # code + response body so the operator can diagnose
+                    # instead of seeing a generic "Something went wrong".
+                    detail = str(exc)
+                    if hasattr(exc, "response"):
+                        try:
+                            detail += f" | HTTP {exc.response.status_code}: {exc.response.text[:200]}"
+                        except Exception:
+                            pass
+                    await _render_error(f"Something went wrong: {detail}")
 
             async def _set_phase(new_phase: str) -> None:
                 """Update the phase label in the header (operator visibility)."""
@@ -2179,30 +2188,51 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                             return
 
                         if extracted.strip():
-                            # Show a truncated preview in chat (first 500
-                            # chars) so the learner sees what was extracted.
-                            preview = extracted[:500]
-                            if len(extracted) > 500:
-                                preview += f"\n\n... ({char_count} chars total, {source_type})"
-                            await _render_aristotle_message(
-                                f"Got it — I've read {filename} "
-                                f"({source_type}, {char_count} chars). "
-                                f"I'll use this as context for our tutoring.\n\n"
-                                f"Preview:\n{preview}"
-                            )
+                            # BUG-002 Part B: warn the learner when extraction
+                            # is suspiciously thin (< 200 chars). This is
+                            # common with math-heavy PDFs where pypdf can't
+                            # parse LaTeX-rendered glyphs. Without this
+                            # warning, the learner thinks Aristotle read the
+                            # paper, but the LLM context is effectively empty.
+                            if char_count < 200:
+                                await _render_error(
+                                    f"Uploaded {filename} but extracted only "
+                                    f"{char_count} chars — likely a math-heavy "
+                                    f"or scanned PDF that pypdf can't parse. "
+                                    f"Aristotle will NOT be able to read this "
+                                    f"paper's content. Try pasting the abstract "
+                                    f"+ section headings as text instead, or "
+                                    f"convert the PDF to a text-based format."
+                                )
+                                # Still attach the material_id so the
+                                # backend logs the thin-text warning, but
+                                # don't auto-trigger an intake step —
+                                # the LLM would just hallucinate.
+                            else:
+                                # Show a truncated preview in chat (first 500
+                                # chars) so the learner sees what was extracted.
+                                preview = extracted[:500]
+                                if len(extracted) > 500:
+                                    preview += f"\n\n... ({char_count} chars total, {source_type})"
+                                await _render_aristotle_message(
+                                    f"Got it — I've read {filename} "
+                                    f"({source_type}, {char_count} chars). "
+                                    f"I'll use this as context for our tutoring.\n\n"
+                                    f"Preview:\n{preview}"
+                                )
 
-                            # AUTO-TRIGGER an intake step with empty student_input
-                            # so the LLM immediately sees the paper content and
-                            # can acknowledge it specifically (instead of waiting
-                            # for the learner to type something). The learner's
-                            # next typed reply then drives the conversation
-                            # forward with the paper already in context.
-                            #
-                            # Only auto-trigger during INTAKE phase — during
-                            # PLACER/TUTORING the upload is for reference and
-                            # the learner drives the next step.
-                            if _phase == "INTAKE" and _intake_session:
-                                await _step_intake("")
+                                # AUTO-TRIGGER an intake step with empty student_input
+                                # so the LLM immediately sees the paper content and
+                                # can acknowledge it specifically (instead of waiting
+                                # for the learner to type something). The learner's
+                                # next typed reply then drives the conversation
+                                # forward with the paper already in context.
+                                #
+                                # Only auto-trigger during INTAKE phase — during
+                                # PLACER/TUTORING the upload is for reference and
+                                # the learner drives the next step.
+                                if _phase == "INTAKE" and _intake_session:
+                                    await _step_intake("")
                         else:
                             await _render_aristotle_message(
                                 f"Uploaded {filename} but couldn't extract any text. "

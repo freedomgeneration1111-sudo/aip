@@ -1448,3 +1448,25 @@ Files changed:
 - gui/components/chat.py — _handle_upload: same fix + replaced hardcoded port 8001 with AIP_BACKEND_URL env
 - tests/test_aristotle_upload_handler.py (NEW — 5 regression tests)
 - worklog.md (this entry)
+
+---
+Task ID: aristotle-diagnostic-bug-002-004
+Agent: Super Z (main)
+Task: Brain-side fixes for BUG-002 Part B + BUG-004 from Claude's aristotle_diagnostic.md
+
+Work Log:
+- Companion to AIP_Aristotle commit f151f3f (which fixed BUG-001, BUG-002 Part A/C, BUG-003 on the Aristotle side).
+- BUG-002 Part B (gui/pages/ask.py::_handle_aristotle_upload): When char_count < 200, the GUI now shows a red error bubble telling the learner the extraction was thin (likely a math-heavy or scanned PDF) and Aristotle will NOT be able to read the paper. The auto-trigger of _step_intake("") is skipped in this case — the LLM would just hallucinate. The learner is advised to paste the abstract + section headings as text instead.
+- BUG-004 (gui/pages/ask.py::_render_http_error): When the exception has a .response attribute (httpx.HTTPStatusError), the error bubble now includes " | HTTP {status}: {body[:200]}" so the operator can see the actual HTTP status code + response body instead of just str(exc). This makes backend 500s + 422s immediately diagnosable from the chat UI.
+- Verified: 26 pass / 1 skip / 0 regressions on the Brain side. Aristotle side: 171 pass / 5 xfail / 0 regressions. Standalone smoke test 21/21 stages pass.
+
+Stage Summary:
+- Combined with the Aristotle-side fixes, the "idiot Aristotle" behavior should be eliminated. The 4 stacking causes are all addressed:
+  1. Interrogation hell → hard cap + server-side auto-advance (Aristotle side)
+  2. Hallucinated paper ingestion → EXTRACTION FAILED guard + thin-text warning + user-facing error (both sides)
+  3. Auto-trigger re-greeting → 3-way branch for student_input (Aristotle side)
+  4. Swallowed errors → exception detail + HTTP status surfaced (Brain side)
+
+Files changed:
+- gui/pages/ask.py — BUG-002 Part B (char_count < 200 warning) + BUG-004 (exception detail in error bubble)
+- worklog.md (this entry)
