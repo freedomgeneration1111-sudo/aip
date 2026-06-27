@@ -2087,11 +2087,35 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
             # student-uploaded-material bubble so Aristotle can reference
             # it in the intake/tutoring conversation.
             async def _handle_aristotle_upload(e) -> None:
-                """Handle a file upload from the ARISTOTLE chat bar."""
+                """Handle a file upload from the ARISTOTLE chat bar.
+
+                NiceGUI 3.x upload event API:
+                  - e.file is a FileUpload instance (NOT e.content)
+                  - e.file.name is the filename
+                  - await e.file.read() returns bytes (read() is async)
+
+                A previous version used e.content.read() (missing await +
+                wrong attribute name) which raised AttributeError BEFORE
+                the try/except block, so the task died silently with no
+                chat bubble feedback. The learner saw the upload widget
+                hit 100% but nothing happened — no "Uploading..." bubble,
+                no error, no acknowledgment from Aristotle.
+                """
                 import os as _os
 
-                filename = getattr(e, "name", "file")
-                content = e.content.read()
+                try:
+                    # Wrap the WHOLE handler in try/except so any error
+                    # surfaces as a chat bubble instead of dying silently
+                    # in the asyncio task.
+                    filename = getattr(e.file, "name", "file")
+                    content = await e.file.read()
+                except Exception as exc:
+                    await _render_error(
+                        f"Could not read uploaded file: {exc}. "
+                        f"This is a GUI bug — please report it."
+                    )
+                    return
+
                 ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
                 _ext_types = {
                     "pdf": "application/pdf",

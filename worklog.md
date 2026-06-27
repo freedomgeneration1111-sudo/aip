@@ -1405,3 +1405,46 @@ Companion fix in AIP_Aristotle (commit ad58a1b on main):
 - aristotle/config.py — added material_preview_chars (default 20000)
 - aristotle/actors/intake.py — strengthened system prompt + improved _build_intake_user_prompt + added material-fetch logging
 - tests/test_aristotle_intake.py — 3 new regression tests
+
+---
+Task ID: upload-handler-nicegui3-fix
+Agent: Super Z (main)
+Task: Fix "upload shows 100% but nothing happens" — NiceGUI 3.x API regression in upload handlers
+
+Work Log:
+- User reported (second time): "both turns i uploaded the paper and nothing..." — the upload widget showed 100% completion but NO chat bubble appeared (no "Uploading...", no error, no Aristotle acknowledgment). The LLM kept asking for the paper's title because it never received the material_id.
+- Root cause: gui/pages/ask.py::_handle_aristotle_upload used the NiceGUI 2.x API:
+    filename = getattr(e, "name", "file")   # WRONG: e has no .name in NiceGUI 3.x
+    content = e.content.read()               # WRONG: e has no .content; read() is async
+  In NiceGUI 3.x (we're on 3.13.0), the upload event arg is:
+    e.file: FileUpload  (NOT e.content)
+    e.file.name: str
+    await e.file.read() -> bytes  (read() is async, needs await)
+  The AttributeError from e.content fired BEFORE the try/except block (line 2094 was outside the try). The asyncio task died silently — the exception was never retrieved, no chat bubble was rendered, the learner saw nothing.
+- Same bug in gui/components/chat.py::_handle_upload (the non-Aristotle chat upload handler). PLUS that handler had a hardcoded wrong port: http://localhost:8001/aristotle/upload (the backend runs on 8000).
+- Fix 1 (gui/pages/ask.py::_handle_aristotle_upload):
+  - Changed `filename = getattr(e, "name", "file")` → `filename = getattr(e.file, "name", "file")`
+  - Changed `content = e.content.read()` → `content = await e.file.read()`
+  - Wrapped the file-read in its own try/except so any error surfaces as a red chat bubble (not a silent asyncio task death). Added a docstring documenting the NiceGUI 3.x API so future maintainers don't regress.
+- Fix 2 (gui/components/chat.py::_handle_upload):
+  - Same e.file + await e.file.read() fix.
+  - Replaced hardcoded http://localhost:8001 with AIP_BACKEND_URL env var (default http://127.0.0.1:8000).
+  - Wrapped file-read in try/except with ui.notify for errors.
+- Added tests/test_aristotle_upload_handler.py (5 tests):
+  - test_handler_reads_file_via_e_file_not_e_content — verifies the correct pattern (await e.file.read()) works with a real SmallFileUpload instance.
+  - test_old_e_content_read_pattern_raises_attribute_error — regression guard: verifies the OLD buggy pattern (e.content.read()) raises AttributeError. Uses a real-shaped dataclass (not MagicMock, which auto-creates attributes) so the AttributeError actually fires.
+  - test_handler_uses_correct_backend_port_not_8001 — greps gui/components/chat.py source for the hardcoded wrong port.
+  - test_ask_py_uses_e_file_not_e_content — AST-walks ask.py for any e.content.read() call (ignores docstring comments that mention the old pattern for documentation).
+  - test_ask_py_uses_e_file_name_not_e_name — verifies the _handle_aristotle_upload function body uses e.file (not getattr(e, "name", ...)).
+- Verified: 38 pass / 1 skip / 0 regressions on the Brain side (extension lifecycle + import boundary + app factory + upload handler + chat upload + web UI + import boundary). Aristotle side: 164 pass / 5 xfail / 0 regressions. Standalone smoke test: 21/21 stages pass.
+
+Stage Summary:
+- This was the REAL reason "the LLM doesn't recognize the uploaded paper." The previous fixes (commit 6d9c0d0 + AIP_Aristotle ad58a1b) were correct but irrelevant — the upload handler never got past the first line, so no material_id was ever sent to /intake/step. The auto-trigger logic I added would have worked IF the handler had been called, but it was dying silently on e.content.read().
+- The lesson: asyncio.create_task swallows exceptions from coroutines unless you explicitly retrieve them. Wrapping the ENTIRE handler body in try/except (not just the HTTP call) is the only way to guarantee errors surface to the user.
+- The AST-based test (test_ask_py_uses_e_file_not_e_content) is the strongest guard — it statically verifies no e.content.read() pattern exists in executable code, ignoring docstring comments. This catches the regression even if someone copy-pastes the old pattern without thinking.
+
+Files changed:
+- gui/pages/ask.py — _handle_aristotle_upload: e.file + await e.file.read() + try/except around file-read + docstring
+- gui/components/chat.py — _handle_upload: same fix + replaced hardcoded port 8001 with AIP_BACKEND_URL env
+- tests/test_aristotle_upload_handler.py (NEW — 5 regression tests)
+- worklog.md (this entry)

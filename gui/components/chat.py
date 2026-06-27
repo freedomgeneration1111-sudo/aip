@@ -96,19 +96,37 @@ def build_chat_input(state: GuiState, chat_container, send_fn) -> ui.input:
     }
 
     async def _handle_upload(e) -> None:
-        """POST uploaded file to ARISTOTLE /upload, inject result into chat."""
-        import httpx
+        """POST uploaded file to ARISTOTLE /upload, inject result into chat.
 
-        filename = getattr(e, "name", "file")
-        content = e.content.read()
+        NiceGUI 3.x upload event API:
+          - e.file is a FileUpload instance (NOT e.content)
+          - e.file.name is the filename
+          - await e.file.read() returns bytes (read() is async)
+
+        A previous version used e.content.read() (missing await + wrong
+        attribute name) which raised AttributeError silently in the
+        asyncio task. Also fixed: wrong port 8001 → _BACKEND_URL (8000).
+        """
+        import httpx
+        import os as _os
+
+        try:
+            filename = getattr(e.file, "name", "file")
+            content = await e.file.read()
+        except Exception as exc:
+            ui.notify(f"Could not read uploaded file: {exc}", color="negative")
+            return
 
         ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
         content_type = _EXT_TYPES.get(ext, "application/octet-stream")
 
+        # Resolve backend URL from env (default 8000, NOT hardcoded 8001).
+        backend_url = _os.getenv("AIP_BACKEND_URL", "http://127.0.0.1:8000")
+
         try:
             async with httpx.AsyncClient() as client:
                 r = await client.post(
-                    "http://localhost:8001/aristotle/upload",
+                    f"{backend_url}/aristotle/upload",
                     content=content,
                     headers={
                         "Content-Type": content_type,
