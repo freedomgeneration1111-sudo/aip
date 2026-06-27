@@ -2109,19 +2109,36 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                 chat bubble feedback. The learner saw the upload widget
                 hit 100% but nothing happened — no "Uploading..." bubble,
                 no error, no acknowledgment from Aristotle.
+
+                DIAGNOSTIC: a ui.notify toast fires at the VERY TOP of
+                this handler (before any try/except) so we can definitively
+                tell whether on_upload is being called at all. If the toast
+                appears but no chat bubble follows, the error is inside the
+                handler. If the toast does NOT appear, the on_upload
+                callback itself is not firing (NiceGUI widget issue).
                 """
+                # DIAGNOSTIC: fire a toast immediately so the user can see
+                # the handler was called. This is BEFORE any try/except so
+                # it fires even if everything else below is broken.
+                try:
+                    ui.notify(
+                        f"Upload handler fired — processing file...",
+                        color="info",
+                        timeout=2000,
+                    )
+                except Exception:
+                    pass  # don't let the toast itself crash the handler
+
                 import os as _os
+                import traceback as _tb
 
                 try:
-                    # Wrap the WHOLE handler in try/except so any error
-                    # surfaces as a chat bubble instead of dying silently
-                    # in the asyncio task.
                     filename = getattr(e.file, "name", "file")
                     content = await e.file.read()
                 except Exception as exc:
                     await _render_error(
-                        f"Could not read uploaded file: {exc}. "
-                        f"This is a GUI bug — please report it."
+                        f"Could not read uploaded file: {exc}\n\n"
+                        f"Traceback:\n{_tb.format_exc()[:500]}"
                     )
                     return
 
@@ -2241,8 +2258,16 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                 except Exception as exc:
                     await _render_http_error(exc, "/aristotle/upload")
 
+            # NOTE: on_upload takes the async function DIRECTLY (not wrapped
+            # in `lambda e: asyncio.create_task(...)`). The lambda+create_task
+            # pattern creates an UNTRACKED task whose exceptions are silently
+            # swallowed by the event loop (Python never retrieves them).
+            # Passing the async function directly lets NiceGUI's handle_event
+            # create the task with proper exception logging, so any error in
+            # the handler surfaces in the console + the ui.notify diagnostic
+            # toast at the top of the handler.
             ui.upload(
-                on_upload=lambda e: asyncio.create_task(_handle_aristotle_upload(e)),
+                on_upload=_handle_aristotle_upload,
                 auto_upload=True,
                 max_file_size=10_000_000,
             ).props("flat dense dark").style(
