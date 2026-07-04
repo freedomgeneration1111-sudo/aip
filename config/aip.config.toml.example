@@ -5,8 +5,13 @@
 # and MUST be provided via environment variables instead:
 #   AIP_SYNTHESIS_API_KEY, AIP_EVALUATION_API_KEY, etc.
 #
-# Do NOT commit real keys. The live `config/aip.config.toml` is (or should be)
-# ignored by .gitignore.
+# IMPORTANT (June 2026): config/aip.config.toml is now UNTRACKED by git
+# (removed from version control). Your real config — with your real API
+# keys — lives only on your machine and will NEVER conflict with upstream
+# pulls again. The .example file you're reading is the tracked template;
+# copy it to config/aip.config.toml and add your keys there.
+#
+# Do NOT commit real keys. The live `config/aip.config.toml` is gitignored.
 #
 # Model names, hosts, ports, limits, and other non-secret values are shown
 # as working laptop-profile examples. Adjust for production as needed.

@@ -63,6 +63,36 @@ auto_pull_repo() {
         return 0
     fi
 
+    # --- Merge-conflict / unmerged-file detection ---
+    # If the repo is in the middle of a merge or rebase (unmerged files),
+    # git stash + git pull will BOTH fail with cryptic errors. Detect this
+    # state up front and give the user a clear, actionable message instead
+    # of getting stuck in a loop where every ./start.sh fails the same way.
+    local unmerged
+    unmerged=$(git diff --name-only --diff-filter=U 2>/dev/null || echo "")
+    if [ -n "$unmerged" ]; then
+        echo "[$repo_name] ERROR: unresolved merge conflict detected."
+        echo "[$repo_name]   Conflicted files:"
+        local f
+        for f in $unmerged; do
+            echo "[$repo_name]     $f"
+        done
+        echo "[$repo_name]"
+        echo "[$repo_name]   Git refuses to pull until you resolve these. Fix:"
+        echo "[$repo_name]     1. Open each conflicted file and look for <<<<<<< markers"
+        echo "[$repo_name]     2. Edit to keep the version you want (usually your API keys)"
+        echo "[$repo_name]     3. git add <each-conflicted-file>"
+        echo "[$repo_name]     4. git rebase --continue  (or  git merge --continue)"
+        echo "[$repo_name]"
+        echo "[$repo_name]   Or to ABORT and reset to the last good commit (loses uncommitted changes):"
+        echo "[$repo_name]     git merge --abort 2>/dev/null; git rebase --abort 2>/dev/null"
+        echo "[$repo_name]     git checkout -- ."
+        echo "[$repo_name]"
+        echo "[$repo_name]   Skipping auto-pull for this repo. Continuing with current code."
+        cd "$orig_dir" || true
+        return 1
+    fi
+
     # Check for uncommitted changes
     local dirty
     dirty=$(git status --porcelain 2>/dev/null || echo "")
@@ -128,6 +158,79 @@ if [ "${AIP_AUTO_PULL:-true}" != "false" ]; then
     echo "=== Auto-pull complete ==="
     echo ""
 fi
+
+# ---------------------------------------------------------------------------
+# API key + config sanity check
+#
+# Catches the "I lost my API key" failure mode BEFORE the backend starts.
+# If config/aip.config.toml doesn't exist OR has no api_key lines OR no
+# AIP_*_API_KEY env vars are set, prints a loud warning with fix instructions.
+# This is non-blocking (you can still run with ci_mode or local models) but
+# makes the problem immediately visible instead of silently degrading to
+# mock providers.
+# ---------------------------------------------------------------------------
+check_api_keys() {
+    local config_file="config/aip.config.toml"
+
+    if [ ! -f "$config_file" ]; then
+        echo "WARNING: $config_file not found."
+        echo "  Copy the template:  cp config/aip.config.toml.example config/aip.config.toml"
+        echo "  Then add your OpenRouter API key to the [models] section."
+        echo "  Without a key, the LLM will fall back to mock/CI mode."
+        echo ""
+        return 0
+    fi
+
+    # Check for conflict markers in the config (left over from a bad merge)
+    if grep -qE '^(<<<<<<<|=======|>>>>>>>)' "$config_file" 2>/dev/null; then
+        echo "ERROR: $config_file has unresolved git conflict markers (<<<<<<< ======= >>>>>>>)."
+        echo "  The config parser cannot read it — your API keys are likely missing."
+        echo "  Fix:"
+        echo "    1. Open $config_file in your editor"
+        echo "    2. Find the <<<<<<< markers and keep the version with your API key"
+        echo "    3. Delete the markers (<<<<<<<, =======, >>>>>>>)"
+        echo "    4. Save + restart ./start.sh"
+        echo ""
+        echo "  Or reset to the template and re-add your key:"
+        echo "    git checkout -- $config_file"
+        echo "    # then edit to add: api_key = \"sk-or-v1-...\""
+        echo ""
+        return 1
+    fi
+
+    # Check for at least one non-commented api_key line OR env var
+    local has_config_key has_env_key
+    # grep -c returns 0 matches with exit code 1, which trips set -e.
+    # Capture the count safely.
+    has_config_key=$(grep -cE '^[[:space:]]*api_key[[:space:]]*=[[:space:]]*"[^"]+"' "$config_file" 2>/dev/null || true)
+    has_config_key=${has_config_key:-0}
+    [ -z "$has_config_key" ] && has_config_key=0
+    has_env_key="no"
+    for var in AIP_OPENAI_API_KEY AIP_SYNTHESIS_API_KEY AIP_BEAST_API_KEY AIP_OPENROUTER_API_KEY OPENROUTER_API_KEY; do
+        if [ -n "${!var:-}" ]; then
+            has_env_key="yes"
+            break
+        fi
+    done
+
+    if [ "$has_config_key" = "0" ] && [ "$has_env_key" = "no" ]; then
+        echo "WARNING: No API key found in $config_file or environment."
+        echo "  The LLM will fall back to mock/CI mode — you'll see 'trouble connecting"
+        echo "  to my language model' in the chat UI."
+        echo ""
+        echo "  Fix (pick one):"
+        echo "    A) Edit $config_file — uncomment + fill in the api_key line under [models.beast]:"
+        echo "         api_key = \"sk-or-v1-your-key-here\""
+        echo "    B) Set an env var (applies to all slots):"
+        echo "         export AIP_OPENAI_API_KEY=\"sk-or-v1-your-key-here\""
+        echo "       Add to ~/.bashrc to make permanent."
+        echo ""
+        echo "  Get an OpenRouter key at: https://openrouter.ai/keys"
+        echo ""
+    fi
+}
+
+check_api_keys || true
 
 # --- Child process tracking ---
 CHILD_PIDS=()
