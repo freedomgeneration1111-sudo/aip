@@ -2231,12 +2231,66 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                                 preview = extracted[:500]
                                 if len(extracted) > 500:
                                     preview += f"\n\n... ({char_count} chars total, {source_type})"
-                                await _render_aristotle_message(
+                                ingest_job_id = data.get("ingest_job_id", "")
+                                ingest_msg = (
                                     f"Got it — I've read {filename} "
                                     f"({source_type}, {char_count} chars). "
                                     f"I'll use this as context for our tutoring.\n\n"
                                     f"Preview:\n{preview}"
                                 )
+                                if ingest_job_id:
+                                    ingest_msg += (
+                                        f"\n\n📋 Ingesting paper into knowledge base "
+                                        f"(job: {ingest_job_id[:8]}...) — "
+                                        f"chunking + embedding + structural analysis. "
+                                        f"This takes 30-60 seconds; you can continue "
+                                        f"chatting while it runs."
+                                    )
+                                await _render_aristotle_message(ingest_msg)
+
+                                # ADR-003: poll the ingest job in the background
+                                # and update the learner when it's done. The
+                                # ingestion chunks + embeds + analyzes the paper
+                                # for RAG retrieval. Until it's done, the
+                                # IntakeActor falls back to legacy truncation.
+                                if ingest_job_id:
+                                    async def _poll_ingest_progress(job_id: str) -> None:
+                                        import asyncio as _asyncio
+                                        for _ in range(60):  # poll for up to 5 min
+                                            await _asyncio.sleep(5)
+                                            try:
+                                                async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=10.0) as client:
+                                                    r = await client.get(f"/aristotle/ingest/{job_id}/status")
+                                                    r.raise_for_status()
+                                                    status = r.json()
+                                            except Exception:
+                                                continue
+                                            phase = status.get("phase", "")
+                                            status_val = status.get("status", "")
+                                            if status_val == "COMPLETE":
+                                                chunks = status.get("chunks_total", 0)
+                                                analysis = "✓" if status.get("analysis_complete") else "✗"
+                                                await _render_aristotle_message(
+                                                    f"✅ Paper ingestion complete — {chunks} chunks indexed, "
+                                                    f"structural analysis: {analysis}. "
+                                                    f"I can now retrieve specific sections as we discuss."
+                                                )
+                                                return
+                                            elif status_val == "FAILED":
+                                                error = status.get("error", "unknown error")
+                                                await _render_error(
+                                                    f"Paper ingestion failed: {error}. "
+                                                    f"You can continue chatting, but I'll use "
+                                                    f"the legacy truncation path instead of RAG."
+                                                )
+                                                return
+                                        # Timeout — don't error, just stop polling
+                                        await _render_aristotle_message(
+                                            f"(Paper ingestion is still running in the background. "
+                                            f"I'll use the legacy path for now — once ingestion "
+                                            f"completes, I'll automatically switch to RAG retrieval.)"
+                                        )
+                                    asyncio.create_task(_poll_ingest_progress(ingest_job_id))
 
                                 # AUTO-TRIGGER an intake step with empty student_input
                                 # so the LLM immediately sees the paper content and
