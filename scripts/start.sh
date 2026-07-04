@@ -232,6 +232,25 @@ check_api_keys() {
 
 check_api_keys || true
 
+# ---------------------------------------------------------------------------
+# Upload dependency check
+#
+# The ARISTOTLE upload route (aristotle/api.py) imports pypdf for PDF text
+# extraction. If pypdf isn't installed, uploads fail with a generic
+# "Text extraction failed" error that's hard to diagnose. Check up front
+# and print a clear fix instruction.
+# ---------------------------------------------------------------------------
+check_upload_deps() {
+    if ! python3 -c "import pypdf" 2>/dev/null && ! uv run python -c "import pypdf" 2>/dev/null; then
+        echo "WARNING: pypdf is not installed — PDF uploads will fail."
+        echo "  Fix: cd ~/AIP_Aristotle && pip install -e ."
+        echo "  (or: uv pip install pypdf)"
+        echo ""
+    fi
+}
+
+check_upload_deps || true
+
 # --- Child process tracking ---
 CHILD_PIDS=()
 
