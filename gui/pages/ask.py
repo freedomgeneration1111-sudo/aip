@@ -1881,10 +1881,62 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                             await _render_draft_plan(draft_plan)
 
                         # Intake complete → auto-transition to PLACER.
+                        # ADR-003 Phase 3: if the multi-step plan pipeline
+                        # started (plan_job_id returned), poll for completion
+                        # before transitioning. The pipeline runs 6 steps
+                        # (structure retrieval → gap analysis → plan design →
+                        # concept detail) and takes 1-2 minutes.
                         if data.get("state") == "COMPLETE":
                             _plan_id = data.get("plan_id", "")
                             await _set_phase("PLACER")
                             await _start_placer()
+                        elif data.get("plan_job_id"):
+                            # Pipeline started — poll for completion
+                            plan_job_id = data["plan_job_id"]
+                            await _render_aristotle_message(
+                                "I'm now designing your learning plan. This involves "
+                                "analyzing the paper's structure, identifying your "
+                                "knowledge gaps, and building a phased curriculum. "
+                                "This takes 1-2 minutes — I'll let you know when it's ready."
+                            )
+                            async def _poll_plan_progress(job_id: str) -> None:
+                                import asyncio as _asyncio
+                                for _ in range(120):  # poll for up to 10 min
+                                    await _asyncio.sleep(5)
+                                    try:
+                                        async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=10.0) as client:
+                                            r = await client.get(f"/aristotle/plan/{job_id}/status")
+                                            r.raise_for_status()
+                                            status = r.json()
+                                    except Exception:
+                                        continue
+                                    status_val = status.get("status", "")
+                                    steps_done = status.get("steps_done", 0)
+                                    steps_total = status.get("steps_total", 6)
+                                    if status_val == "COMPLETE":
+                                        nonlocal _plan_id
+                                        _plan_id = status.get("plan_id", "")
+                                        await _render_aristotle_message(
+                                            f"✅ Learning plan ready! I've designed a "
+                                            f"phased curriculum based on your paper + "
+                                            f"background. Let's begin with a quick "
+                                            f"placement check."
+                                        )
+                                        await _set_phase("PLACER")
+                                        await _start_placer()
+                                        return
+                                    elif status_val == "FAILED":
+                                        error = status.get("error", "unknown error")
+                                        await _render_error(
+                                            f"Plan generation failed: {error}. "
+                                            f"Please try confirming your plan again."
+                                        )
+                                        return
+                                await _render_error(
+                                    "Plan generation is taking longer than expected. "
+                                    "Please check the backend logs or try again."
+                                )
+                            asyncio.create_task(_poll_plan_progress(plan_job_id))
                 except Exception as exc:
                     await _render_http_error(exc, "/aristotle/intake/step")
 
