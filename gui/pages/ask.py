@@ -1830,7 +1830,7 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                 """
                 nonlocal _intake_session
                 try:
-                    async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=60.0) as client:
+                    async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=300.0) as client:
                         resp = await client.post(
                             "/aristotle/intake/start",
                             json={"plan_id": None},
@@ -1854,7 +1854,7 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                 """
                 nonlocal _intake_session, _plan_id, _pending_material_ids
                 try:
-                    async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=60.0) as client:
+                    async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=300.0) as client:
                         resp = await client.post(
                             "/aristotle/intake/step",
                             json={
@@ -1955,7 +1955,7 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                     "This just helps me meet you where you are."
                 )
                 try:
-                    async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=60.0) as client:
+                    async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=300.0) as client:
                         resp = await client.post(
                             "/aristotle/placer/start",
                             json={"plan_id": _plan_id},
@@ -1973,7 +1973,7 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                 """Advance placement one turn with the learner's answer."""
                 nonlocal _placer_session, _concept_id
                 try:
-                    async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=60.0) as client:
+                    async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=300.0) as client:
                         resp = await client.post(
                             "/aristotle/placer/step",
                             json={
@@ -2038,7 +2038,7 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                     f"then teach, then check your understanding."
                 )
                 try:
-                    async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=60.0) as client:
+                    async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=300.0) as client:
                         resp = await client.post(
                             "/aristotle/session/start",
                             json={"concept_id": _concept_id},
@@ -2066,7 +2066,7 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                 """Advance the tutoring loop one turn with the learner's answer."""
                 nonlocal _tutor_session
                 try:
-                    async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=60.0) as client:
+                    async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=300.0) as client:
                         resp = await client.post(
                             "/aristotle/session/step",
                             json={
@@ -2220,7 +2220,7 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                 await _render_aristotle_message(f"Uploading {filename}...")
 
                 try:
-                    async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=60.0) as client:
+                    async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=300.0) as client:
                         upload_resp = await client.post(
                             "/aristotle/upload",
                             content=content,
@@ -2305,6 +2305,15 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                                 # ingestion chunks + embeds + analyzes the paper
                                 # for RAG retrieval. Until it's done, the
                                 # IntakeActor falls back to legacy truncation.
+                                #
+                                # IMPORTANT: do NOT auto-trigger _step_intake
+                                # until ingestion is COMPLETE. The RAG retrieval
+                                # needs the structural map (from the ANALYZE
+                                # phase) to build a good prompt. Auto-triggering
+                                # before ingestion finishes causes:
+                                #   - empty structural_maps → legacy truncation fallback
+                                #   - large RAG prompt → long LLM call → OpenRouter timeout
+                                #   - "Something went wrong" error
                                 if ingest_job_id:
                                     async def _poll_ingest_progress(job_id: str) -> None:
                                         import asyncio as _asyncio
@@ -2327,6 +2336,11 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                                                     f"structural analysis: {analysis}. "
                                                     f"I can now retrieve specific sections as we discuss."
                                                 )
+                                                # NOW auto-trigger an intake step — the
+                                                # structural map is ready, RAG retrieval
+                                                # will work properly.
+                                                if _phase == "INTAKE" and _intake_session:
+                                                    await _step_intake("")
                                                 return
                                             elif status_val == "FAILED":
                                                 error = status.get("error", "unknown error")
@@ -2335,6 +2349,10 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                                                     f"You can continue chatting, but I'll use "
                                                     f"the legacy truncation path instead of RAG."
                                                 )
+                                                # On failure, still auto-trigger so the
+                                                # learner gets a response (legacy path).
+                                                if _phase == "INTAKE" and _intake_session:
+                                                    await _step_intake("")
                                                 return
                                         # Timeout — don't error, just stop polling
                                         await _render_aristotle_message(
@@ -2342,20 +2360,15 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                                             f"I'll use the legacy path for now — once ingestion "
                                             f"completes, I'll automatically switch to RAG retrieval.)"
                                         )
+                                        # Auto-trigger even on timeout (legacy path)
+                                        if _phase == "INTAKE" and _intake_session:
+                                            await _step_intake("")
                                     asyncio.create_task(_poll_ingest_progress(ingest_job_id))
-
-                                # AUTO-TRIGGER an intake step with empty student_input
-                                # so the LLM immediately sees the paper content and
-                                # can acknowledge it specifically (instead of waiting
-                                # for the learner to type something). The learner's
-                                # next typed reply then drives the conversation
-                                # forward with the paper already in context.
-                                #
-                                # Only auto-trigger during INTAKE phase — during
-                                # PLACER/TUTORING the upload is for reference and
-                                # the learner drives the next step.
-                                if _phase == "INTAKE" and _intake_session:
-                                    await _step_intake("")
+                                else:
+                                    # No ingest job (paper too short or upload issue) —
+                                    # auto-trigger immediately via legacy path.
+                                    if _phase == "INTAKE" and _intake_session:
+                                        await _step_intake("")
                         else:
                             await _render_aristotle_message(
                                 f"Uploaded {filename} but couldn't extract any text. "
