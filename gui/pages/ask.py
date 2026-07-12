@@ -1989,13 +1989,20 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                         if data.get("state") == "COMPLETE":
                             # Placement done → transition to tutoring.
                             await _set_phase("TUTORING")
-                            # Pick the first concept from the plan's concept list.
-                            # (The placer's _finalize_placement sets
-                            # current_concept_idx on the plan row; we read
-                            # it back via /aristotle/concepts and pick the
-                            # first concept we don't already have mastery on.
-                            # For now, simplest: read concept_ids_json from
-                            # the plan and take the first one.)
+                            # Task 17: use the plan's own authoritative next
+                            # concept (now returned directly by
+                            # /placer/step) instead of falling through to
+                            # _start_tutoring's GET /aristotle/concepts
+                            # fallback, which returns every concept ever
+                            # ingested by anyone with no plan/material
+                            # scoping — it was silently handing every
+                            # student "newton_first_law" (the oldest row
+                            # in the table, a leftover dogfood-bootstrap
+                            # concept), regardless of which plan or
+                            # material was actually active.
+                            next_concept_id = data.get("next_concept_id")
+                            if next_concept_id:
+                                _concept_id = next_concept_id
                             await _start_tutoring()
                         elif question:
                             await _render_aristotle_message(question)
