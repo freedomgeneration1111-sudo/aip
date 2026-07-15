@@ -2202,18 +2202,52 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                                 f"({idx}/{total} concepts, {status_str})"
                             )
 
-                            async def _on_resume(_evt, pid=plan_id) -> None:
-                                await _resume_plan(pid)
+                            # Task 20: each plan row is now a row
+                            # containing the Resume button (main click
+                            # target, left-aligned, fills most of the
+                            # width) + a small delete icon button
+                            # (separate click target, right-aligned).
+                            # Clicking Resume must NEVER trigger delete
+                            # — they are sibling elements, not nested.
+                            #
+                            # Delete is a two-step confirm: first click
+                            # on the trash icon shows a "Confirm delete
+                            # <subject>?" inline prompt with Confirm /
+                            # Cancel buttons. Only the second click
+                            # (Confirm) calls the DELETE route. This is
+                            # a real destructive action with no undo —
+                            # a one-click delete on live student data
+                            # is not acceptable per the task brief.
+                            with ui.row().classes("w-full items-center gap-2").style(
+                                "margin:2px 0;"
+                            ):
+                                async def _on_resume(_evt, pid=plan_id) -> None:
+                                    await _resume_plan(pid)
 
-                            ui.button(label, on_click=_on_resume).props(
-                                "flat dense align=left no-caps"
-                            ).style(
-                                f"color:{C_CREAM}; font-family:{F_MONO}; "
-                                f"font-size:13px; text-transform:none; "
-                                f"justify-content:flex-start; "
-                                f"border:0.5px solid {C_INK40}; "
-                                f"margin:2px 0;"
-                            )
+                                ui.button(label, on_click=_on_resume).props(
+                                    "flat dense align=left no-caps"
+                                ).style(
+                                    f"color:{C_CREAM}; font-family:{F_MONO}; "
+                                    f"font-size:13px; text-transform:none; "
+                                    f"justify-content:flex-start; "
+                                    f"border:0.5px solid {C_INK40}; "
+                                    f"flex:1;"
+                                )
+
+                                # Trash icon button — first click opens
+                                # the inline confirmation prompt.
+                                async def _on_delete_click(_evt, pid=plan_id, psub=subject) -> None:
+                                    await _confirm_delete_plan(pid, psub)
+
+                                ui.button("🗑", on_click=_on_delete_click).props(
+                                    "flat dense round no-caps"
+                                ).style(
+                                    f"color:{C_ERR_FG}; font-size:14px; "
+                                    f"min-width:32px; padding:4px 8px; "
+                                    f"border:0.5px solid {C_INK40};"
+                                ).tooltip(
+                                    f"Delete plan: {subject} (irreversible)"
+                                )
 
                         ui.separator().style(f"background:{C_INK40}; margin:8px 0;")
 
@@ -2285,6 +2319,107 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                 input_field.set_enabled(True)
                 chat_container.clear()
                 await _start_intake()
+
+            async def _confirm_delete_plan(plan_id: str, subject: str) -> None:
+                """Two-step delete confirmation (Task 20).
+
+                First click on the trash icon calls this. Renders an
+                inline "Confirm delete <subject>? This is irreversible."
+                prompt with Confirm + Cancel buttons. Only the second
+                click (Confirm) calls _delete_plan() which hits the
+                DELETE route. The chat bar stays gated (_picker_showing
+                remains True) throughout so the learner can't type into
+                the chat bar while the confirmation is up.
+
+                Uses ui.dialog for modal semantics — the learner must
+                pick one of the two buttons to dismiss it, no way to
+                accidentally trigger the delete by clicking elsewhere.
+                """
+                with ui.dialog() as dialog, ui.card().style(
+                    f"background:{C_SURFACE}; padding:24px; "
+                    f"max-width:480px;"
+                ):
+                    ui.label("Delete this learning plan?").style(
+                        f"font-size:16px; font-weight:700; "
+                        f"color:{C_ERR_FG}; font-family:{F_MONO}; "
+                        f"margin-bottom:12px;"
+                    )
+                    ui.label(
+                        f"Plan: {subject}\n\n"
+                        f"This will permanently delete the plan and all its "
+                        f"concepts, mastery records, placement events, and "
+                        f"session history. The source material (uploaded "
+                        f"PDF/text) is NOT deleted — only the plan built "
+                        f"from it.\n\n"
+                        f"This action is irreversible. There is no undo."
+                    ).style(
+                        f"font-size:12px; color:{C_CREAM}; "
+                        f"font-family:{F_MONO}; line-height:1.6; "
+                        f"white-space:pre-wrap; margin-bottom:20px;"
+                    )
+                    with ui.row().classes("w-full justify-end gap-2"):
+                        ui.button("Cancel", on_click=dialog.close).props(
+                            "flat no-caps"
+                        ).style(
+                            f"color:{C_MUTED}; font-family:{F_MONO}; "
+                            f"font-size:12px;"
+                        )
+
+                        async def _on_confirm() -> None:
+                            dialog.close()
+                            await _delete_plan(plan_id, subject)
+
+                        ui.button("Delete permanently", on_click=_on_confirm).props(
+                            "no-caps"
+                        ).style(
+                            f"background:{C_ERR_FG}; color:{C_GROUND}; "
+                            f"font-family:{F_MONO}; font-size:12px; "
+                            f"font-weight:700;"
+                        )
+                dialog.open()
+
+            async def _delete_plan(plan_id: str, subject: str) -> None:
+                """Call DELETE /aristotle/plans/{plan_id} + refresh the picker.
+
+                On success: show a brief "deleted" message in chat, then
+                re-render the picker (the deleted plan is gone, the rest
+                remain). On failure: show the error inline and re-render
+                the picker so the learner can retry or pick a different
+                plan.
+
+                The DELETE route is destructive with no undo — the
+                confirmation step in _confirm_delete_plan is the only
+                thing standing between the user and data loss. That's
+                why this function does NOT ask again; the user has
+                already explicitly confirmed.
+                """
+                # Clear the picker (we're going to re-render it after).
+                chat_container.clear()
+                await _render_aristotle_message(
+                    f"Deleting plan '{subject}'..."
+                )
+                try:
+                    async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=30.0) as client:
+                        resp = await client.delete(f"/aristotle/plans/{plan_id}")
+                        resp.raise_for_status()
+                        result = resp.json()
+                except Exception as exc:
+                    await _render_http_error(exc, f"DELETE /aristotle/plans/{plan_id}")
+                    # Re-render the picker so the learner can retry.
+                    await _show_plan_picker()
+                    return
+
+                concepts_n = result.get("concepts_deleted", 0)
+                cascade_n = result.get("cascade_rows_deleted", 0)
+                await _render_aristotle_message(
+                    f"Deleted '{subject}' — {concepts_n} concepts and "
+                    f"{cascade_n} related records (placement, mastery, "
+                    f"session history, etc.) removed."
+                )
+                # Re-render the picker so the learner can pick another
+                # plan to resume or start a new one. The deleted plan
+                # will not appear in the new list.
+                await _show_plan_picker()
 
             async def _on_aristotle_send() -> None:
                 """Main chat dispatch — routes the learner's input to the
