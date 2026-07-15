@@ -1614,6 +1614,13 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
     # finishes — the old polling approach produced "I couldn't start
     # the intake conversation" when the model was slow but working).
     _intake_start_task: Any = None
+    # Task 19: when the plan picker is showing, the chat bar is gated.
+    # The learner must pick a plan (Resume or Start new) before the chat
+    # bar accepts input. Without this gate, typing "resume my lessons"
+    # into the chat bar while the picker is showing would fall through
+    # _on_aristotle_send's "no _intake_session → retry _start_intake"
+    # branch and start a fresh intake, bypassing the picker entirely.
+    _picker_showing: bool = False
 
     with (
         ui.column()
@@ -2100,6 +2107,185 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                 except Exception as exc:
                     await _render_http_error(exc, "/aristotle/session/step")
 
+            # -------------------------------------------------------
+            # Task 19: plan picker — "Resume <subject>" UI.
+            #
+            # The pre-Task-19 page load unconditionally called
+            # _start_intake() with plan_id=None, which always returned
+            # a fresh GREETING. Existing plans (pharmacy, physics, etc.)
+            # were undiscoverable from the UI — the learner had to know
+            # the plan_id out-of-band. Saying "resume my lessons" just
+            # went into the intake as a regular reply.
+            #
+            # The picker calls GET /aristotle/plans (Task 18 API) and
+            # renders one button per existing plan + a "Start new
+            # subject" button. Clicking "Resume" calls /intake/start
+            # with the chosen plan_id; check_intake_triggers() returns
+            # trigger=None for healthy plans (skip intake, jump straight
+            # to PLACER), or the right re-engagement trigger for stale
+            # / completed plans.
+            # -------------------------------------------------------
+
+            async def _show_plan_picker() -> None:
+                """Fetch existing plans + render a Resume / Start-New picker.
+
+                If the plans list is empty (genuinely first-time user, or
+                the backend is unreachable), falls through to _start_intake()
+                so the existing onboarding flow runs unchanged.
+                """
+                nonlocal _picker_showing
+                try:
+                    async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=5.0) as client:
+                        r = await client.get("/aristotle/plans")
+                        r.raise_for_status()
+                        plans = r.json() or []
+                except Exception:
+                    # Backend unreachable — don't block onboarding. Fall
+                    # through to fresh intake; the learner can still
+                    # onboard even if /plans is broken.
+                    await _start_intake()
+                    return
+
+                if not plans:
+                    # No existing plans — go straight to fresh intake.
+                    await _start_intake()
+                    return
+
+                # Render the picker. Gate the chat bar so the learner
+                # can't type "resume my lessons" into the chat bar while
+                # the picker is showing (that would bypass the picker via
+                # _on_aristotle_send's retry path).
+                _picker_showing = True
+                input_field.set_enabled(False)
+
+                # Render the picker inside the chat container. Each plan
+                # is a button; clicking it clears the picker and resumes
+                # that plan. A "Start new subject" button at the bottom
+                # runs the existing fresh-intake flow.
+                with chat_container:
+                    with ui.column().style(
+                        f"background:{C_SURFACE}; padding:16px 20px; "
+                        f"border-radius:8px; max-width:80%; gap:10px; "
+                        f"border-left:3px solid {C_AMBER};"
+                    ):
+                        ui.label("Welcome back").style(
+                            f"font-size:16px; font-weight:700; color:{C_AMBER}; "
+                            f"font-family:{F_MONO}; letter-spacing:0.3px;"
+                        )
+                        ui.label(
+                            "I found existing learning plans on this machine. "
+                            "Pick one to resume, or start a new subject."
+                        ).style(
+                            f"font-size:13px; color:{C_CREAM}; font-family:{F_MONO}; "
+                            f"line-height:1.5;"
+                        )
+
+                        for plan in plans:
+                            plan_id = plan.get("id", "")
+                            subject = plan.get("subject", "(untitled subject)")
+                            status = plan.get("status", "active")
+                            total = plan.get("total_concepts", 0)
+                            idx = plan.get("current_concept_idx", 0)
+                            last = plan.get("last_session_at")
+
+                            # Build a one-line description per plan.
+                            if status == "complete":
+                                status_str = "complete"
+                            elif last:
+                                # Trim ISO timestamp to YYYY-MM-DD for display.
+                                status_str = f"last session {last[:10]}"
+                            else:
+                                status_str = "not started yet"
+
+                            label = (
+                                f"Resume: {subject}  "
+                                f"({idx}/{total} concepts, {status_str})"
+                            )
+
+                            async def _on_resume(_evt, pid=plan_id) -> None:
+                                await _resume_plan(pid)
+
+                            ui.button(label, on_click=_on_resume).props(
+                                "flat dense align=left no-caps"
+                            ).style(
+                                f"color:{C_CREAM}; font-family:{F_MONO}; "
+                                f"font-size:13px; text-transform:none; "
+                                f"justify-content:flex-start; "
+                                f"border:0.5px solid {C_INK40}; "
+                                f"margin:2px 0;"
+                            )
+
+                        ui.separator().style(f"background:{C_INK40}; margin:8px 0;")
+
+                        async def _on_new(_evt) -> None:
+                            await _start_new_plan()
+
+                        ui.button("Start a new subject", on_click=_on_new).props(
+                            "flat dense align=left no-caps"
+                        ).style(
+                            f"color:{C_AMBER}; font-family:{F_MONO}; "
+                            f"font-size:13px; text-transform:none; "
+                            f"justify-content:flex-start;"
+                        )
+
+            async def _resume_plan(plan_id: str) -> None:
+                """Resume an existing plan via /intake/start with plan_id.
+
+                check_intake_triggers() on the backend decides:
+                  - trigger=None → plan is healthy; skip intake, jump
+                    straight to PLACER.
+                  - trigger='full'/'checkin'/'partial' → render the
+                    re-engagement prompt, enter INTAKE phase with the
+                    returned session so the learner can reply.
+                """
+                nonlocal _intake_session, _plan_id, _phase, _picker_showing
+                # Clear the picker — we're moving past it. Re-enable the
+                # chat bar so the learner can reply to the placement
+                # questions or the re-engagement prompt.
+                _picker_showing = False
+                input_field.set_enabled(True)
+                chat_container.clear()
+                try:
+                    async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=300.0) as client:
+                        resp = await client.post(
+                            "/aristotle/intake/start",
+                            json={"plan_id": plan_id},
+                        )
+                        resp.raise_for_status()
+                        data = resp.json()
+                except Exception as exc:
+                    await _render_http_error(exc, "/aristotle/intake/start (resume)")
+                    return
+
+                trigger = data.get("trigger")
+                # trigger=None means "no intake needed, plan is healthy."
+                # The route returns {trigger: None, prompt: None, session: None}
+                # — proceed directly to PLACER for the resumed plan.
+                if trigger is None:
+                    _plan_id = plan_id
+                    _phase = "PLACER"
+                    phase_label.set_text("Placement")
+                    await _start_placer()
+                    return
+
+                # Otherwise, render the re-engagement prompt and enter
+                # INTAKE so the learner can reply through the normal
+                # chat bar. /intake/start already built the session at
+                # the trigger's entry_state.
+                _intake_session = data.get("session") or {}
+                _plan_id = plan_id
+                prompt = data.get("prompt") or ""
+                if prompt:
+                    await _render_aristotle_message(prompt)
+
+            async def _start_new_plan() -> None:
+                """Clear the picker + kick off fresh intake (existing flow)."""
+                nonlocal _picker_showing
+                _picker_showing = False
+                input_field.set_enabled(True)
+                chat_container.clear()
+                await _start_intake()
+
             async def _on_aristotle_send() -> None:
                 """Main chat dispatch — routes the learner's input to the
                 correct backend endpoint based on the current phase.
@@ -2115,6 +2301,14 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                 nonlocal _intake_start_task
                 text = input_field.value.strip()
                 if not text:
+                    return
+                # Task 19: if the plan picker is showing, ignore chat-bar
+                # input entirely. The learner must click a picker button
+                # (Resume / Start new) to move past this gate. The chat
+                # bar is also disabled at the input level, but this is a
+                # belt-and-braces guard against keyboard shortcuts /
+                # programmatic submits.
+                if _picker_showing:
                     return
                 input_field.value = ""
                 await _render_student_message(text)
@@ -2412,11 +2606,19 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                 lambda: asyncio.create_task(_on_aristotle_send()),
             )
 
-        # Kick off the intake conversation on page load. The greeting
-        # from /intake/start appears as the first chat bubble. Store the
-        # task so _on_aristotle_send can await it if the user sends
-        # before it completes (model calls can take 30-60s on OpenRouter).
-        _intake_start_task = asyncio.create_task(_start_intake())
+        # Kick off the plan picker on page load. If existing plans are
+        # found, the learner picks one to resume or starts a new subject;
+        # otherwise the picker falls through to _start_intake() and the
+        # greeting appears as the first chat bubble (pre-Task-19 behavior).
+        # Store the task so _on_aristotle_send can await it if the user
+        # sends before it completes (model calls can take 30-60s on
+        # OpenRouter).
+        #
+        # Task 19: previously this was asyncio.create_task(_start_intake())
+        # unconditionally — every page load started fresh intake, existing
+        # plans were undiscoverable, and "resume my lessons" went into
+        # the intake as a regular reply.
+        _intake_start_task = asyncio.create_task(_show_plan_picker())
 
     # Right rail — the SINGLE global right sidebar. Shared layout component
     # renders the extension context panel via _right_extension_panel(), which
