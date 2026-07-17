@@ -1977,7 +1977,19 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                     await _render_http_error(exc, "/aristotle/placer/start")
 
             async def _step_placer(student_input: str) -> None:
-                """Advance placement one turn with the learner's answer."""
+                """Advance placement one turn with the learner's answer.
+
+                Task 25 Fix 2: when the student's input was classified as
+                QUESTION/TANGENT/CHAT (Task 24), the backend returns a
+                "response" field with the curiosity/chat answer text +
+                an "intent_class" field. The curiosity response already
+                includes a natural weave-back ("Want to keep exploring
+                this, or shall we continue where we left off?") so we
+                render it ALONE — not alongside the still-pending probe
+                question, which would be redundant and clunky. The probe
+                question stays pending on the backend (session state
+                unchanged); the student can answer it on the next turn.
+                """
                 nonlocal _placer_session, _concept_id
                 try:
                     async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=300.0) as client:
@@ -1992,6 +2004,10 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                         data = resp.json()
                         _placer_session = data.get("session", _placer_session)
                         question = data.get("question")
+                        # Task 25 Fix 2: read the curiosity/chat response.
+                        # None for normal ANSWER turns (the backend doesn't
+                        # set it in that branch).
+                        curiosity_response = data.get("response")
 
                         if data.get("state") == "COMPLETE":
                             # Placement done → transition to tutoring.
@@ -2011,6 +2027,16 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                             if next_concept_id:
                                 _concept_id = next_concept_id
                             await _start_tutoring()
+                        elif curiosity_response:
+                            # Task 25 Fix 2: a curiosity/chat answer takes
+                            # priority over re-rendering the pending probe
+                            # question. The curiosity response already
+                            # weaves back to the pending probe naturally
+                            # ("Want to keep exploring this, or shall we
+                            # continue where we left off?"), so rendering
+                            # the raw question text underneath would be
+                            # redundant.
+                            await _render_aristotle_message(curiosity_response)
                         elif question:
                             await _render_aristotle_message(question)
                 except Exception as exc:
