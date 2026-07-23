@@ -47,7 +47,15 @@ developers and operators working on AIP itself.
 - **Spec revision numbers must increment**: Never reuse a spec revision number.
 
 ## Last Cycle
-- **QW15 + QW4 — ROADMAP.md fleet phases marked spec-only; STATUS.md header refreshed** (this cycle):
+- **QW12 — Added `docs/ADDING_A_CORPUS.md` operator guide** (this cycle):
+  new onboarding doc covering: picking a corpus_id + CorpusType, registering
+  at startup (app.py lifespan), TOML config (planned), ingesting content
+  (CLI commands for code/document/conversation), the sensitive flag + 4-layer
+  defense, MAX_CORPORA budget arithmetic, extension-contributed corpora
+  (manifest pattern), migration patterns, common pitfalls, and cross-
+  references. All cross-referenced files verified to exist. Closes the
+  onboarding gap (R8 from tech-debt assessment — reduces bus-factor risk).
+- **QW15 + QW4 — ROADMAP.md fleet phases marked spec-only; STATUS.md header refreshed** (prior cycle):
   - ROADMAP.md: Fleet Phases section header changed from "when accepted" to
     "ACCEPTED, spec only"; added prominent banner listing exactly which
     primitives don't exist (AgentRun, CapabilityGate, FleetCoordinator,
@@ -77,6 +85,7 @@ developers and operators working on AIP itself.
 | `hardening/` | Hardening audit docs, discrepancy registers |
 | `evals/` | Evaluation criteria and golden test definitions |
 | `UI_CONVENTIONS.md` | Target spec for the three-panel shell (marked target spec 2026-07-23) |
+| `ADDING_A_CORPUS.md` | Operator guide for adding a new corpus (QW12, 2026-07-23) |
 
 ## Key ADRs
 | ADR | Title | Impact |
