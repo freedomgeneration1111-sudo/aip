@@ -60,7 +60,14 @@ CI runs on every push to main — failures block merge.
   Forgetting the mark causes the test to be skipped silently.
 
 ## Last Cycle
-- **QW7 — Doc Drift Guard suite added** (this cycle): new
+- **QW14 — Codeforge end-to-end acceptance test added** (this cycle): new
+  `tests/acceptance/test_codeforge_e2e.py` (4 tests, AC-10). Exercises the
+  full Phase 1.6 Codebase-as-Corpus flow: register codeforge corpus →
+  ingest Python source via code_ingest_pipeline → search via CorpusTurnStore
+  → verify hits. Includes a test that ingests real AIP source from
+  `src/aip/foundation/` and verifies `CorpusType` is searchable. Closes
+  ND10 from the tech-debt assessment.
+- **QW7 — Doc Drift Guard suite added** (prior cycle): new
   `tests/test_doc_drift_guard.py` (13 tests, stdlib-only, runs in any CI
   env). Each test guards ONE specific doc claim against code reality:
   - `TestMultiCorpusStartupRegistration` — app.py registers definer + codeforge
