@@ -47,7 +47,18 @@ developers and operators working on AIP itself.
 - **Spec revision numbers must increment**: Never reuse a spec revision number.
 
 ## Last Cycle
-- **QW5 — UI_CONVENTIONS.md marked as target spec** (this cycle): added a
+- **QW15 + QW4 — ROADMAP.md fleet phases marked spec-only; STATUS.md header refreshed** (this cycle):
+  - ROADMAP.md: Fleet Phases section header changed from "when accepted" to
+    "ACCEPTED, spec only"; added prominent banner listing exactly which
+    primitives don't exist (AgentRun, CapabilityGate, FleetCoordinator,
+    DispatchPlan, fleet_cost_ledger, start_policy, parallel_safe, trajectory
+    corpus, CURATOR); all 7 phases marked "🔲 Planned (zero code)".
+  - STATUS.md: "Last Updated" bumped from 2026-06-17 to 2026-07-23. Project
+    Mode line expanded to mention ADR-014 Extension Platform + ADR-008
+    Multi-Corpus + ARISTOTLE extraction. Added test count (4,384 collected)
+    and cross-references to ROADMAP/TECH_DEBT. Closes D8 from the tech-debt
+    assessment (STATUS.md was 6 days stale).
+- **QW5 — UI_CONVENTIONS.md marked as target spec** (prior cycle): added a
   prominent banner at the top of `docs/UI_CONVENTIONS.md` clarifying that
   the document describes the **target** UI shell, not the current state.
   Itemized which parts are implemented (left sidebar, extension nav via

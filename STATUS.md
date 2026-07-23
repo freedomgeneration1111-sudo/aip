@@ -2,16 +2,28 @@
 
 **Version:** 0.1.0-alpha
 **Architecture Revision:** 6.4
-**Last Updated:** 2026-06-17
+**Last Updated:** 2026-07-23
 **Release:** Alpha Test Release
-**Project Mode:** ACTIVE DEVELOPMENT — Fusion pipeline + Phase 4.1 features shipped; see PLANNED_FEATURES.md
+**Project Mode:** ACTIVE DEVELOPMENT — Fusion pipeline + Phase 4.1 + ADR-014 Extension Platform + ADR-008 Multi-Corpus shipped; ARISTOTLE extracted to separate repo; see PLANNED_FEATURES.md
 
-> This document reflects the state after the Fusion pipeline upgrade (Phases 1-3 + 4.1)
-> and the global docs hardening pass. The Fusion pipeline is feature-complete:
-> retrieval bridge, Judge/Synth split, per-model compression, per-model attribution
-> badges, dedicated [models.judge] slot, panel dispatch remediation, provenance
-> widget, Context Preparer visualizer, and Vigil consistency checker.
-> See PLANNED_FEATURES.md for the canonical tracker of what's built / planned / deferred.
+> This document reflects the state after the Fusion pipeline upgrade (Phases 1-3 + 4.1),
+> the ADR-008 Multi-Corpus Chunks 1-9, the ADR-014 Phase 0 Extension Platform,
+> and the 2026-07-23 tech-debt assessment quick-win pass. The Fusion pipeline is
+> feature-complete: retrieval bridge, Judge/Synth split, per-model compression,
+> per-model attribution badges, dedicated [models.judge] slot, panel dispatch
+> remediation, provenance widget, Context Preparer visualizer, and Vigil
+> consistency checker. The Extension Platform (ADR-014 steps 0-6) is shipped:
+> ExtensionHost lifecycle, entry-point discovery, Actor Protocol, WorkflowEngine
+> wired, `/health/extensions` endpoint. ARISTOTLE — the first extension — lives
+> in a separate repo (`AIP_Aristotle`) and is installed via `pip install`.
+>
+> **Test count:** 4,384 tests collected (as of 2026-07-23). The 60-test platform
+> suite (extension lifecycle + actor protocol + import boundary + extended
+> workflows + workflow engine wiring + model slot resolver) passes with 0 warnings.
+>
+> See `PLANNED_FEATURES.md` for the canonical tracker of what's built / planned / deferred.
+> See `ROADMAP.md` for the phase plan (note: ADR-015 fleet phases are spec only —
+> zero fleet code today). See `TECH_DEBT.md` for the debt register.
 
 ## Production Safety Status
 
