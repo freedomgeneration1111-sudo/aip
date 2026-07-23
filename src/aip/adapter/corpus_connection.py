@@ -11,8 +11,8 @@ cap with ~28 consumed by the 7 pre-existing files leaves only ~36, giving
 MAX_CORPORA = floor(36 / 24) = 1. Defeats the multi-corpus purpose.
 
 With sharing: per_corpus = 1 (shared write) + CORPUS_READ_POOL_SIZE (shared
-read pool) = 1 + 2 = 3. MAX_CORPORA = floor(36 / 3) = 12, shipped at 4
-(conservative headroom).
+read pool) = 1 + 2 = 3. MAX_CORPORA = floor(36 / 3) = 12, shipped at 8
+(conservative headroom — raised from 4 on 2026-07-23 per QW10).
 
 Layer: adapter. Holds live aiosqlite connections. Imports from foundation only.
 

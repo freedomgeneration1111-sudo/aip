@@ -892,3 +892,45 @@ had no debt item to cross-reference. This entry closes that gap.
 places. This entry is purely for audit trail completeness.
 
 ---
+
+## DEBT-025 — MAX_CORPORA Raised from 4 to 8 (Fleet Budget Headroom)
+
+**Status:** Resolved — 2026-07-23 (QW10)
+**Phase:** Pre-fleet (ADR-015 Phase 3A-0 prerequisite)
+**Filed:** 2026-07-23
+
+**What was deferred:**
+The conservative cap on registered corpora (`MAX_CORPORA` in
+`foundation/corpus_constants.py`) was set to 4 — enough for definer +
+ARISTOTLE + 2 future extensions. The ADR-015 fleet vision names 6+
+domain extensions (HERALD, LOOM, CodeForge, Praxis, Chronicle, Oracle),
+so the original cap would have blocked the fleet at the 3rd or 4th
+extension. The cap also had a latent bug: `app.py:481` hardcoded
+`max_corpora=4` instead of importing the `MAX_CORPORA` constant, so
+changing the constant alone wouldn't propagate.
+
+**Why it mattered:**
+With definer already registered at startup, only 3 slots remained for
+extensions. ARISTOTLE uses 1, leaving 2 for the entire future fleet.
+Hitting the cap would have forced a corpus-lifecycle feature (unload
+unused corpora) as an emergency fix, which is much harder than raising
+the constant.
+
+**Resolution:**
+- `MAX_CORPORA` raised from 4 to 8 in `foundation/corpus_constants.py`.
+  Budget arithmetic: 8 × 3 = 24 connections, leaving 12 of headroom
+  under the 36-connection corpus budget (theoretical max is 12).
+- `app.py:481` now imports `MAX_CORPORA` and passes it to
+  `CorpusRegistry(max_corpora=MAX_CORPORA)` instead of hardcoding `4`.
+- `corpus_connection.py:13-15` docstring updated from "shipped at 4"
+  to "shipped at 8".
+- `test_corpus_foundation.py::test_connection_budget_formula_constants`
+  updated to assert `MAX_CORPORA == 8` with explicit headroom checks.
+
+**Verified:** 166 corpus tests + 22 app-factory tests pass. No regressions.
+
+**Related work:**
+- ND11 from the 2026-07-23 tech-debt assessment
+- R2 (fleet budget risk) from the same assessment — now mitigated
+
+---

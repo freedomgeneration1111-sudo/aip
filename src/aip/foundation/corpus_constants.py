@@ -22,9 +22,12 @@ from __future__ import annotations
 MAX_CONNECTIONS: int = 64
 
 # Conservative cap on registered corpora. Theoretical max is 12
-# (floor(36 / 3) at CORPUS_READ_POOL_SIZE=2); DEFINER may raise this
-# after confirming runtime fd headroom.
-MAX_CORPORA: int = 4
+# (floor(36 / 3) at CORPUS_READ_POOL_SIZE=2). Raised from 4 to 8 on
+# 2026-07-23 (QW10) to accommodate the ADR-015 fleet vision (definer +
+# ARISTOTLE + 6 future domain extensions). 8 × 3 = 24 connections,
+# leaving 12 of headroom under the 36-connection corpus budget.
+# DEFINER may raise further after confirming runtime fd headroom.
+MAX_CORPORA: int = 8
 
 # Read pool size for corpus stores. Smaller than the non-corpus default
 # (3) because each corpus shares ONE write connection + ONE read pool

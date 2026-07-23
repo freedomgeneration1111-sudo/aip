@@ -477,8 +477,9 @@ async def lifespan(app: FastAPI):
 
         from aip.adapter.corpus_registry import CorpusRegistry
         from aip.foundation.corpus_types import CorpusType
+        from aip.foundation.corpus_constants import MAX_CORPORA
 
-        _registry = CorpusRegistry(max_corpora=4)
+        _registry = CorpusRegistry(max_corpora=MAX_CORPORA)
         await _registry.startup(
             corpora_to_register=[
                 ("definer", CorpusType.CONVERSATION, _Path(db_path)),

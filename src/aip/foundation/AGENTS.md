@@ -113,7 +113,19 @@ foundation/schemas/ (14 domain schemas)
   in `corpus_types.py` ARE enums (they're new, no backward-compat constraint).
 
 ## Last Cycle
-- **ADR-014 §5.2 — Actor Protocol** (this cycle): Added `Actor` Protocol +
+- **QW10 — Raised MAX_CORPORA from 4 to 8** (this cycle): the conservative
+  cap on registered corpora in `corpus_constants.py` was 4 — enough for
+  definer + ARISTOTLE + 2 future extensions, but the ADR-015 fleet vision
+  names 6+ domain extensions (HERALD, LOOM, CodeForge, Praxis, Chronicle,
+  Oracle). Raising to 8 accommodates definer + ARISTOTLE + 6 future
+  extensions while leaving 12 connections of headroom under the
+  36-connection corpus budget (8 × 3 = 24 ≤ 36; theoretical max is 12).
+  Also fixed `app.py:481` to import and use `MAX_CORPORA` constant instead
+  of hardcoding `4` (latent bug — if the constant changed, app.py wouldn't
+  pick it up). Updated `test_corpus_foundation.py::test_connection_budget_formula_constants`
+  to assert `MAX_CORPORA == 8` with explicit headroom checks. Closes ND11
+  from the 2026-07-23 tech-debt assessment.
+- **ADR-014 §5.2 — Actor Protocol** (prior cycle): Added `Actor` Protocol +
   `ActorContext` + `ActorResult` dataclasses to `protocols/actors.py` (was
   `VigilStore` only). The Protocol is `@runtime_checkable` so the
   ExtensionHost validates actor conformance at scheduler start via

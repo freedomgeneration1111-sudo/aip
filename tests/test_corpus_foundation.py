@@ -195,7 +195,10 @@ class TestCorpusConstants:
         available  = 64 - 28 = 36
         per_corpus = 1 + 2 = 3 (shared write conn + shared read pool)
         theoretical_max = floor(36 / 3) = 12
-        SHIP: MAX_CORPORA = 4 (conservative headroom)
+        SHIP: MAX_CORPORA = 8 (raised from 4 on 2026-07-23 per QW10;
+              8 × 3 = 24, leaving 12 of headroom under the 36-connection
+              corpus budget — accommodates definer + ARISTOTLE + 6 future
+              fleet extensions per ADR-015)
         """
         assert MAX_CONNECTIONS == 64
         assert KNOWN_NON_CORPUS_DB_FILES == 7
@@ -214,8 +217,11 @@ class TestCorpusConstants:
         theoretical_max = available // per_corpus
         assert theoretical_max == 12
 
-        assert MAX_CORPORA == 4  # conservative
+        assert MAX_CORPORA == 8  # raised from 4 on 2026-07-23 (QW10)
         assert MAX_CORPORA <= theoretical_max
+        # Explicit headroom check: 8 corpora × 3 conns = 24, leaving 12 of 36
+        assert (MAX_CORPORA * per_corpus) <= available
+        assert available - (MAX_CORPORA * per_corpus) >= 12  # ≥12 conns headroom
 
     def test_sexton_batch_constants(self):
         """ADR-008 Rev 3.1 §9.5: Sexton yields lock every 100 turns, with

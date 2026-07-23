@@ -404,7 +404,14 @@ config/aip.config.toml ([models] section)
   the `{EXT_ID Upper}_...` namespace convention (ADR-014 §10).
 
 ## Last Cycle
-- **QW3 — Deleted unused duplicate `python_ast_parser.py` from orchestration** (this cycle):
+- **QW10 — Raised MAX_CORPORA from 4 to 8** (this cycle): `app.py:481` now
+  imports `MAX_CORPORA` from `aip.foundation.corpus_constants` and passes
+  it to `CorpusRegistry(max_corpora=MAX_CORPORA)` instead of hardcoding
+  `4`. This was a latent bug — if the constant changed, `app.py` wouldn't
+  pick it up. Also updated the docstring comment in `corpus_connection.py:13-15`
+  from "shipped at 4" to "shipped at 8 (conservative headroom — raised from
+  4 on 2026-07-23 per QW10)". 166 corpus tests + 22 app-factory tests pass.
+- **QW3 — Deleted unused duplicate `python_ast_parser.py` from orchestration** (prior cycle):
   - The orchestration copy at `orchestration/ingestion/parsers/python_ast_parser.py`
     was a byte-identical duplicate of `adapter/python_ast_parser.py` (411 lines
     each). Created during Chunk 7 in anticipation of moving the parser to
