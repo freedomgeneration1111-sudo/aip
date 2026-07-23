@@ -414,7 +414,21 @@ config/aip.config.toml ([models] section)
   the `{EXT_ID Upper}_...` namespace convention (ADR-014 §10).
 
 ## Last Cycle
-- **QW13b — Auto-ingest codeforge corpus in server lifespan** (this cycle):
+- **BUGFIX — Code turns had importance=0.0, invisible to retrieval** (this cycle):
+  `make_code_corpus_turn` in `python_ast_parser.py` did not set `importance`,
+  so it defaulted to 0.0 (the `CorpusTurn` default). The retrieval path
+  (`_search_corpus_turns` in `_augmented_context.py`) filters with
+  `min_importance=0.3`, which meant ALL code turns were filtered out —
+  the codeforge corpus was invisible to search despite having 2,407 turns
+  ingested. Discovered via dogfood: asking "How does the CorpusRegistry
+  enforce the connection budget?" returned "NO SOURCES" even with codeforge
+  selected. Fix: set `importance=1.0` in `make_code_corpus_turn` (code
+  turns are explicit, human-authored structure — they deserve max
+  importance, not the 0.0 "unscored" default). 3 new tests in
+  `test_code_turn_importance_fix.py`. **Operator action required:** existing
+  codeforge turns in db/codeforge.db still have importance=0.0 — run
+  `aip corpus ingest-code src/aip/ --force` to re-ingest with the fix.
+- **QW13b — Auto-ingest codeforge corpus in server lifespan** (prior cycle):
   added a background `asyncio.Task` to `app.py` lifespan that automatically
   ingests `src/aip/` into the codeforge corpus on server startup and
   re-ingests every 60s (configurable) to keep it in sync. This is the

@@ -407,6 +407,12 @@ def make_code_corpus_turn(
         turn_timestamp=datetime.now(timezone.utc).isoformat() + "Z",
         content_hash=spec.content_hash,
         source_path=spec.source_path,
+        # Code turns get importance=1.0 (max) because they are explicit,
+        # human-authored structure (functions, classes, registration calls)
+        # — not conversation noise that needs Beast scoring. Without this,
+        # the default 0.0 is below the retrieval min_importance=0.3 filter
+        # and code turns are invisible to search. Fix: 2026-07-23.
+        importance=1.0,
         metadata_json=__import__("json").dumps(
             {
                 "kind": spec.kind,
