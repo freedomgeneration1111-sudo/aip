@@ -67,7 +67,17 @@ Runs Beast LLM entity extraction on high-importance corpus turns.
   is correct but can be slow on large codebases.
 
 ## Last Cycle
-- **QW11 — Added `aip corpus ingest-code <path>` CLI command** (this cycle):
+- **QW13 — Added `aip corpus watch-code <path>` CLI command** (this cycle):
+  new click subcommand in `cli/corpus.py` that watches a Python source
+  directory and re-ingests on file changes. Polls every 30s (configurable
+  via `--interval`) by comparing file mtimes. When changes are detected,
+  re-runs `ingest_python_directory` with `skip_existing=True` (content_hash
+  stale detection skips unchanged turns, supersedes changed ones). Defaults
+  to `src/aip/` (enables real-time AIP-asks-AIP). Run alongside the AIP
+  server: `aip corpus watch-code &`. 5 tests in
+  `tests/test_corpus_watch_code_cli.py`. Closes ND6 from the tech-debt
+  assessment (the code corpus no longer ages out of sync immediately).
+- **QW11 — Added `aip corpus ingest-code <path>` CLI command** (prior cycle):
   new click subcommand in `cli/corpus.py` that calls
   `adapter/code_ingest_pipeline.ingest_python_directory()` to populate
   the codeforge corpus. Defaults to `src/aip/` if no path given (enables
@@ -83,7 +93,7 @@ Runs Beast LLM entity extraction on high-importance corpus turns.
 ## Key Files / Subdirectories
 | File | Role |
 |------|------|
-| `corpus.py` | `aip corpus` group: ingest, ingest-code (QW11), tag, wiki, graph, embed |
+| `corpus.py` | `aip corpus` group: ingest, ingest-code (QW11), watch-code (QW13), tag, wiki, graph, embed |
 | `_db_path.py` | Shared DB path resolution (config → env → fallback) |
 | `main.py` | `aip` entry point; registers all subcommand groups |
 | `ask.py` | `aip ask` — single-shot query against the corpus |
