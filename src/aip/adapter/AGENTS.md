@@ -28,6 +28,16 @@ Returns dict with:
 - `rate_limited_reason` (str, optional): reason for rate limit
 - `cycle_active` (bool, optional): True if Sexton cycle is running
 
+#### GET /corpus-registry/corpora  (QW9, 2026-07-23)
+Returns a list of dicts, one per registered corpus. Each dict has:
+- `corpus_id` (str): e.g. "definer", "codeforge", "branham"
+- `corpus_type` (str): "conversation" | "code" | "document" | "book"
+- `sensitive` (bool): True if the corpus requires session opt-in via `allowed_restricted_corpora`
+- `deletion_state` (str): "ACTIVE" | "DELETING"
+- `access_note` (str): human-readable note for restricted corpora
+Returns `[]` (not an error) when the registry is not wired. Consumed by
+`gui/components/corpus_selector.py` for the corpus multi-select UI.
+
 #### GET /corpus/status
 Returns dict with:
 - `turn_count` (int)
@@ -404,7 +414,18 @@ config/aip.config.toml ([models] section)
   the `{EXT_ID Upper}_...` namespace convention (ADR-014 §10).
 
 ## Last Cycle
-- **QW1 — Registered codeforge corpus at startup** (this cycle): the app.py
+- **QW9 — Added GET /corpus-registry/corpora endpoint** (this cycle): new
+  route in `adapter/api/routes/corpus.py` enumerates registered corpora.
+  Returns a list of dicts with `corpus_id`, `corpus_type`, `sensitive`,
+  `deletion_state`, `access_note`. Returns `[]` (not an error) when the
+  registry is not wired — honest unavailable state. Consumed by
+  `gui/components/corpus_selector.py` (which previously called this
+  endpoint but it didn't exist — the GUI component was dead code). 4 new
+  tests in `tests/test_corpus_registry_endpoint.py` pin the contract:
+  empty-when-not-wired, returns-both-corpora, sensitive-flag-surfaces,
+  GUI-source-contract-check. Closes half of ND1 from the tech-debt
+  assessment (the endpoint half; QW8 will wire the GUI component).
+- **QW1 — Registered codeforge corpus at startup** (prior cycle): the app.py
   lifespan now registers both `("definer", CorpusType.CONVERSATION)` and
   `("codeforge", CorpusType.CODE)` in `corpora_to_register`. The codeforge
   corpus holds AIP's own Python source code as a searchable corpus

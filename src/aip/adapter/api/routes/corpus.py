@@ -15,6 +15,11 @@ UI Cycle 10: Added /corpus/documents, /corpus/documents/{source_path},
 /corpus/problems, /corpus/unembedded, /corpus/backfill, /corpus/retry-failed
 endpoints for the Corpus Workbench. All endpoints return honest
 unavailable/not_wired states — never fake success.
+
+QW9 (2026-07-23): Added /corpus-registry/corpora endpoint — returns the
+list of registered corpora (corpus_id, corpus_type, sensitive,
+deletion_state, access_note). Consumed by gui/components/corpus_selector.py
+and any tooling that needs to enumerate corpora for multi-corpus retrieval.
 """
 
 from __future__ import annotations
@@ -29,6 +34,62 @@ from aip.adapter.api.dependencies import AipContainer, get_container, require_de
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+# ---------------------------------------------------------------------------
+# QW9 (2026-07-23): Corpus Registry — enumerate registered corpora
+# ADR-008 Multi-Corpus: /corpus-registry/corpora
+# ---------------------------------------------------------------------------
+
+
+@router.get("/corpus-registry/corpora")
+async def list_registered_corpora(container: AipContainer = Depends(get_container)):
+    """List all registered corpora in the CorpusRegistry.
+
+    QW9 (2026-07-23) — ADR-008 Multi-Corpus. Returns the list of corpora
+    currently registered in the ``container.corpus_registry``. Each entry
+    has: ``corpus_id``, ``corpus_type``, ``sensitive``, ``deletion_state``,
+    ``access_note``. Consumed by ``gui/components/corpus_selector.py`` and
+    any tooling that needs to enumerate corpora for multi-corpus retrieval.
+
+    Returns an empty list (not an error) when the registry is not wired
+    or no corpora are registered — honest unavailable state, never fake.
+    """
+    registry = getattr(container, "corpus_registry", None)
+    if registry is None:
+        return []
+
+    try:
+        corpora_ids = await registry.list_corpora()
+    except Exception as exc:
+        logger.warning("list_registered_corpora_failed error=%s", exc)
+        return []
+
+    result: list[dict[str, Any]] = []
+    for cid in corpora_ids:
+        # Access the registry's internal CorpusStores bundle directly.
+        # We don't call registry.get_stores() because that enforces the
+        # 4-layer restricted-corpus access check (Layer 3) — and this
+        # endpoint is informational, not a retrieval path. The
+        # ``sensitive`` flag is returned so the GUI can show the amber
+        # "⚠ sensitive" tag, but access is still gated at retrieval time.
+        stores = registry._corpora.get(cid)
+        if stores is None:
+            continue
+        result.append(
+            {
+                "corpus_id": stores.corpus_id,
+                "corpus_type": stores.corpus_type.value
+                if hasattr(stores.corpus_type, "value")
+                else str(stores.corpus_type),
+                "sensitive": bool(getattr(stores, "_sensitive", False)),
+                "deletion_state": stores.deletion_state.value
+                if hasattr(stores.deletion_state, "value")
+                else str(stores.deletion_state),
+                "access_note": getattr(stores, "_access_note", ""),
+            }
+        )
+    return result
 
 
 @router.get("/corpus/stats")
