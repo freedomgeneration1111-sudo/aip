@@ -91,7 +91,21 @@ orchestration/review_export_pipeline.py (review decision)
   checks. Vigil does NOT do tagging. Mixing these breaks the ADR-011 contract.
 
 ## Last Cycle
-- **ADR-014 step 2 — WorkflowRegistry.add_path + silent-failure fix** (this cycle):
+- **QW3 — Deleted unused duplicate `ingestion/parsers/python_ast_parser.py`** (this cycle):
+  - The file was a byte-identical copy of `adapter/python_ast_parser.py`
+    (411 lines each, `diff -q` confirmed identical). It was created during
+    Chunk 7 in anticipation of moving the parser to orchestration, but the
+    move never completed — `code_ingest_pipeline.py` (adapter) imports from
+    the adapter copy, and zero modules import the orchestration copy.
+  - The adapter copy is now the canonical home. Its docstring was updated
+    from "Layer: orchestration" to "Layer: adapter" to match its physical
+    location and resolve the layering contradiction (ND4 from the tech-debt
+    assessment).
+  - Verified: 24 `test_corpus_code_ingest.py` tests pass; layering tests
+    unchanged (the one pre-existing `test_layer_discipline.py` failure is
+    `app.py:527-528` importing WorkflowEngine/WorkflowRegistry — documented
+    as AIP-G-06/07, unrelated to this change).
+- **ADR-014 step 2 — WorkflowRegistry.add_path + silent-failure fix** (prior cycle):
   - Added `WorkflowRegistry.add_path(dir: Path) -> None` (ADR-014 §5.4):
     re-globs a per-extension workflows dir and merges templates into the
     registry. Called by `ExtensionHost._register_one()` at stage 3 for each
@@ -113,7 +127,7 @@ orchestration/review_export_pipeline.py (review decision)
     discovery, add_path, load_workflow for extension templates, malformed
     YAML logged + skipped, missing dir no-op, absolute path resolution).
 - **ADR-008 Multi-Corpus Chunk 7** (prior cycle): Code corpus ingest (Python
-  AST parser). New `ingestion/parsers/python_ast_parser.py` — parses Python
+  AST parser). New `adapter/python_ast_parser.py` — parses Python
   source into CodeTurnSpec objects: (1) per function/method (decorators +
   signature + docstring + first 20 body lines), (2) per class with Call/Assign
   body nodes (captures __init_subclass__/metaclass/registry patterns), (3)

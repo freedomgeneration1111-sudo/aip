@@ -4,8 +4,14 @@ ADR-008 Rev 3.1 §8 Chunk 7: parses Python files into CorpusTurn objects for
 the code corpus (corpus_type=CODE, corpus_id="codeforge"). Each function,
 class, and module-level registration call becomes a searchable turn.
 
-Layer: orchestration. Pure transform — no store I/O. The ingest pipeline
-(adapter layer) calls this parser and writes the turns to CorpusTurnStore.
+Layer: adapter. Pure transform — no store I/O. The ingest pipeline
+(``adapter/code_ingest_pipeline.py``) calls this parser and writes the
+turns to CorpusTurnStore.
+
+Note: a duplicate of this file previously lived at
+``orchestration/ingestion/parsers/python_ast_parser.py`` — deleted
+2026-07-23 (QW3) because it was unused (zero imports) and violated the
+"one source of truth" rule. The adapter copy is the canonical home.
 
 What gets indexed:
   1. Per function/method — one CorpusTurn:

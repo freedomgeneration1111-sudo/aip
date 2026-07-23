@@ -404,7 +404,19 @@ config/aip.config.toml ([models] section)
   the `{EXT_ID Upper}_...` namespace convention (ADR-014 §10).
 
 ## Last Cycle
-- **QW2 — Stale docstring fix in `corpus_registry.py::delete_corpus`** (this cycle):
+- **QW3 — Deleted unused duplicate `python_ast_parser.py` from orchestration** (this cycle):
+  - The orchestration copy at `orchestration/ingestion/parsers/python_ast_parser.py`
+    was a byte-identical duplicate of `adapter/python_ast_parser.py` (411 lines
+    each). Created during Chunk 7 in anticipation of moving the parser to
+    orchestration, but the move never completed. Zero modules imported the
+    orchestration copy; `code_ingest_pipeline.py` (adapter) imports from the
+    adapter copy.
+  - Updated the adapter copy's docstring from "Layer: orchestration" to
+    "Layer: adapter" to match its physical location. Added a note documenting
+    the deletion for audit trail.
+  - Verified: 24 `test_corpus_code_ingest.py` tests pass. ND4 from the
+    tech-debt assessment resolved.
+- **QW2 — Stale docstring fix in `corpus_registry.py::delete_corpus`** (prior cycle):
   - Removed stale "(Stub — implemented in Chunk 6 when bridge edges exist.)"
     note from the Phase 2 line of the `delete_corpus()` docstring. The
     bridge-edge cleanup was implemented in Chunk 6 (`GraphStore.delete_bridge_edges`
