@@ -47,7 +47,14 @@ developers and operators working on AIP itself.
 - **Spec revision numbers must increment**: Never reuse a spec revision number.
 
 ## Last Cycle
-- No changes. Documentation was stable during operator console debugging.
+- **QW5 — UI_CONVENTIONS.md marked as target spec** (this cycle): added a
+  prominent banner at the top of `docs/UI_CONVENTIONS.md` clarifying that
+  the document describes the **target** UI shell, not the current state.
+  Itemized which parts are implemented (left sidebar, extension nav via
+  KNOWN_EXTENSIONS polling, conditional right rail) vs not (+ menu, 8 of 9
+  extensions). The Right Sidebar reference table now has a Status column
+  marking ARISTOTLE as SHIPPED and the other 8 as "spec only." Doc drift
+  items D6/D7 from the 2026-07-23 tech-debt assessment.
 
 ## Key Subdirectories
 | Path | Role |
@@ -58,6 +65,7 @@ developers and operators working on AIP itself.
 | `ui/` | UI design references, mockups, style system |
 | `hardening/` | Hardening audit docs, discrepancy registers |
 | `evals/` | Evaluation criteria and golden test definitions |
+| `UI_CONVENTIONS.md` | Target spec for the three-panel shell (marked target spec 2026-07-23) |
 
 ## Key ADRs
 | ADR | Title | Impact |
