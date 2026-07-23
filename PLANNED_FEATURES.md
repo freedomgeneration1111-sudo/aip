@@ -159,11 +159,18 @@ scheduled for the next 1-3 sessions. They belong in `ROADMAP.md` planning.
 contains everything Moses has *thought and said* about the codebase
 (2,691 turns) but none of the codebase itself. This closes that gap.
 
+**Status (2026-07-23):** Infrastructure complete (Chunk 7 — AST parser,
+ingest pipeline, 24 tests, 3 golden queries). Codeforge corpus now
+**registered at startup** (QW1 — `app.py` registers `("codeforge",
+CorpusType.CODE)` alongside definer). Operational ingest path still
+pending: `aip corpus ingest-code <dir>` CLI (QW11) and Sexton file-watcher
+(QW13) are the next quick wins.
+
 - **Graph A** (existing): Conversation knowledge graph — 36 nodes, 17 edges
-- **Graph B** (new): Code dependency graph — modules, functions, classes, tests — with `imports`, `calls`, `tests`, `implements` edges
-- **Cross-graph edges**: A conversation turn that *references* a specific function gets a `references` edge. An ADR that *decided* a code pattern gets a `decided` edge. The graph answers: "what conversations informed this function?" and "what code exists for this architectural decision?"
-- **Implementation**: Python AST → CorpusTurn format parser. The underlying store, tagging, embedding, and graph infrastructure handle it without changes. Each "turn" = a function/class/module with `searchable_text` = module path + docstring + signature + inline comments + associated test names.
-- **Critical detail**: code changes continuously (conversation corpus is append-only and stable). The code corpus needs a re-ingest trigger — CI hook on commit OR Sexton file-watcher that detects `.py` changes and queues a re-parse pass. Without this, the code corpus ages out of sync immediately.
+- **Graph B** (new, unbuilt): Code dependency graph — modules, functions, classes, tests — with `imports`, `calls`, `tests`, `implements` edges
+- **Cross-graph edges** (unbuilt): A conversation turn that *references* a specific function gets a `references` edge. An ADR that *decided* a code pattern gets a `decided` edge. The graph answers: "what conversations informed this function?" and "what code exists for this architectural decision?"
+- **Implementation**: Python AST → CorpusTurn format parser (`adapter/python_ast_parser.py`). The underlying store, tagging, embedding, and graph infrastructure handle it without changes. Each "turn" = a function/class/module with `searchable_text` = module path + docstring + signature + inline comments + associated test names.
+- **Critical detail**: code changes continuously (conversation corpus is append-only and stable). The code corpus needs a re-ingest trigger — CI hook on commit OR Sexton file-watcher that detects `.py` changes and queues a re-parse pass. Without this, the code corpus ages out of sync immediately. **(QW13 will address this.)**
 - **Fits**: ADR-008's multi-corpus architecture (supersedes ADR-004). The code corpus is one of 4 corpus types (`code`/`codeforge`) alongside `conversation`/definer, `document`/branham, and `book`/sparkle_thirst. ADR-008 Chunk 7 implements the AST parser.
 - **Retrieval implication**: cross-corpus RRF fusion across conversation AND code simultaneously. A query about DEBT-006 would return both the roadmap mention AND the actual `sexton.py` file AND the `app.py` call site.
 
@@ -291,6 +298,7 @@ content. Dry-run mode before parallel real model spend. See ADR-015 §4.
 | 2026-06-18 | ADR-014 §8 step 2 complete: wired `WorkflowEngine` into `AipContainer` + lifespan (`container.workflow_engine`). Rewrote `tutoring_session_v1.yaml` to use engine-compatible node types (agent/script/condition, not synthesize/decision/commit). Added `GET /health/extensions` endpoint (ADR-014 §7). Added `tests/test_workflow_engine_wiring.py` (9 tests: container fields, lifespan wiring, YAML structure, node-type compatibility, route existence). All 9 pass locally. 33 tests pass locally total — no regression. | Super Z (main) |
 | 2026-06-18 | **ARISTOTLE extracted to separate repo + entry-point discovery.** Added `tests/test_extension_import_boundary.py` (machine-enforces the SoC boundary: extensions import only `aip.foundation.protocols.*` + `aip.adapter.extensions`; platform imports nothing from extensions). Added entry-point discovery to `ExtensionHost.discover()` via `importlib.metadata.entry_points(group="aip.extensions")` — the production path that replaces the sys.path hack. Extracted ARISTOTLE to [AIP_Aristotle](https://github.com/freedomgeneration1111-sudo/AIP_Aristotle) (pip-installable: `pip install git+.../AIP_Aristotle.git`). Removed `extensions/aristotle/` + ARISTOTLE-specific tests from AIP_Brain. Added `extensions/` to `.gitignore`. Updated README with extension install instructions. 21 platform tests pass; 9 ARISTOTLE tests pass from the new repo. | Super Z (main) |
 | 2026-06-20 | Added `docs/UI_CONVENTIONS.md` — governing document for all UI work. Added "GUI Phase - Core Shell Features" section covering: three-panel shell (left/right drawers + main chat), + menu (core items + extension-registered items below divider), extension mode shift (accent color, mode label, sidebar), ADR-014 A1 sidebar visibility (ui.timer 5s poll, ui.refreshable). No code changes. | Super Z (main) |
+| 2026-07-23 | **QW1 — codeforge corpus registered at startup.** The app.py lifespan now registers `("codeforge", CorpusType.CODE)` alongside `("definer", CorpusType.CONVERSATION)` in `corpora_to_register`. The codeforge db path is derived from the definer db_path's parent dir (`db/codeforge.db`). The corpus is registered **empty** at startup — ingest is triggered via `aip corpus ingest-code <dir>` (QW11, pending) or the Sexton file-watcher (QW13, planned). 3 new tests in `test_corpus_call_site_migration.py::TestCodeforgeCorpusStartupRegistration` pin the contract. Closes ND5 from the tech-debt assessment. Phase 1.6 status: infrastructure complete + corpus registered; operational ingest path still pending. | Super Z (assessment agent) |
 
 ---
 

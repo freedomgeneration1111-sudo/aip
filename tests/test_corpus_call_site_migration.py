@@ -74,6 +74,99 @@ class TestAipContainerCorpusRegistry:
 
 
 # ---------------------------------------------------------------------------
+# QW1 (2026-07-23): codeforge corpus registered at startup
+# ADR-008 §8 Chunk 7 / Phase 1.6 Codebase-as-Corpus
+# ---------------------------------------------------------------------------
+
+
+class TestCodeforgeCorpusStartupRegistration:
+    """QW1 — verify the codeforge corpus is registered alongside definer
+    when CorpusRegistry.startup() is called with the production corpora list.
+
+    The app.py lifespan registers both ('definer', CONVERSATION) and
+    ('codeforge', CODE) at startup. This test pins that contract so a
+    future refactor doesn't silently drop the codeforge registration.
+    """
+
+    async def test_codeforge_registered_alongside_definer(self, tmp_path: Path):
+        """startup() with both definer + codeforge registers both corpora."""
+        registry = CorpusRegistry(max_corpora=8)
+        await registry.startup(
+            corpora_to_register=[
+                ("definer", CorpusType.CONVERSATION, tmp_path / "definer.db"),
+                ("codeforge", CorpusType.CODE, tmp_path / "codeforge.db"),
+            ],
+        )
+
+        registered = await registry.list_corpora()
+        assert "definer" in registered, "definer must always be registered"
+        assert "codeforge" in registered, "codeforge must be registered (QW1)"
+
+        # Both corpora should have stores
+        definer_stores = await registry.get_stores("definer")
+        assert definer_stores.corpus_id == "definer"
+        assert definer_stores.turn_store is not None
+
+        codeforge_stores = await registry.get_stores("codeforge")
+        assert codeforge_stores.corpus_id == "codeforge"
+        assert codeforge_stores.turn_store is not None
+
+        # Cleanup
+        for cid in await registry.list_corpora():
+            try:
+                await registry.delete_corpus(cid)
+            except Exception:
+                pass
+
+    async def test_codeforge_db_path_derived_from_definer_db_dir(self, tmp_path: Path):
+        """The codeforge.db path is derived from the definer db_path's parent dir.
+
+        This mirrors the app.py lifespan logic:
+            _db_dir = Path(db_path).parent
+            _codeforge_db_path = _db_dir / "codeforge.db"
+        """
+        registry = CorpusRegistry(max_corpora=8)
+        definer_db = tmp_path / "state.db"
+        codeforge_db = tmp_path / "codeforge.db"
+
+        await registry.startup(
+            corpora_to_register=[
+                ("definer", CorpusType.CONVERSATION, definer_db),
+                ("codeforge", CorpusType.CODE, codeforge_db),
+            ],
+        )
+
+        # Both DB files should exist on disk after registration
+        assert definer_db.exists(), "definer.db not created"
+        assert codeforge_db.exists(), "codeforge.db not created"
+
+        # Cleanup
+        for cid in await registry.list_corpora():
+            try:
+                await registry.delete_corpus(cid)
+            except Exception:
+                pass
+
+    def test_app_py_lifespan_registers_codeforge(self):
+        """Source-level check: app.py registers codeforge in corpora_to_register.
+
+        This catches regressions where someone removes the codeforge line
+        from the lifespan without updating tests.
+        """
+        import inspect
+        from aip.adapter.api import app
+
+        lifespan_src = inspect.getsource(app)
+        assert '"codeforge"' in lifespan_src, (
+            "app.py lifespan must register the codeforge corpus (QW1). "
+            "Expected ('codeforge', CorpusType.CODE, ...) in corpora_to_register."
+        )
+        assert "CorpusType.CODE" in lifespan_src, (
+            "app.py lifespan must use CorpusType.CODE for the codeforge corpus."
+        )
+
+
+# ---------------------------------------------------------------------------
 # AskStores.from_corpus_stores classmethod (§A1)
 # ---------------------------------------------------------------------------
 

@@ -404,7 +404,20 @@ config/aip.config.toml ([models] section)
   the `{EXT_ID Upper}_...` namespace convention (ADR-014 §10).
 
 ## Last Cycle
-- **QW10 — Raised MAX_CORPORA from 4 to 8** (this cycle): `app.py:481` now
+- **QW1 — Registered codeforge corpus at startup** (this cycle): the app.py
+  lifespan now registers both `("definer", CorpusType.CONVERSATION)` and
+  `("codeforge", CorpusType.CODE)` in `corpora_to_register`. The codeforge
+  corpus holds AIP's own Python source code as a searchable corpus
+  (ADR-008 §8 Chunk 7 / Phase 1.6 Codebase-as-Corpus). The db path is
+  derived from the definer db_path's parent dir (`db/codeforge.db`).
+  The corpus is registered **empty** at startup — ingest is triggered via
+  `aip corpus ingest-code <dir>` (QW11, pending) or the Sexton file-watcher
+  (QW13, planned). 3 new tests in `test_corpus_call_site_migration.py`
+  (`TestCodeforgeCorpusStartupRegistration`) pin the contract: both
+  corpora register, both DB files exist on disk, and app.py source
+  contains the codeforge registration. 129 tests pass. Closes ND5 from
+  the 2026-07-23 tech-debt assessment.
+- **QW10 — Raised MAX_CORPORA from 4 to 8** (prior cycle): `app.py:481` now
   imports `MAX_CORPORA` from `aip.foundation.corpus_constants` and passes
   it to `CorpusRegistry(max_corpora=MAX_CORPORA)` instead of hardcoding
   `4`. This was a latent bug — if the constant changed, `app.py` wouldn't

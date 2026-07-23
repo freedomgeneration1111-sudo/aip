@@ -479,10 +479,21 @@ async def lifespan(app: FastAPI):
         from aip.foundation.corpus_types import CorpusType
         from aip.foundation.corpus_constants import MAX_CORPORA
 
+        # Derive the codeforge corpus DB path from the definer db_path
+        # (same db/ directory). The codeforge corpus holds AIP's own
+        # Python source code as a searchable corpus (ADR-008 §8 Chunk 7 /
+        # Phase 1.6 Codebase-as-Corpus). Ingest is triggered via
+        # `aip corpus ingest-code <dir>` (QW11) or the Sexton file-watcher
+        # (QW13, planned). The corpus is registered empty at startup so
+        # that multi-corpus retrieval can include it once it's populated.
+        _db_dir = _Path(db_path).parent
+        _codeforge_db_path = _db_dir / "codeforge.db"
+
         _registry = CorpusRegistry(max_corpora=MAX_CORPORA)
         await _registry.startup(
             corpora_to_register=[
                 ("definer", CorpusType.CONVERSATION, _Path(db_path)),
+                ("codeforge", CorpusType.CODE, _codeforge_db_path),
             ],
         )
         container.corpus_registry = _registry
@@ -500,10 +511,13 @@ async def lifespan(app: FastAPI):
             container.artifact_store = container.definer_stores.artifact_store
             container.ecs_store = container.definer_stores.ecs_store
 
+        _registered = await _registry.list_corpora()
         log.info(
             "component_initialized",
             component="corpus_registry",
             definer_wired=container.definer_stores is not None,
+            codeforge_wired="codeforge" in _registered,
+            corpora_registered=_registered,
         )
     except Exception as exc:
         log.warning(
