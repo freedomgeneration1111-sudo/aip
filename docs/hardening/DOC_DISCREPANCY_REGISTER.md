@@ -187,6 +187,17 @@ or where code does something the docs do not mention.
 | Impact | Anyone reading the registry source would believe the bridge-edge cleanup is unimplemented and might try to "fix" it, duplicating work or introducing bugs. No runtime impact. |
 | Resolution | **RESOLVED 2026-07-23** — docstring updated to describe the real implementation. Discovered in the 2026-07-23 tech-debt assessment (item D5). |
 
+### DDR-014 — `gui/pages/graph.py` empty-state guidance claims "Manual graph node creation via the API" but no POST endpoint exists
+
+| Field | Value |
+|---|---|
+| File | `gui/pages/graph.py` line 183 (empty-state guidance card) |
+| Claim | "Graph nodes are created by: (1) Running the seed bootstrap on first install, (2) Sexton extracting entities from corpus turns, (3) Manual graph node creation via the API" |
+| Reality | The `/api/v1/graph/*` routes are read-only: only `GET /graph/data`, `GET /graph/neighbors/{node_id}`, `GET /graph/stats` exist. No POST endpoint. The real node-creation paths are: (1) first-install seed bootstrap (`aip init`), (2) Sexton background actor entity extraction, (3) CLI `aip corpus graph --build-from-bridges`, (4) CLI `aip corpus graph --extract --limit N`. |
+| Severity | **LOW** |
+| Impact | An operator reading the empty-state guidance would believe they can create graph nodes via an API call that does not exist. They would either waste time looking for the endpoint or give up on graph population entirely. No runtime impact (the graph just stays empty). |
+| Resolution | **RESOLVED 2026-07-23** — guidance text replaced with the four real paths (bootstrap, Sexton, two CLI commands) plus an explicit "read-only" disclaimer. Discovered in the 2026-07-23 tech-debt assessment (item D10). |
+
 ---
 
 ## Summary Table
@@ -206,8 +217,9 @@ or where code does something the docs do not mention.
 | DDR-011 | LOW | README.md | ADR count is 7 not 13+ | Update count |
 | DDR-012 | N/A | STATUS.md | NOT a discrepancy | None |
 | DDR-013 | LOW (RESOLVED) | corpus_registry.py | delete_corpus Phase 2 docstring said "Stub" but was implemented | Docstring fix (resolved 2026-07-23) |
+| DDR-014 | LOW (RESOLVED) | gui/pages/graph.py | Empty-state guidance claimed "Manual graph node creation via the API" but no POST endpoint exists | Guidance text fix (resolved 2026-07-23) |
 
 **Critical:** 0 (DDR-008 reclassified to HIGH — non-live debt)
 **High:** 3 (DDR-001, DDR-002, DDR-008)
 **Medium:** 5 (DDR-003, DDR-004, DDR-006, DDR-007, DDR-010)
-**Low:** 3 (DDR-005, DDR-009, DDR-011) + 1 RESOLVED (DDR-013)
+**Low:** 3 (DDR-005, DDR-009, DDR-011) + 2 RESOLVED (DDR-013, DDR-014)

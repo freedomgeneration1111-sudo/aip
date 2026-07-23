@@ -178,9 +178,12 @@ async def _graph_page_impl():
                 )
                 ui.label(
                     "The knowledge graph is empty. Graph nodes are created by:\n"
-                    "  - Running the seed bootstrap on first install\n"
-                    "  - Sexton extracting entities from corpus turns\n"
-                    "  - Manual graph node creation via the API"
+                    "  - Running the seed bootstrap on first install (aip init)\n"
+                    "  - Sexton extracting entities from corpus turns (background actor)\n"
+                    "  - CLI: aip corpus graph --build-from-bridges\n"
+                    "  - CLI: aip corpus graph --extract --limit 20\n"
+                    "\n"
+                    "The /api/v1/graph/* routes are read-only (no POST endpoint)."
                 ).style(f"font-size:12px; color:{C_MUTED}; font-family:{F_MONO}; white-space:pre-line;")
         else:
             # Embed the graph-viz iframe

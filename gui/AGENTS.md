@@ -232,7 +232,16 @@ sexton.py (_embedding_backfill_state, _rate_limited)
   unavailable/failed" instead of just "Beast synthesis".
 
 ## Last Cycle
-- **Phase 3 polish (this cycle)**: shipped all 4 Phase 3 deliverables.
+- **QW6 — Fixed graph page empty-state guidance (this cycle)**: the empty-state
+  card in `gui/pages/graph.py` previously listed "Manual graph node creation
+  via the API" as a third node-creation path, but no POST endpoint exists on
+  `/api/v1/graph/*` (only GET /data, GET /neighbors/{id}, GET /stats — all
+  read-only). Replaced with the two real CLI paths (`aip corpus graph
+  --build-from-bridges` and `aip corpus graph --extract --limit N`) plus the
+  background Sexton actor and the first-install seed bootstrap. Added an
+  explicit "read-only" disclaimer. Doc drift item D10 from the tech-debt
+  assessment.
+- **Phase 3 polish (prior cycle)**: shipped all 4 Phase 3 deliverables.
   Phase 3a + 3b: per-model attribution badges on `unique_insights[]` +
   per-model stance color-coding on `contradictions[]`. Added
   `_model_color()` helper + `_MODEL_COLOR_PALETTE` (8-color
