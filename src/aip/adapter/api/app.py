@@ -1582,6 +1582,122 @@ async def lifespan(app: FastAPI):
         config_watcher_task = asyncio.create_task(_config_watcher_scheduler(), name="config-watcher-scheduler")
         log.info("config_watcher_scheduler_created")
 
+    # --- Codeforge auto-ingest scheduler (QW13b, 2026-07-23) ---
+    # ADR-008 §8 Chunk 7 / Phase 1.6 Codebase-as-Corpus.
+    # Background task that:
+    #   1. Runs an initial ingest of src/aip/ into the codeforge corpus on startup
+    #   2. Re-ingests every interval_seconds (default 60s) to keep the code
+    #      corpus in sync as files change (skip_existing=True → stale detection
+    #      skips unchanged turns, supersedes changed ones)
+    # This makes "AIP asks about AIP" work automatically — no separate
+    # `aip corpus watch-code` terminal needed. The CLI watcher (QW13) remains
+    # available for non-server contexts (CI, manual runs, external repos).
+    #
+    # Config ([codeforge] section in aip.config.toml):
+    #   auto_ingest = true          # default: enable the background task
+    #   source_dir = "src/aip"      # default: AIP's own source tree
+    #   interval_seconds = 60       # default: re-ingest every 60s
+    codeforge_ingest_task: asyncio.Task | None = None
+    _codeforge_cfg = config.get("codeforge", {})
+    _codeforge_auto_ingest = _codeforge_cfg.get("auto_ingest", True)
+    _codeforge_source_dir = _codeforge_cfg.get("source_dir", "src/aip")
+    _codeforge_interval = float(_codeforge_cfg.get("interval_seconds", 60))
+
+    if (
+        _codeforge_auto_ingest
+        and getattr(container, "corpus_registry", None) is not None
+        and _Path(_codeforge_source_dir).exists()
+    ):
+
+        async def _codeforge_ingest_scheduler():
+            """Background loop that keeps the codeforge corpus in sync.
+
+            QW13b (2026-07-23) — runs ingest_python_directory on
+            source_dir every interval_seconds. Uses skip_existing=True
+            (content_hash stale detection) so unchanged turns are skipped
+            and changed turns are superseded. The initial cycle runs
+            immediately on startup; subsequent cycles poll for changes.
+            """
+            await _await_corpus_migration_ready()  # ADR-008 §A5
+            registry = container.corpus_registry
+            source_dir = _Path(_codeforge_source_dir)
+            interval = _codeforge_interval
+
+            # Verify codeforge is registered (it should be — app.py:496
+            # registers it — but guard against config drift).
+            registered = await registry.list_corpora()
+            if "codeforge" not in registered:
+                log.warning(
+                    "codeforge_ingest_skipped",
+                    reason="codeforge corpus not registered",
+                    registered_corpora=registered,
+                )
+                return
+
+            log.info(
+                "codeforge_ingest_starting",
+                source_dir=str(source_dir),
+                interval_s=interval,
+            )
+
+            from aip.adapter.code_ingest_pipeline import ingest_python_directory
+
+            cycle_num = 0
+            while True:
+                cycle_num += 1
+                try:
+                    stores = await registry.get_stores("codeforge")
+                    if stores.turn_store is None:
+                        log.warning("codeforge_ingest_skipped", reason="turn_store is None", cycle=cycle_num)
+                        await asyncio.sleep(interval)
+                        continue
+
+                    counts = await ingest_python_directory(
+                        source_dir=source_dir,
+                        turn_store=stores.turn_store,
+                        corpus_id="codeforge",
+                        skip_existing=True,
+                    )
+
+                    # Only log when something changed (avoids log spam on no-op cycles)
+                    if counts["turns_created"] > 0 or counts["turns_superseded"] > 0:
+                        log.info(
+                            "codeforge_ingest_cycle_complete",
+                            cycle=cycle_num,
+                            files_scanned=counts["files_scanned"],
+                            files_parsed=counts["files_parsed"],
+                            turns_created=counts["turns_created"],
+                            turns_skipped_stale=counts["turns_skipped_stale"],
+                            turns_superseded=counts["turns_superseded"],
+                        )
+                except asyncio.CancelledError:
+                    log.info("codeforge_ingest_scheduler_cancelled", cycle=cycle_num)
+                    raise
+                except Exception as exc:
+                    log.warning(
+                        "codeforge_ingest_cycle_failed",
+                        cycle=cycle_num,
+                        error=str(exc),
+                        exc_info=True,
+                    )
+                await asyncio.sleep(interval)
+
+        codeforge_ingest_task = asyncio.create_task(
+            _codeforge_ingest_scheduler(), name="codeforge-ingest-scheduler"
+        )
+        log.info(
+            "codeforge_ingest_scheduler_created",
+            source_dir=_codeforge_source_dir,
+            interval_s=_codeforge_interval,
+        )
+    elif not _codeforge_auto_ingest:
+        log.info("codeforge_ingest_disabled", reason="config codeforge.auto_ingest=false")
+    elif not _Path(_codeforge_source_dir).exists():
+        log.info(
+            "codeforge_ingest_disabled",
+            reason=f"source_dir not found: {_codeforge_source_dir}",
+        )
+
     # --- Quality Store Rollup scheduler (Sprint 5.27) ---
     # Runs rollup once per day to aggregate older quality data, keeping
     # the vigil_quality_history table from growing indefinitely while
@@ -1738,6 +1854,10 @@ async def lifespan(app: FastAPI):
         config_watcher=getattr(container, "_config_watcher", None) is not None,
         auto_sizer=getattr(container, "_read_pool_auto_sizer", None) is not None,
         auto_tuning_policy=getattr(container, "_auto_tuning_policy", None) is not None,
+        # QW13b (2026-07-23): codeforge auto-ingest background task
+        codeforge_auto_ingest=codeforge_ingest_task is not None,
+        codeforge_source_dir=_codeforge_source_dir if codeforge_ingest_task is not None else None,
+        codeforge_interval_s=_codeforge_interval if codeforge_ingest_task is not None else None,
         # Sprint 8: Dogfood mode
         dogfood_mode=getattr(dogfood_mode, "value", "unknown") if "dogfood_mode" in dir() else "unknown",
     )
@@ -1751,6 +1871,7 @@ async def lifespan(app: FastAPI):
         ("vigil", vigil_task),
         ("sexton_actor", sexton_actor_task),
         ("config_watcher", config_watcher_task),
+        ("codeforge_ingest", codeforge_ingest_task),
         ("quality_rollup", quality_rollup_task),
         ("quality_weekly_rollup", quality_weekly_rollup_task),
     ]:

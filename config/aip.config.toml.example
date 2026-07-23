@@ -362,3 +362,25 @@ cooldown_seconds = 60
 # ---------------------------------------------------------------------------
 [alpha]
 dogfood_mode = "minimal"   # Change to "full" when all components are wired
+
+# ---------------------------------------------------------------------------
+# QW13b (2026-07-23): Codeforge Auto-Ingest
+# Background task that automatically ingests AIP's own Python source into
+# the codeforge corpus on server startup and re-ingests periodically to
+# keep it in sync. Enables "AIP asks about AIP" without a separate
+# `aip corpus watch-code` terminal.
+#
+# The task:
+#   1. Awaits corpus migration ready (same gate as Sexton)
+#   2. Runs an initial ingest of source_dir into the codeforge corpus
+#   3. Re-ingests every interval_seconds (skip_existing=True → stale
+#      detection skips unchanged turns, supersedes changed ones)
+#
+# Set auto_ingest = false to disable (e.g. for CI or test environments
+# where src/aip/ doesn't exist). The CLI watcher (aip corpus watch-code)
+# remains available for non-server contexts.
+# ---------------------------------------------------------------------------
+[codeforge]
+auto_ingest = true
+source_dir = "src/aip"
+interval_seconds = 60

@@ -414,7 +414,20 @@ config/aip.config.toml ([models] section)
   the `{EXT_ID Upper}_...` namespace convention (ADR-014 §10).
 
 ## Last Cycle
-- **QW11 — Added `aip corpus ingest-code <path>` CLI command** (this cycle):
+- **QW13b — Auto-ingest codeforge corpus in server lifespan** (this cycle):
+  added a background `asyncio.Task` to `app.py` lifespan that automatically
+  ingests `src/aip/` into the codeforge corpus on server startup and
+  re-ingests every 60s (configurable) to keep it in sync. This is the
+  "truly automatic" version of QW13 — no separate `aip corpus watch-code`
+  terminal needed. Config: `[codeforge]` section in `aip.config.toml`
+  with `auto_ingest` (default true), `source_dir` (default "src/aip"),
+  `interval_seconds` (default 60). Guards: skips if registry is None,
+  skips if source_dir doesn't exist, awaits `_await_corpus_migration_ready()`
+  before first ingest, handles `CancelledError` on shutdown. Added to the
+  shutdown cancellation list alongside beast/vigil/sexton. 12 structural
+  tests in `tests/test_codeforge_auto_ingest.py`. The CLI watcher (QW13)
+  remains available for non-server contexts (CI, external repos).
+- **QW11 — Added `aip corpus ingest-code <path>` CLI command** (prior cycle):
   new click subcommand in `cli/corpus.py` calls
   `adapter/code_ingest_pipeline.ingest_python_directory()` to populate
   the codeforge corpus. Defaults to `src/aip/` if no path given (enables
