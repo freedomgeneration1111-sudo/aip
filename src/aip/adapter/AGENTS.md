@@ -414,7 +414,18 @@ config/aip.config.toml ([models] section)
   the `{EXT_ID Upper}_...` namespace convention (ADR-014 §10).
 
 ## Last Cycle
-- **QW9 — Added GET /corpus-registry/corpora endpoint** (this cycle): new
+- **QW11 — Added `aip corpus ingest-code <path>` CLI command** (this cycle):
+  new click subcommand in `cli/corpus.py` calls
+  `adapter/code_ingest_pipeline.ingest_python_directory()` to populate
+  the codeforge corpus. Defaults to `src/aip/` if no path given (enables
+  AIP-asks-AIP). Derives `db/codeforge.db` from the main db_path. Calls
+  `CorpusTurnStore.initialize()` to ensure schema. 7 tests in
+  `tests/test_corpus_ingest_code_cli.py`. Created `cli/AGENTS.md` (the
+  folder previously lacked one). Closes the CLI half of ND5 — together
+  with QW1 (corpus registered at startup), Capability 3 is now
+  exercisable: `aip corpus ingest-code` → codeforge.db populated →
+  multi-corpus retrieval can include code hits.
+- **QW9 — Added GET /corpus-registry/corpora endpoint** (prior cycle): new
   route in `adapter/api/routes/corpus.py` enumerates registered corpora.
   Returns a list of dicts with `corpus_id`, `corpus_type`, `sensitive`,
   `deletion_state`, `access_note`. Returns `[]` (not an error) when the

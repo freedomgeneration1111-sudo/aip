@@ -164,7 +164,8 @@ the appropriate section; do NOT duplicate.
 |-----------|----------------|----------------------|
 | Foundation | `src/aip/foundation/AGENTS.md` | Pure types, schemas, protocols, ECS graph — no I/O |
 | Orchestration | `src/aip/orchestration/AGENTS.md` | Business logic, pipelines, actors, workflow engine |
-| Adapter | `src/aip/adapter/AGENTS.md` | API, CLI, all storage backends, external interfaces |
+| Adapter | `src/aip/adapter/AGENTS.md` | API, all storage backends, external interfaces |
+| CLI | `src/aip/cli/AGENTS.md` | `aip` command-line interface (corpus, ask, init, status) |
 | GUI | `gui/AGENTS.md` | NiceGUI Operator Console — ACTIVE DEBUGGING ZONE |
 | Config | `config/AGENTS.md` | TOML config schema, deployment profiles, env contract |
 | Tests | `tests/AGENTS.md` | 1090+ test suite — fixture rules, CI discipline |

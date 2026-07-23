@@ -17,12 +17,13 @@ import json
 import os
 import sys
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 import click
 
 from aip.adapter.corpus_turn_store import CorpusTurnStore
-from aip.cli._db_path import get_default_db_path
+from aip.cli._db_path import ensure_db_dir, get_default_db_path
 
 # For direct Beast tagging from CLI (beast_provider via resolver, dummies for vector/embed)
 try:
@@ -185,6 +186,113 @@ def corpus_ingest_cmd(
 
         total = asyncio.run(_get_total())
         click.echo(f"Corpus now contains {total} turns.")
+
+    except Exception as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# QW11 (2026-07-23): aip corpus ingest-code — populate the codeforge corpus
+# ADR-008 §8 Chunk 7 / Phase 1.6 Codebase-as-Corpus
+# ---------------------------------------------------------------------------
+
+
+@corpus.command("ingest-code")
+@click.argument("path", type=click.Path(exists=True, file_okay=False, dir_okay=True), required=False)
+@click.option(
+    "--db-path",
+    default=None,
+    help="SQLite database path for the codeforge corpus (default: derived from config or db/codeforge.db).",
+)
+@click.option(
+    "--corpus-id",
+    default="codeforge",
+    help="Corpus ID to ingest into (default: codeforge).",
+)
+@click.option(
+    "--force/--no-force",
+    default=False,
+    help="Re-ingest all files even if content_hash matches (default: skip unchanged).",
+)
+def corpus_ingest_code_cmd(
+    path: str | None,
+    db_path: str | None,
+    corpus_id: str,
+    force: bool,
+) -> None:
+    """Ingest a Python source directory into the codeforge corpus.
+
+    QW11 (2026-07-23) — ADR-008 §8 Chunk 7 / Phase 1.6 Codebase-as-Corpus.
+    Walks PATH recursively, parses each .py file with the AST parser,
+    and writes CorpusTurns to the codeforge corpus. Uses content_hash
+    for stale detection — unchanged turns are skipped (unless --force).
+
+    If PATH is not given, defaults to 'src/aip/' (AIP's own source tree),
+    enabling the "AIP asks about AIP" self-referential use case.
+
+    The codeforge corpus is registered empty at startup (QW1). This
+    command populates it. For real-time updates, see QW13 (Sexton
+    file-watcher, planned).
+
+    Examples:
+      aip corpus ingest-code                    # ingest src/aip/ into codeforge
+      aip corpus ingest-code /path/to/repo      # ingest a different repo
+      aip corpus ingest-code --force            # re-ingest all files
+    """
+    try:
+        source_dir = Path(path) if path else Path("src/aip")
+        if not source_dir.exists():
+            click.echo(f"Error: source directory not found: {source_dir}", err=True)
+            click.echo("Specify a path, or run from the AIP_Brain root (defaults to src/aip/).", err=True)
+            sys.exit(1)
+        if not source_dir.is_dir():
+            click.echo(f"Error: {source_dir} is not a directory.", err=True)
+            sys.exit(1)
+
+        # Derive the codeforge db path from the main db path's directory.
+        # The main db is db/state.db; codeforge.db lives alongside it.
+        main_db_path = db_path or get_default_db_path()
+        db_dir = os.path.dirname(main_db_path)
+        codeforge_db = os.path.join(db_dir, f"{corpus_id}.db")
+        ensure_db_dir(codeforge_db)
+
+        click.echo(f"Ingesting Python source from: {source_dir.resolve()}")
+        click.echo(f"Target corpus: {corpus_id} ({codeforge_db})")
+        click.echo(f"Force re-ingest: {force}")
+        click.echo("")
+
+        from aip.adapter.code_ingest_pipeline import ingest_python_directory
+        from aip.adapter.corpus_turn_store import CorpusTurnStore
+
+        async def _run_ingest() -> dict[str, int]:
+            turn_store = CorpusTurnStore(codeforge_db)
+            try:
+                # Ensure the schema exists (idempotent — safe if the
+                # app server already created the db via the registry).
+                await turn_store.initialize()
+                counts = await ingest_python_directory(
+                    source_dir=source_dir,
+                    turn_store=turn_store,
+                    corpus_id=corpus_id,
+                    skip_existing=not force,
+                )
+                return counts
+            finally:
+                await turn_store.close()
+
+        counts = asyncio.run(_run_ingest())
+
+        click.echo("Ingest complete:")
+        click.echo(f"  Files scanned:    {counts['files_scanned']}")
+        click.echo(f"  Files skipped:    {counts['files_skipped']} (.pyi, test_*, etc.)")
+        click.echo(f"  Files parsed:     {counts['files_parsed']}")
+        click.echo(f"  Turns created:    {counts['turns_created']}")
+        click.echo(f"  Skipped (stale):  {counts['turns_skipped_stale']}")
+        click.echo(f"  Superseded:       {counts['turns_superseded']}")
+        click.echo("")
+        click.echo(f"Corpus '{corpus_id}' now searchable. Restart the AIP server if running")
+        click.echo("to pick up the new corpus content in retrieval.")
 
     except Exception as exc:
         click.echo(f"Error: {exc}", err=True)
