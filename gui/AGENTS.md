@@ -232,7 +232,20 @@ sexton.py (_embedding_backfill_state, _rate_limited)
   unavailable/failed" instead of just "Beast synthesis".
 
 ## Last Cycle
-- **QW6 — Fixed graph page empty-state guidance (this cycle)**: the empty-state
+- **QW8 — Wired corpus_selector.py into Ask page sidebar** (this cycle):
+  the corpus selector component (`gui/components/corpus_selector.py`) was
+  previously dead code — it called `GET /corpus-registry/corpora` and
+  `POST /sessions/{id}/corpora`, neither of which existed. Rewired to use
+  two new `AipApiClient` methods: `get_registered_corpora()` (calls the
+  QW9 endpoint) and `update_session_corpora()` (PATCHes `active_corpus_ids`
+  into the session via the existing `PATCH /sessions/{id}` endpoint). Added
+  a collapsible "Corpus Selection" expansion panel to the Ask page header,
+  between the Compress checkbox and the Direct-model fallback banner. The
+  panel is non-critical (wrapped in try/except) — if it fails to render,
+  the rest of the Ask page still works. Defaults to definer-only; selecting
+  codeforge enables AIP-asks-AIP retrieval. Closes ND1 fully (together
+  with QW9 which added the endpoint).
+- **QW6 — Fixed graph page empty-state guidance (prior cycle)**: the empty-state
   card in `gui/pages/graph.py` previously listed "Manual graph node creation
   via the API" as a third node-creation path, but no POST endpoint exists on
   `/api/v1/graph/*` (only GET /data, GET /neighbors/{id}, GET /stats — all

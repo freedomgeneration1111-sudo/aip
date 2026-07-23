@@ -1,14 +1,20 @@
 """Corpus Selector — ADR-008 Multi-Corpus session corpus binding.
 
 A NiceGUI component that lets the DEFINER select which corpora are active
-for the current session. Multi-select for non-sensitive corpora; Branham
-(corpus with branham_policy_enabled=True) is shown only when policy is
-enabled AND requires an explicit confirmation prompt.
+for the current session. Multi-select for non-sensitive corpora; sensitive
+corpora (sensitive=True) are shown with an amber "⚠ sensitive" tag and
+require session opt-in via ``allowed_restricted_corpora``.
 
-Selection is written to the session metadata via the API, which stores
-active_corpus_ids in the session's metadata_json. The branham_allowlist
-flag is only persisted when the registry's branham_policy_enabled is True
-(§5 — prevents allowlist escalation via session replay).
+Selection is written to the session metadata via
+``api_client.update_session_corpora()``, which PATCHes
+``active_corpus_ids`` into the session's metadata. The chat WebSocket
+reads this via ``get_session_meta()`` and ``_augmented_context.py`` uses
+it to scope multi-corpus retrieval (ADR-008 §4).
+
+QW8 (2026-07-23): rewired to use the real API client methods
+(``get_registered_corpora`` + ``update_session_corpora``) instead of
+the phantom ``GET /corpus-registry/corpora`` + ``POST /sessions/{id}/corpora``
+endpoints that never existed. The component was previously dead code.
 
 Import boundary: imports ONLY from gui.* (theme, api_client).
 Never imports from aip.orchestration.
@@ -29,14 +35,14 @@ logger = logging.getLogger(__name__)
 async def fetch_registered_corpora(api_client: Any) -> list[dict]:
     """Fetch the list of registered corpora from the API.
 
-    Returns a list of dicts with keys: corpus_id, corpus_type, sensitive.
-    Returns [] on error.
+    QW8 (2026-07-23): uses ``api_client.get_registered_corpora()`` which
+    calls ``GET /api/v1/corpus-registry/corpora`` (QW9 endpoint).
+
+    Returns a list of dicts with keys: corpus_id, corpus_type, sensitive,
+    deletion_state, access_note. Returns [] on error.
     """
     try:
-        result = await api_client.get("/corpus-registry/corpora")
-        if isinstance(result, list):
-            return result
-        return []
+        return await api_client.get_registered_corpora()
     except Exception as exc:
         logger.warning("fetch_registered_corpora_failed error=%s", exc)
         return []
@@ -95,20 +101,21 @@ async def update_session_corpora(
     api_client: Any,
     session_id: str,
     active_corpus_ids: list[str],
-    branham_allowlist: bool,
+    branham_allowlist: bool = False,
 ) -> bool:
     """Update the session's active corpora via the API.
+
+    QW8 (2026-07-23): uses ``api_client.update_session_corpora()`` which
+    PATCHes ``active_corpus_ids`` into the session metadata via the existing
+    ``PATCH /api/v1/sessions/{id}`` endpoint. The ``branham_allowlist``
+    parameter is kept for backward-compat but is handled by the session
+    binding helpers (``session_corpus_binding.py``) based on whether
+    ``allowed_restricted_corpora`` includes the sensitive corpus id.
 
     Returns True on success, False on error.
     """
     try:
-        await api_client.post(
-            f"/sessions/{session_id}/corpora",
-            json={
-                "active_corpus_ids": active_corpus_ids,
-                "branham_allowlist": branham_allowlist,
-            },
-        )
+        await api_client.update_session_corpora(session_id, active_corpus_ids)
         return True
     except Exception as exc:
         logger.warning("update_session_corpora_failed error=%s", exc)

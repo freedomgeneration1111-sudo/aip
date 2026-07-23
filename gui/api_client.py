@@ -303,6 +303,43 @@ class AipApiClient:
         return resp.json()
 
     # ------------------------------------------------------------------
+    # Corpus Registry (QW9, 2026-07-23 — ADR-008 Multi-Corpus)
+    # ------------------------------------------------------------------
+
+    async def get_registered_corpora(self) -> list[dict[str, Any]]:
+        """Fetch the list of registered corpora via GET /api/v1/corpus-registry/corpora.
+
+        QW9 (2026-07-23). Returns a list of dicts with keys:
+        corpus_id, corpus_type, sensitive, deletion_state, access_note.
+        Returns [] on error or when the registry is not wired.
+
+        Consumed by gui/components/corpus_selector.py for the corpus
+        multi-select UI on the Ask page.
+        """
+        client = self._get_http_client()
+        resp = await client.get(f"{self.base_url}/api/v1/corpus-registry/corpora")
+        resp.raise_for_status()
+        data = resp.json()
+        if isinstance(data, list):
+            return data
+        return []
+
+    async def update_session_corpora(
+        self, session_id: str, active_corpus_ids: list[str]
+    ) -> dict[str, Any]:
+        """Update the session's active corpora via PATCH /api/v1/sessions/{id}.
+
+        QW8 (2026-07-23). Writes ``active_corpus_ids`` to the session's
+        metadata. The chat WebSocket reads this via ``get_session_meta()``
+        and ``_augmented_context.py`` uses it to scope multi-corpus retrieval.
+
+        Note: we use the existing PATCH /sessions/{id} endpoint (not a
+        dedicated POST /sessions/{id}/corpora) because the session metadata
+        is a flat dict and ``active_corpus_ids`` is just a key in it.
+        """
+        return await self.update_session(session_id, {"active_corpus_ids": active_corpus_ids})
+
+    # ------------------------------------------------------------------
     # Projects
     # ------------------------------------------------------------------
 

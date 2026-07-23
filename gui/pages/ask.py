@@ -407,6 +407,85 @@ async def _ask_page_impl():
                 "(≥2 models selected)."
             )
 
+        # ── Corpus selector (QW8, 2026-07-23) ─────────────────────
+        # Collapsible panel that lets the operator select which corpora are
+        # active for the current session. Defaults to definer-only. When
+        # codeforge is selected, retrieval includes AIP's own codebase
+        # (Phase 1.6 Codebase-as-Corpus). Uses the QW9 endpoint
+        # (GET /corpus-registry/corpora) + PATCH /sessions/{id}.
+        try:
+            from gui.components.corpus_selector import (
+                fetch_registered_corpora,
+                render_corpus_selector,
+                update_session_corpora,
+            )
+
+            _corpus_checkboxes: dict[str, Any] = {}
+
+            async def _load_and_render_corpora(expansion_elem: Any) -> None:
+                """Fetch corpora from the API and render the selector inside the expansion."""
+                if not state.backend_reachable:
+                    return
+                corpora = await fetch_registered_corpora(state.api_client)
+                # Default: definer only
+                active_ids = ["definer"]
+                # Clear previous content
+                expansion_elem.clear()
+                with expansion_elem:
+                    if not corpora:
+                        ui.label(
+                            "No corpora registered (backend may not have the registry wired)."
+                        ).style(f"font-size:11px; color:{C_MUTED};")
+                        return
+                    nonlocal _corpus_checkboxes
+                    _corpus_checkboxes = render_corpus_selector(
+                        corpora=corpora,
+                        active_corpus_ids=active_ids,
+                        on_change=_on_update_corpora,
+                    )
+
+            async def _on_update_corpora() -> None:
+                """Read checkbox values and PATCH the session."""
+                if state.session_id is None:
+                    ui.notify("No active session — start a chat first.", color="warning")
+                    return
+                # definer is always active
+                selected = [
+                    cid
+                    for cid, cb in _corpus_checkboxes.items()
+                    if cb.value
+                ]
+                if "definer" not in selected:
+                    selected = ["definer"] + selected
+                ok = await update_session_corpora(
+                    state.api_client, state.session_id, selected
+                )
+                if ok:
+                    ui.notify(
+                        f"Active corpora: {', '.join(selected)}", color="positive"
+                    )
+                else:
+                    ui.notify("Failed to update corpus selection.", color="negative")
+
+            with ui.expansion(
+                "Corpus Selection",
+                icon="library_books",
+                value=False,
+            ).classes("w-full").style(
+                f"background:{C_SURFACE}; border:0.5px solid {C_INK40}; margin-top:4px;"
+            ) as _corpus_expansion:
+                ui.label("Loading corpora...").style(f"font-size:11px; color:{C_MUTED};")
+                # Load on expansion open (deferred so the page renders first)
+                ui.timer(
+                    0.1,
+                    lambda: asyncio.create_task(_load_and_render_corpora(_corpus_expansion)),
+                    once=True,
+                )
+        except Exception:
+            # Corpus selector is non-critical — if it fails to import or
+            # render, the rest of the Ask page must still work.
+            logger.debug("corpus_selector_wiring_failed", exc_info=True)
+
         # ── Direct model fallback banner ──────────────────────────
         if not state.backend_reachable:
             with (
