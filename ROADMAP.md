@@ -94,17 +94,32 @@ See `PLANNED_FEATURES.md` → "GUI Phase — Brain Core Shell Features" for the 
 
 ---
 
-## Fleet Phases (ADR-015 — when accepted)
+## Fleet Phases (ADR-015 — ACCEPTED, spec only)
+
+> **⚠️ SPEC ONLY — ZERO FLEET CODE TODAY (as of 2026-07-23)**
+>
+> ADR-015 was accepted on 2026-06-20 as the architectural contract for the
+> professional agent fleet. **None of the primitives below exist as code yet:**
+> no `AgentRun` table, no `CapabilityGate`, no `FleetCoordinator`, no
+> `DispatchPlan`, no `fleet_cost_ledger`, no `start_policy` manifest field,
+> no `parallel_safe` manifest field, no trajectory corpus, no CURATOR actor.
+> The only extension on the platform is ARISTOTLE (in a separate repo) —
+> none of HERALD, LOOM, CodeForge, Praxis, Chronicle, Oracle, Studio have
+> any Python code, manifest, or entry point.
+>
+> The phases below are the **target sequence** for when fleet work begins.
+> Phase 3A-0 is the prerequisite for any write-capable extension actor
+> (DEBT-020 — cadence=0 startup hazard — must be fixed first).
 
 | Phase | Trigger | Work | Status |
 |-------|---------|------|--------|
-| **3A-0** | Before 2nd extension | AgentRun table + schema. `start_policy` manifest field. Fail-closed CapabilityGate. Fix cadence=0 startup (DEBT-020). MCP scaffold wiring. | 🔲 Planned |
-| **3A-1** | 3A-0 complete | HERALD as first domain extension. Read-mostly (no write tools). Validates manifest discipline + corpus isolation + actor registration at fleet scale. | 🔲 Planned |
-| **3A-2** | HERALD stable | Dry-run mode. Tiered auto-approve config. Fleet Coordinator prototype (intent classification + DispatchPlan + cost estimation). | 🔲 Planned |
-| **3B** | 2 domain agents live | Full Fleet Coordinator. Fleet Synthesizer as separate agent. Cost ledger. Daily dashboard. Budget hard stop. | 🔲 Planned |
-| **3C** | 10+ completed dispatches | Trajectory corpus with temporal bounds. CURATOR v1. Forgetting policy. State-conditioned retrieval. Close Loop 5 (DEBT-022 — wire AdaptiveRouter + update_weights call site). | 🔲 Planned |
-| **3D** | Trajectory memory stable | Full MCP/tool integration behind CapabilityGate. Workspace sandboxing. autonomy_gate closure (DEBT-021). | 🔲 Planned |
-| **4** | Fleet stable at 5+ agents | PublicAgentCard exporter. A2A Task mapping. External federation readiness. | 🔲 Planned |
+| **3A-0** | Before 2nd extension | AgentRun table + schema. `start_policy` manifest field. Fail-closed CapabilityGate. Fix cadence=0 startup (DEBT-020). MCP scaffold wiring. | 🔲 Planned (zero code) |
+| **3A-1** | 3A-0 complete | HERALD as first domain extension. Read-mostly (no write tools). Validates manifest discipline + corpus isolation + actor registration at fleet scale. | 🔲 Planned (zero code) |
+| **3A-2** | HERALD stable | Dry-run mode. Tiered auto-approve config. Fleet Coordinator prototype (intent classification + DispatchPlan + cost estimation). | 🔲 Planned (zero code) |
+| **3B** | 2 domain agents live | Full Fleet Coordinator. Fleet Synthesizer as separate agent. Cost ledger. Daily dashboard. Budget hard stop. | 🔲 Planned (zero code) |
+| **3C** | 10+ completed dispatches | Trajectory corpus with temporal bounds. CURATOR v1. Forgetting policy. State-conditioned retrieval. Close Loop 5 (DEBT-022 — wire AdaptiveRouter + update_weights call site). | 🔲 Planned (zero code) |
+| **3D** | Trajectory memory stable | Full MCP/tool integration behind CapabilityGate. Workspace sandboxing. autonomy_gate closure (DEBT-021). | 🔲 Planned (zero code) |
+| **4** | Fleet stable at 5+ agents | PublicAgentCard exporter. A2A Task mapping. External federation readiness. | 🔲 Planned (zero code) |
 
 Architectural contract: `docs/decisions/ADR-015-professional-agent-fleet.md`
 
@@ -123,6 +138,7 @@ Architectural contract: `docs/decisions/ADR-015-professional-agent-fleet.md`
 | 2026-06-19 | DEBT-013 (coroutine warning) resolved — platform test suite at 0 warnings. DEBT-014 (extension router mount) resolved. DEBT-009 (CLI URL) resolved. ActorResult.data field added (DEFINER decision ADR-002 §16 #4). Model slot resolver CI fixture extended with diagnosis field. | Super Z (main) |
 | 2026-06-20 | ADR-014 Amendment A1 accepted (extension UI visibility via known-list health polling). UI_CONVENTIONS.md created. GUI Phase section added to PLANNED_FEATURES.md. Roadmap rewritten to reflect current state + GUI phase as immediate next. | Super Z (main) |
 | 2026-06-20 | ADR-014 status updated to ACCEPTED. UI_CONVENTIONS.md expanded with ASCII shell diagram, full extension right-panel reference map, chat bar migration rules, + menu spec. PLANNED_FEATURES GUI section updated with 6 items. ROADMAP updated with 12-item GUI sprint plan + blocked/deferred sections. | Claude + Moses |
+| 2026-07-23 | QW15 — Fleet Phases section: header updated from "when accepted" to "ACCEPTED, spec only"; added prominent "SPEC ONLY — ZERO FLEET CODE TODAY" banner listing exactly which primitives don't exist (AgentRun, CapabilityGate, FleetCoordinator, DispatchPlan, fleet_cost_ledger, start_policy, parallel_safe, trajectory corpus, CURATOR); all 7 phases marked "🔲 Planned (zero code)" instead of just "🔲 Planned". Closes the gap between ADR-015 ambition and current reality (R10 from tech-debt assessment). | Super Z (assessment agent) |
 
 ---
 
