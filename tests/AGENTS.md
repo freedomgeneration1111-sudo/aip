@@ -60,7 +60,18 @@ CI runs on every push to main — failures block merge.
   Forgetting the mark causes the test to be skipped silently.
 
 ## Last Cycle
-- **Phase 1 Fix D regression tests (this cycle)**: Added 3 new
+- **QW7 — Doc Drift Guard suite added** (this cycle): new
+  `tests/test_doc_drift_guard.py` (13 tests, stdlib-only, runs in any CI
+  env). Each test guards ONE specific doc claim against code reality:
+  - `TestMultiCorpusStartupRegistration` — app.py registers definer + codeforge
+  - `TestCodebaseAsCorpusGuard` — ingest pipeline + AST parser + CLI exist; no duplicate
+  - `TestCorpusSelectorGuard` — GUI component + endpoint both exist (not just one half)
+  - `TestMaxCorporaConsistency` — app.py uses constant not hardcode; constant matches test
+  - `TestAdr015SpecOnlyGuard` — ROADMAP has spec-only banner; no fleet code exists yet
+  Created in response to the 2026-07-23 tech-debt assessment (items D1, D2,
+  D3, ND4, ND11, R10). Prevents the most damaging class of drift: docs
+  claiming "✅ Complete" when code doesn't back it up.
+- **Phase 1 Fix D regression tests (prior cycle)**: Added 3 new
   tests to `test_model_council_fusion.py` in a new
   `TestFusionFixDEngineFallback` class (total now 31) covering the
   graceful-degradation fix:
