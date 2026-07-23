@@ -404,7 +404,15 @@ config/aip.config.toml ([models] section)
   the `{EXT_ID Upper}_...` namespace convention (ADR-014 §10).
 
 ## Last Cycle
-- **ADR-014 §8 step 2 remainder — WorkflowEngine wired + /health/extensions** (this cycle):
+- **QW2 — Stale docstring fix in `corpus_registry.py::delete_corpus`** (this cycle):
+  - Removed stale "(Stub — implemented in Chunk 6 when bridge edges exist.)"
+    note from the Phase 2 line of the `delete_corpus()` docstring. The
+    bridge-edge cleanup was implemented in Chunk 6 (`GraphStore.delete_bridge_edges`
+    is called at `corpus_registry.py:378-396`), but the docstring still
+    described it as a stub. Doc drift item D5 from the tech-debt assessment.
+  - No code behavior change — docstring only. 55 `test_corpus_registry.py`
+    tests + 91 broader corpus suite tests all pass.
+- **ADR-014 §8 step 2 remainder — WorkflowEngine wired + /health/extensions** (prior cycle):
   - Wired `WorkflowEngine` into `AipContainer` + lifespan. Added
     `workflow_engine` field to `AipContainer`. The lifespan constructs the
     engine with the container's stores (vector_store, trace_store,

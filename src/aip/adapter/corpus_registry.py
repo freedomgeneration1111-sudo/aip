@@ -350,8 +350,9 @@ class CorpusRegistry:
 
         Phase 1: Set deletion_state=DELETING (persisted to corpus_metadata
                  before any file op, so a crash mid-delete is recoverable).
-        Phase 2: delete_bridge_edges(corpus_id) in definer graph. (Stub —
-                 implemented in Chunk 6 when bridge edges exist.)
+        Phase 2: delete_bridge_edges(corpus_id) in definer graph (Chunk 6 —
+                 calls GraphStore.delete_bridge_edges for cross-corpus edges
+                 pointing at this corpus; best-effort, logs on failure).
         Phase 3: PRAGMA wal_checkpoint(TRUNCATE) on the corpus db.
         Phase 4: close the shared connection manager (close_all()).
         Phase 5: rename all three files (.db, .db-wal, .db-shm) via

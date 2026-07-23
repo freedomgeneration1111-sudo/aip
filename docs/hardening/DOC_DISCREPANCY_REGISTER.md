@@ -176,6 +176,17 @@ or where code does something the docs do not mention.
 | Resolution | None needed |
 | Assigned to | N/A |
 
+### DDR-013 — `corpus_registry.py::delete_corpus` docstring calls Phase 2 a "Stub" but it is implemented
+
+| Field | Value |
+|---|---|
+| File | `src/aip/adapter/corpus_registry.py` lines 353-354 (docstring of `delete_corpus`) |
+| Claim | "Phase 2: delete_bridge_edges(corpus_id) in definer graph. (Stub — implemented in Chunk 6 when bridge edges exist.)" |
+| Reality | The bridge-edge cleanup IS implemented in Chunk 6 — `corpus_registry.py:378-396` calls `GraphStore.delete_bridge_edges(corpus_id)` for real, with best-effort error handling and logging. The docstring was never updated when Chunk 6 landed. |
+| Severity | **LOW** |
+| Impact | Anyone reading the registry source would believe the bridge-edge cleanup is unimplemented and might try to "fix" it, duplicating work or introducing bugs. No runtime impact. |
+| Resolution | **RESOLVED 2026-07-23** — docstring updated to describe the real implementation. Discovered in the 2026-07-23 tech-debt assessment (item D5). |
+
 ---
 
 ## Summary Table
@@ -194,8 +205,9 @@ or where code does something the docs do not mention.
 | DDR-010 | MEDIUM | Root TECH_DEBT.md | Split debt register | Merge or delete |
 | DDR-011 | LOW | README.md | ADR count is 7 not 13+ | Update count |
 | DDR-012 | N/A | STATUS.md | NOT a discrepancy | None |
+| DDR-013 | LOW (RESOLVED) | corpus_registry.py | delete_corpus Phase 2 docstring said "Stub" but was implemented | Docstring fix (resolved 2026-07-23) |
 
 **Critical:** 0 (DDR-008 reclassified to HIGH — non-live debt)
 **High:** 3 (DDR-001, DDR-002, DDR-008)
 **Medium:** 5 (DDR-003, DDR-004, DDR-006, DDR-007, DDR-010)
-**Low:** 3 (DDR-005, DDR-009, DDR-011)
+**Low:** 3 (DDR-005, DDR-009, DDR-011) + 1 RESOLVED (DDR-013)
