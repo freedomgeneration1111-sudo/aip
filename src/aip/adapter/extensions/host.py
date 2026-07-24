@@ -44,6 +44,7 @@ from aip.adapter.extensions.registry import (
     ExtensionRegistry,
     ExtensionRecord,
     NavItem,
+    PendingCorpusProvider,
 )
 from aip.adapter.extensions.state import ExtensionState
 from aip.adapter.extensions.supervision import supervised_task
@@ -742,6 +743,15 @@ class ExtensionHost:
             rec.state = ExtensionState.REGISTERED
             logger.info("extension_registered id=%s (no GUI pages)", manifest.id)
 
+        # ---- Post-on_load: execute pending dynamic corpus providers ----
+        # ND9 (2026-07-23): extensions can call host.register_corpus_provider()
+        # during on_load to dynamically register corpora. The host records
+        # them as PendingCorpusProvider on the extension record; we execute
+        # them here (after on_load returns) because CorpusRegistry.register()
+        # is async and on_load is sync.
+        if rec.pending_corpus_providers:
+            await self._execute_pending_corpus_providers(rec, manifest)
+
     # ------------------------------------------------------------------
     # Stage 2: migrate
     # ------------------------------------------------------------------
@@ -792,6 +802,67 @@ class ExtensionHost:
                     ext_id=manifest.id,
                     stores=stores,
                     migrations=loaded,
+                )
+
+    # ------------------------------------------------------------------
+    # ND9 (2026-07-23): execute pending dynamic corpus providers
+    # ------------------------------------------------------------------
+
+    async def _execute_pending_corpus_providers(
+        self, rec: ExtensionRecord, manifest: Manifest
+    ) -> None:
+        """Execute dynamic corpus registrations requested during on_load.
+
+        ND9 (2026-07-23). Each PendingCorpusProvider is registered with
+        CorpusRegistry.register() using the same {ext_id}:{role} namespacing
+        as manifest-declared corpora. The sensitive flag + access_note are
+        applied post-registration (same pattern as the TOML config path).
+        """
+        registry = getattr(self._container, "corpus_registry", None)
+        if registry is None:
+            logger.warning(
+                "pending_corpus_providers_skipped ext=%s reason=registry_not_wired",
+                manifest.id,
+            )
+            return
+
+        for provider in rec.pending_corpus_providers:
+            corpus_id = f"{manifest.id}:{provider.role}"
+            try:
+                corpus_type = CorpusType(provider.corpus_type)
+                if provider.db_path:
+                    db_path = Path(provider.db_path)
+                else:
+                    assert rec.ext_dir is not None
+                    db_path = rec.ext_dir / f"{provider.role}.db"
+
+                await registry.register(
+                    corpus_id=corpus_id,
+                    corpus_type=corpus_type,
+                    db_path=db_path,
+                    sensitive=provider.sensitive,
+                )
+
+                # Apply sensitive flag + access_note post-registration
+                if provider.sensitive:
+                    stores = registry._corpora.get(corpus_id)
+                    if stores is not None:
+                        stores._sensitive = True
+                        stores._access_note = provider.access_note
+
+                logger.info(
+                    "dynamic_corpus_registered ext=%s corpus_id=%s type=%s sensitive=%s",
+                    manifest.id, corpus_id, corpus_type.value, provider.sensitive,
+                )
+            except Exception as exc:
+                rec.add_failure(
+                    stage="ready",
+                    contribution="corpus_provider",
+                    reason=f"dynamic corpus {corpus_id}: {type(exc).__name__}: {exc}",
+                )
+                logger.warning(
+                    "dynamic_corpus_register_failed ext=%s corpus_id=%s error=%s",
+                    manifest.id, corpus_id, exc,
                 )
 
     # ------------------------------------------------------------------
@@ -1108,6 +1179,81 @@ class ExtensionHost:
     def registered_api_routers(self) -> list[dict[str, Any]]:
         """Return all registered API routers (for app.py to include)."""
         return getattr(self, "_api_routers", [])
+
+    # ------------------------------------------------------------------
+    # Dynamic corpus registration (ND9, 2026-07-23)
+    # ------------------------------------------------------------------
+
+    def register_corpus_provider(
+        self,
+        role: str,
+        corpus_type: str,
+        *,
+        db_path: str | None = None,
+        sensitive: bool = False,
+        access_note: str = "",
+    ) -> None:
+        """Register a corpus dynamically from on_load (ND9, 2026-07-23).
+
+        Unlike manifest-declared corpora (which are registered at stage 2
+        migrate), dynamic corpus providers are recorded during on_load and
+        executed by the host after on_load returns. This allows extensions
+        to register corpora based on runtime conditions (e.g. config-driven
+        corpus count, feature flags) rather than only manifest-static ones.
+
+        The corpus_id is namespaced as ``{ext_id}:{role}`` (same convention
+        as manifest-declared corpora). The db_path defaults to
+        ``{ext_dir}/{role}.db`` when not specified.
+
+        Args:
+            role: logical role within the extension (e.g. "textbook").
+                Must not contain ``:``.
+            corpus_type: one of "conversation", "code", "document", "book".
+            db_path: optional path to the corpus SQLite file. Defaults to
+                ``{ext_dir}/{role}.db``.
+            sensitive: if True, requires session opt-in via
+                ``allowed_restricted_corpora``.
+            access_note: human-readable note for restricted corpora.
+
+        Raises:
+            RuntimeError: if called outside an extension's on_load hook.
+        """
+        if self._current_ext_id is None:
+            raise RuntimeError(
+                "host.register_corpus_provider() can only be called inside "
+                "an extension's on_load hook."
+            )
+        if ":" in role:
+            raise ValueError(
+                f"corpus role {role!r} must not contain ':' (used for "
+                f"{{ext_id}}:{{role}} namespacing)"
+            )
+        # Validate the corpus_type value early (fail fast in on_load, not
+        # later when the host tries to register).
+        try:
+            from aip.foundation.corpus_types import CorpusType
+            CorpusType(corpus_type)  # raises ValueError if invalid
+        except ValueError:
+            raise ValueError(
+                f"corpus_type {corpus_type!r} is not a valid CorpusType "
+                f"(must be one of {[t.value for t in CorpusType]})"
+            ) from None
+
+        rec = self._registry.get_record(self._current_ext_id)
+        if rec is not None:
+            rec.pending_corpus_providers.append(
+                PendingCorpusProvider(
+                    role=role,
+                    corpus_type=corpus_type,
+                    db_path=db_path,
+                    sensitive=sensitive,
+                    access_note=access_note,
+                )
+            )
+            logger.info(
+                "corpus_provider_registered ext=%s role=%s type=%s sensitive=%s",
+                self._current_ext_id, role, corpus_type, sensitive,
+            )
 
     # ------------------------------------------------------------------
     # State / health accessors — ADR-014 §5.1, §7

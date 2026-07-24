@@ -48,6 +48,10 @@ class ExtensionHost:
     def register_workflow(path: str) -> None
     def register_page(route: str, title: str, icon: str,
                       builder_fn: Callable, *, order: int = 50) -> None  # v1.1
+    def register_corpus_provider(role: str, corpus_type: str, *,
+                                 db_path: str | None = None,
+                                 sensitive: bool = False,
+                                 access_note: str = "") -> None  # ND9 (2026-07-23)
 
     # Access (read-only; for use inside on_load)
     @property

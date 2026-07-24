@@ -27,6 +27,24 @@ from aip.adapter.extensions.state import ExtensionState, Failure
 
 
 @dataclass
+class PendingCorpusProvider:
+    """A dynamic corpus registration requested during on_load (ND9, 2026-07-23).
+
+    Extensions call host.register_corpus_provider(role, type, ...) inside
+    on_load. The host records a PendingCorpusProvider on the extension's
+    record, then executes the async registration after on_load returns.
+    This allows extensions to register corpora based on runtime conditions
+    (e.g. config-driven corpus count) rather than only manifest-static ones.
+    """
+
+    role: str               # corpus role (e.g. "textbook"); corpus_id = {ext_id}:{role}
+    corpus_type: str        # "conversation" | "code" | "document" | "book"
+    db_path: str | None = None   # optional; defaults to {ext_dir}/{role}.db
+    sensitive: bool = False
+    access_note: str = ""
+
+
+@dataclass
 class ExtensionRecord:
     """Per-extension runtime record — one per discovered extension."""
 
@@ -47,6 +65,11 @@ class ExtensionRecord:
 
     # Validated config (the extension's own BaseSettings/dataclass instance).
     config: Any = None
+
+    # Pending dynamic corpus providers (ND9, 2026-07-23).
+    # Populated by host.register_corpus_provider() during on_load.
+    # Executed by _migrate_register_ready_one after on_load returns.
+    pending_corpus_providers: list["PendingCorpusProvider"] = field(default_factory=list)
 
     def add_failure(self, stage: str, contribution: str, reason: str) -> None:
         self.failures.append(Failure(stage=stage, contribution=contribution, reason=reason))

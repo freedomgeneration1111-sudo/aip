@@ -414,7 +414,19 @@ config/aip.config.toml ([models] section)
   the `{EXT_ID Upper}_...` namespace convention (ADR-014 §10).
 
 ## Last Cycle
-- **Phase α-3 — DEBT-020 start_policy fix** (this cycle): added
+- **Phase α-4 — register_corpus_provider dynamic hook (ND9)** (this cycle):
+  extensions can now dynamically register corpora from `on_load` via
+  `host.register_corpus_provider(role, corpus_type, ...)`. Unlike
+  manifest-declared corpora (registered at stage 2 migrate), dynamic
+  providers are recorded as `PendingCorpusProvider` on the extension
+  record during on_load, then executed by `_execute_pending_corpus_providers`
+  after on_load returns (because `CorpusRegistry.register()` is async but
+  `on_load` is sync). Same `{ext_id}:{role}` namespacing. Supports
+  `sensitive` flag + `access_note` + custom `db_path`. Validates role
+  (no `:`) and corpus_type (must be valid enum) at call time. 11 tests
+  in `test_register_corpus_provider.py`. Closes ND9 from the tech-debt
+  assessment.
+- **Phase α-3 — DEBT-020 start_policy fix** (prior cycle): added
   `start_policy` field to `ActorRegistration` and `host.register_actor()`.
   The `_actor_scheduler_loop` now checks `start_policy` before the initial
   cycle: `"scheduled"` (default) runs one cycle on startup (backward
