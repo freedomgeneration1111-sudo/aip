@@ -220,6 +220,34 @@ memory_limit_mb = 4096
 [database]
 db_path = "db/state.db"
 
+# ---------------------------------------------------------------------------
+# Multi-Corpus Configuration (Phase α-2, 2026-07-23)
+# ADR-008 Multi-Corpus Architecture. Declare additional corpora here —
+# the app.py lifespan reads this section and registers them at startup.
+# Operators can add corpora without editing app.py.
+#
+# 'definer' (conversation) and 'codeforge' (code) are ALWAYS registered
+# by default — do NOT declare them here. Only declare additional corpora.
+#
+# Each [corpora.{id}] section has:
+#   type        = "conversation" | "code" | "document" | "book"  (required)
+#   db_path     = "db/{id}.db"  (optional, defaults to db/{corpus_id}.db)
+#   sensitive   = false  (optional, default false — requires session opt-in)
+#   access_note = "..."  (optional, shown in GUI when sensitive=true)
+#
+# Example: a restricted research document corpus
+# [corpora.branham]
+# type = "document"
+# sensitive = true
+# access_note = "Restricted research corpus — requires explicit session allowlist"
+#
+# Example: a manuscript corpus
+# [corpora.sparkle_thirst]
+# type = "book"
+# ---------------------------------------------------------------------------
+
+# (no corpora declared by default — definer + codeforge are auto-registered)
+
 # Read pool sizing for SQLite WAL mode stores (lexical, vector, graph, corpus_turn).
 # Pool auto-sizing can automatically increase pool_size when exhaustion_rate
 # is sustained high, with safeguards (max cap, logged changes, rollback).

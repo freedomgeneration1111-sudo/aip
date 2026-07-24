@@ -414,7 +414,18 @@ config/aip.config.toml ([models] section)
   the `{EXT_ID Upper}_...` namespace convention (ADR-014 §10).
 
 ## Last Cycle
-- **BUGFIX — Code turns had importance=0.0, invisible to retrieval** (this cycle):
+- **Phase α-2 — [corpora.{id}] TOML config section** (this cycle): app.py
+  now reads `[corpora.*]` sections from `aip.config.toml` and registers
+  additional corpora at startup. Operators can add corpora without editing
+  app.py — just declare a `[corpora.{id}]` section with `type`, optional
+  `db_path`, `sensitive`, `access_note`. Definer + codeforge are always
+  registered by default (not declared in TOML). Unknown types are logged
+  and skipped (never crash startup). The `sensitive` flag is applied
+  post-registration. 8 structural tests in `test_corpus_toml_config.py`.
+  Config example updated with full `[corpora]` documentation + examples.
+  Closes the last Capability 1 gap: operators can now add corpora via
+  config file.
+- **BUGFIX — Code turns had importance=0.0, invisible to retrieval** (prior cycle):
   `make_code_corpus_turn` in `python_ast_parser.py` did not set `importance`,
   so it defaulted to 0.0 (the `CorpusTurn` default). The retrieval path
   (`_search_corpus_turns` in `_augmented_context.py`) filters with

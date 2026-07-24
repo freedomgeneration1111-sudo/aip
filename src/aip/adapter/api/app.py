@@ -479,23 +479,78 @@ async def lifespan(app: FastAPI):
         from aip.foundation.corpus_types import CorpusType
         from aip.foundation.corpus_constants import MAX_CORPORA
 
-        # Derive the codeforge corpus DB path from the definer db_path
-        # (same db/ directory). The codeforge corpus holds AIP's own
-        # Python source code as a searchable corpus (ADR-008 §8 Chunk 7 /
-        # Phase 1.6 Codebase-as-Corpus). Ingest is triggered via
-        # `aip corpus ingest-code <dir>` (QW11) or the Sexton file-watcher
-        # (QW13, planned). The corpus is registered empty at startup so
-        # that multi-corpus retrieval can include it once it's populated.
+        # ── Build the corpora_to_register list ──────────────────────
+        # Phase α-2 (2026-07-23): corpora are declared in the [corpora.*]
+        # section of aip.config.toml. Definer is always registered first
+        # (it's the anchor corpus — owns the review queue fan-in + bridge
+        # edges). Codeforge is registered by default (QW1) so AIP can
+        # search its own source code. Additional corpora are read from
+        # TOML config, allowing operators to add corpora without editing
+        # app.py.
         _db_dir = _Path(db_path).parent
-        _codeforge_db_path = _db_dir / "codeforge.db"
+
+        # Start with the default corpora (always registered)
+        _corpora_to_register: list[tuple[str, CorpusType, _Path]] = [
+            ("definer", CorpusType.CONVERSATION, _Path(db_path)),
+            ("codeforge", CorpusType.CODE, _db_dir / "codeforge.db"),
+        ]
+
+        # Read additional corpora from [corpora.{id}] TOML sections.
+        # Each section has: type (required), sensitive (optional),
+        # access_note (optional), db_path (optional, defaults to
+        # db/{corpus_id}.db).
+        _corpora_cfg = config.get("corpora", {})
+        if isinstance(_corpora_cfg, dict):
+            for _cid, _ccfg in _corpora_cfg.items():
+                if not isinstance(_ccfg, dict) or _cid in ("definer", "codeforge"):
+                    continue  # skip non-dict sections + duplicates of defaults
+                _ctype_str = _ccfg.get("type", "")
+                try:
+                    _ctype = CorpusType(_ctype_str)
+                except ValueError:
+                    log.warning(
+                        "corpus_config_skipped",
+                        corpus_id=_cid,
+                        reason=f"unknown type: {_ctype_str!r} (must be one of {[t.value for t in CorpusType]})",
+                    )
+                    continue
+                _cdb_path = _ccfg.get("db_path")
+                if _cdb_path:
+                    _cdb_path = _Path(_cdb_path)
+                else:
+                    _cdb_path = _db_dir / f"{_cid}.db"
+                _corpora_to_register.append((_cid, _ctype, _cdb_path))
+                log.info(
+                    "corpus_config_found",
+                    corpus_id=_cid,
+                    type=_ctype.value,
+                    db_path=str(_cdb_path),
+                    sensitive=_ccfg.get("sensitive", False),
+                )
 
         _registry = CorpusRegistry(max_corpora=MAX_CORPORA)
         await _registry.startup(
-            corpora_to_register=[
-                ("definer", CorpusType.CONVERSATION, _Path(db_path)),
-                ("codeforge", CorpusType.CODE, _codeforge_db_path),
-            ],
+            corpora_to_register=_corpora_to_register,
         )
+
+        # Register sensitive flag + access_note for TOML-declared corpora
+        # (startup() doesn't take sensitive/access_note — we set them
+        # post-registration via the registry's internal CorpusStores).
+        if isinstance(_corpora_cfg, dict):
+            for _cid, _ccfg in _corpora_cfg.items():
+                if not isinstance(_ccfg, dict) or _cid in ("definer", "codeforge"):
+                    continue
+                if _ccfg.get("sensitive", False):
+                    _stores = _registry._corpora.get(_cid)
+                    if _stores is not None:
+                        _stores._sensitive = True
+                        _stores._access_note = _ccfg.get("access_note", "")
+                        log.info(
+                            "corpus_sensitive_flag_set",
+                            corpus_id=_cid,
+                            access_note=_stores._access_note,
+                        )
+
         container.corpus_registry = _registry
 
         # Fix contract gaps: the factory's ECS store doesn't have event_store
