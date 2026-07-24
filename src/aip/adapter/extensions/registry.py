@@ -71,12 +71,21 @@ class NavItem:
 
 @dataclass
 class ActorRegistration:
-    """One actor registered via host.register_actor — ADR-014 §5.1, §5.2."""
+    """One actor registered via host.register_actor — ADR-014 §5.1, §5.2.
+
+    start_policy (DEBT-020 fix, 2026-07-23):
+        "scheduled"  — run one cycle immediately on start (default; safe for
+                       read-only / health-check actors)
+        "manual_only" — do NOT run a cycle on start; wait for explicit trigger
+                       (safe for write-capable actors that must not execute
+                       before gates are wired)
+    """
 
     ext_id: str           # owning extension
     name: str             # actor name (unique within the host)
     factory: Callable[[], Any]   # zero-arg callable returning an Actor instance
     cadence: float        # seconds between cycles; 0 = manual only
+    start_policy: str = "scheduled"  # "scheduled" | "manual_only" (DEBT-020)
     task: asyncio.Task | None = None   # the scheduler task once started
 
 
@@ -149,8 +158,14 @@ class ExtensionRegistry:
         name: str,
         factory: Callable[[], Any],
         cadence: float = 0.0,
+        start_policy: str = "scheduled",
     ) -> None:
         """Register an actor factory. The host starts the scheduler task.
+
+        Args:
+            start_policy: "scheduled" (default) runs one cycle on start;
+                "manual_only" skips the startup cycle (DEBT-020 fix — safe
+                for write-capable actors).
 
         Raises ValueError if the actor name is already registered.
         """
@@ -162,6 +177,7 @@ class ExtensionRegistry:
             )
         self._actors[name] = ActorRegistration(
             ext_id=ext_id, name=name, factory=factory, cadence=cadence,
+            start_policy=start_policy,
         )
         # Record the actor name on the owning extension's record.
         rec = self.upsert_record(ext_id)

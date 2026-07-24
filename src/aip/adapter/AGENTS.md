@@ -414,7 +414,17 @@ config/aip.config.toml ([models] section)
   the `{EXT_ID Upper}_...` namespace convention (ADR-014 §10).
 
 ## Last Cycle
-- **Phase α-2 — [corpora.{id}] TOML config section** (this cycle): app.py
+- **Phase α-3 — DEBT-020 start_policy fix** (this cycle): added
+  `start_policy` field to `ActorRegistration` and `host.register_actor()`.
+  The `_actor_scheduler_loop` now checks `start_policy` before the initial
+  cycle: `"scheduled"` (default) runs one cycle on startup (backward
+  compatible); `"manual_only"` skips the startup cycle entirely. This
+  prevents write-capable extension actors from executing at boot before
+  gates are wired — the documented blocker for Phase 3A-0 (pre-fleet).
+  5 tests in `test_debt020_start_policy.py` verify the fix: scheduled
+  actor runs 1 cycle, manual_only actor runs 0 cycles. DEBT-020 marked
+  RESOLVED in TECH_DEBT.md.
+- **Phase α-2 — [corpora.{id}] TOML config section** (prior cycle): app.py
   now reads `[corpora.*]` sections from `aip.config.toml` and registers
   additional corpora at startup. Operators can add corpora without editing
   app.py — just declare a `[corpora.{id}]` section with `type`, optional

@@ -703,9 +703,10 @@ intentionally re-exported. Low priority — doesn't affect runtime.
 
 ## DEBT-020 — cadence=0 Startup Execution Runs Write-Capable Actors at Boot (ADR-015 §0)
 
-**Status:** Active — BLOCKING for Phase 3A-0
+**Status:** RESOLVED — 2026-07-23 (Phase α-3)
 **Phase:** Phase 3A-0 (pre-fleet)
 **Filed:** 2026-06-26
+**Resolved:** 2026-07-23
 **Source:** ADR-015 §0 (AgentRun Primitive — start_policy fix)
 
 **What is broken:**
@@ -732,6 +733,26 @@ cycle when `start_policy == "manual_only"`.
 **Remediation trigger:** Before Phase 3A-0 (before 2nd extension / any
 write-capable agent). ADR-015 §0: "the fail-closed gate cannot be
 retrofitted after agents are running."
+
+**Resolution (2026-07-23, Phase α-3):**
+Added `start_policy` field to `ActorRegistration` and `host.register_actor()`:
+- `"scheduled"` (default) — runs one cycle on startup (backward compatible)
+- `"manual_only"` — skips the startup cycle entirely (safe for write-capable actors)
+
+The `_actor_scheduler_loop` in `host.py` now checks `registration.start_policy`
+before the initial `_run_one_cycle()` call. When `start_policy == "manual_only"`,
+the startup cycle is skipped and the actor logs `actor_startup_cycle_skipped`.
+
+5 tests in `tests/test_debt020_start_policy.py` verify:
+- ActorRegistration has start_policy field with default "scheduled"
+- start_policy can be set to "manual_only"
+- "scheduled" actor runs exactly 1 cycle on startup
+- "manual_only" actor runs 0 cycles on startup (the fix)
+- host.register_actor accepts start_policy keyword arg
+
+This unblocks Phase 3A-0: write-capable extension actors can now be
+registered with `start_policy="manual_only"` and will not execute until
+explicitly triggered.
 
 ---
 

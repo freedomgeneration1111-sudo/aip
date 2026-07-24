@@ -176,8 +176,19 @@ async def _actor_scheduler_loop(
         cancel_event=cancel_event,
     )
 
-    # Run one cycle immediately (so manual-only actors do something on start).
-    await _run_one_cycle(actor, ctx, registration)
+    # DEBT-020 fix (2026-07-23): only run the startup cycle when
+    # start_policy == "scheduled". "manual_only" actors skip the
+    # startup cycle entirely — they wait for an explicit trigger
+    # (cancel_event for cadence=0, or the first timeout for cadence>0).
+    # This prevents write-capable actors from executing before gates
+    # are wired.
+    if registration.start_policy != "manual_only":
+        await _run_one_cycle(actor, ctx, registration)
+    else:
+        logger.info(
+            "actor_startup_cycle_skipped ext=%s name=%s start_policy=manual_only",
+            registration.ext_id, registration.name,
+        )
 
     # If cadence is 0, wait forever for cancellation (manual-only actor).
     if registration.cadence <= 0:
@@ -997,6 +1008,7 @@ class ExtensionHost:
         factory: Callable[[], Any],
         *,
         cadence: float = 0.0,
+        start_policy: str = "scheduled",
     ) -> None:
         """Register an actor factory. The host starts the scheduler task at end of start().
 
@@ -1004,6 +1016,10 @@ class ExtensionHost:
             name: unique actor name across all extensions.
             factory: zero-arg callable returning an Actor instance.
             cadence: seconds between cycles; 0 = manual only.
+            start_policy: "scheduled" (default) runs one cycle on start;
+                "manual_only" skips the startup cycle (DEBT-020 fix —
+                safe for write-capable actors that must not execute
+                before gates are wired).
         """
         if self._current_ext_id is None:
             raise RuntimeError(
@@ -1014,6 +1030,7 @@ class ExtensionHost:
             name=name,
             factory=factory,
             cadence=cadence,
+            start_policy=start_policy,
         )
 
     def register_channel(self, name: str, register_fn: Callable) -> None:
