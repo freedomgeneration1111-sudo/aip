@@ -955,3 +955,26 @@ the constant.
 - R2 (fleet budget risk) from the same assessment — now mitigated
 
 ---
+
+## DEBT-026 — CorpusStoreFactory lexical/vector/graph slots (ND3)
+
+**Status:** Resolved — 2026-07-23 (Phase α-5)
+**Phase:** Phase α (Stabilize & Wire)
+**Filed:** 2026-07-23
+**Resolved:** 2026-07-23
+**Source:** ND3 from the 2026-07-23 tech-debt assessment
+
+**What was deferred:**
+CorpusStoreFactory only built turn_store, ecs_store, and artifact_store.
+The lexical_store, vector_store, and graph_store slots on CorpusStores
+were None — per-corpus lexical/vector/graph retrieval would not work
+even if a second corpus were registered.
+
+**Resolution:**
+- lexical_store (SqliteFts5LexicalStore) now built per corpus
+- graph_store (GraphStore) now built per corpus
+- vector_store intentionally deferred (needs embedding provider injection — Phase β)
+- 5 tests in tests/test_corpus_store_slots.py verify the slots are built,
+  per-corpus, and queryable
+
+---

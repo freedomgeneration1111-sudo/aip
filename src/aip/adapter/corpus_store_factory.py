@@ -212,6 +212,17 @@ class CorpusStoreFactory:
             stores.ecs_store = await self._build_ecs_store(manager, corpus_id)
             stores.artifact_store = await self._build_artifact_store(manager, corpus_id)
 
+            # Step 6b (ND3, 2026-07-23): attach lexical + graph stores.
+            # These are per-corpus instances using the corpus db_path.
+            # The lexical store provides a dedicated FTS5 index for
+            # document-style content (complements the turn store's built-in
+            # FTS5). The graph store provides per-corpus graph nodes/edges
+            # (for Phase β code dependency graphs).
+            # vector_store is deferred — it needs an embedding_provider
+            # (container-level, not per-corpus); Phase β will wire it.
+            stores.lexical_store = await self._build_lexical_store(manager, corpus_id)
+            stores.graph_store = await self._build_graph_store(manager, corpus_id)
+
             logger.info(
                 "corpus_stores_built corpus=%s type=%s db_path=%s",
                 corpus_id,
@@ -268,6 +279,38 @@ class CorpusStoreFactory:
         from aip.adapter.artifact_store_versioned import VersionedArtifactStore
 
         store = VersionedArtifactStore(manager.db_path)
+        await store.initialize()
+        return store
+
+    async def _build_lexical_store(self, manager: CorpusConnectionManager, corpus_id: str):
+        """Build a SqliteFts5Store for this corpus (ND3, 2026-07-23).
+
+        Provides a dedicated FTS5 index for document-style content that
+        isn't stored in corpus_turns (e.g. ingested markdown documents,
+        book chapters). The turn store has its own built-in FTS5 for
+        turn content; this store is for non-turn content.
+
+        Uses the corpus db_path (same SQLite file as turn_store).
+        """
+        from aip.adapter.lexical.sqlite_fts5_store import SqliteFts5LexicalStore
+
+        store = SqliteFts5LexicalStore(manager.db_path)
+        await store.initialize()
+        return store
+
+    async def _build_graph_store(self, manager: CorpusConnectionManager, corpus_id: str):
+        """Build a GraphStore for this corpus (ND3, 2026-07-23).
+
+        Provides per-corpus graph nodes/edges. For the definer corpus,
+        this is the conversation knowledge graph (entities, relationships).
+        For code corpora, this will hold the code dependency graph
+        (functions, classes, imports — Phase β).
+
+        Uses the corpus db_path (same SQLite file as turn_store).
+        """
+        from aip.adapter.graph_store import GraphStore
+
+        store = GraphStore(manager.db_path)
         await store.initialize()
         return store
 

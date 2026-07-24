@@ -414,7 +414,18 @@ config/aip.config.toml ([models] section)
   the `{EXT_ID Upper}_...` namespace convention (ADR-014 §10).
 
 ## Last Cycle
-- **Phase α-4 — register_corpus_provider dynamic hook (ND9)** (this cycle):
+- **Phase α-5 — CorpusStoreFactory builds lexical + graph store slots (ND3)** (this cycle):
+  the factory now builds `lexical_store` (SqliteFts5LexicalStore) and
+  `graph_store` (GraphStore) for each corpus at registration time.
+  Previously only `turn_store`, `ecs_store`, `artifact_store` were built;
+  `lexical_store` and `graph_store` were None. `vector_store` is
+  intentionally deferred (needs embedding provider injection — Phase β).
+  Each corpus gets its own per-corpus instances (not shared). 5 tests in
+  `test_corpus_store_slots.py` verify: lexical_store built, graph_store
+  built, vector_store still None (documents the deferral), instances are
+  per-corpus (not shared), graph_store is queryable after build. Closes
+  ND3 from the tech-debt assessment.
+- **Phase α-4 — register_corpus_provider dynamic hook (ND9)** (prior cycle):
   extensions can now dynamically register corpora from `on_load` via
   `host.register_corpus_provider(role, corpus_type, ...)`. Unlike
   manifest-declared corpora (registered at stage 2 migrate), dynamic
