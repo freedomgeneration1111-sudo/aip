@@ -77,6 +77,12 @@ class CodeTurnSpec:
     The ingest pipeline uses this to construct a CorpusTurn with the right
     fields. Kept as a separate dataclass so the parser stays pure (no
     CorpusTurn construction — that's the pipeline's job).
+
+    imports: module-level import names (e.g. ["asyncio", "pathlib.Path"]).
+        Populated for all specs; used by the graph builder for `imports` edges.
+    calls: function call names within the body (e.g. ["registry.register",
+        "logger.info"]). Populated for function/class specs; used by the
+        graph builder for `calls` edges.
     """
 
     qualified_name: str
@@ -85,6 +91,14 @@ class CodeTurnSpec:
     source_path: str
     kind: str  # "function" | "class" | "module_registration"
     metadata: dict[str, Any]
+    imports: list[str] = None  # populated by parse_python_file (Phase β-1)
+    calls: list[str] = None    # populated by _make_function_spec / _make_class_spec (Phase β-1)
+
+    def __post_init__(self):
+        if self.imports is None:
+            self.imports = []
+        if self.calls is None:
+            self.calls = []
 
 
 def should_skip_file(path: Path) -> bool:
@@ -142,19 +156,25 @@ def parse_python_file(
     # Derive module_path from source_path (e.g. "src/aip/adapter/graph_store.py" → "aip.adapter.graph_store")
     module_path = _derive_module_path(source_path)
 
+    # Phase β-1 (2026-07-23): extract module-level imports for the graph builder.
+    # These are shared across all specs from this file — each spec gets the
+    # same imports list (the file's imports), used to create `imports` edges
+    # from each function/class node to the imported module nodes.
+    file_imports = _extract_imports(tree)
+
     specs: list[CodeTurnSpec] = []
 
     # 1. Per function/method
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            spec = _make_function_spec(node, module_path, source_path)
+            spec = _make_function_spec(node, module_path, source_path, file_imports)
             if spec is not None:
                 specs.append(spec)
 
     # 2. Per class with Call/Assign body
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef):
-            spec = _make_class_spec(node, module_path, source_path)
+            spec = _make_class_spec(node, module_path, source_path, file_imports)
             if spec is not None:
                 specs.append(spec)
 
@@ -165,6 +185,7 @@ def parse_python_file(
             if isinstance(call, ast.Call) and _is_registration_call(call):
                 spec = _make_module_registration_spec(call, module_path, source_path)
                 if spec is not None:
+                    spec.imports = file_imports
                     specs.append(spec)
 
     return specs
@@ -189,10 +210,68 @@ def _derive_module_path(source_path: str) -> str:
     return p.replace("/", ".")
 
 
+def _extract_imports(tree: ast.Module) -> list[str]:
+    """Extract module-level import names from an AST tree (Phase β-1).
+
+    Returns a list of fully-qualified import names, e.g.:
+      ["asyncio", "pathlib.Path", "aip.adapter.graph_store.GraphStore"]
+
+    Used by the graph builder to create `imports` edges from function/class
+    nodes to the modules they depend on.
+    """
+    imports: list[str] = []
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                imports.append(alias.name)
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                for alias in node.names:
+                    imports.append(f"{node.module}.{alias.name}")
+            else:
+                for alias in node.names:
+                    imports.append(alias.name)
+    return imports
+
+
+def _extract_calls(node: ast.AST) -> list[str]:
+    """Extract function call names from an AST node's body (Phase β-1).
+
+    Walks the subtree of `node` and collects all Call expressions,
+    returning the called function's name (best-effort — handles Name,
+    Attribute, and dotted chains). Used by the graph builder to create
+    `calls` edges.
+
+    Returns a deduplicated list, e.g.:
+      ["registry.register", "logger.info", "print"]
+    """
+    calls: set[str] = set()
+
+    def _get_call_name(call_node: ast.Call) -> str | None:
+        func = call_node.func
+        parts: list[str] = []
+        while isinstance(func, ast.Attribute):
+            parts.append(func.attr)
+            func = func.value
+        if isinstance(func, ast.Name):
+            parts.append(func.id)
+            return ".".join(reversed(parts))
+        return None
+
+    for child in ast.walk(node):
+        if isinstance(child, ast.Call):
+            name = _get_call_name(child)
+            if name:
+                calls.add(name)
+
+    return sorted(calls)
+
+
 def _make_function_spec(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
     module_path: str,
     source_path: str,
+    file_imports: list[str] | None = None,
 ) -> CodeTurnSpec | None:
     """Build a CodeTurnSpec for a function/method."""
     # Qualified name: module_path.ClassName.func_name (for nested)
@@ -241,6 +320,9 @@ def _make_function_spec(
         full_source = searchable_text
     content_hash = hashlib.sha256(full_source.encode()).hexdigest()[:32]
 
+    # Phase β-1: extract calls within the function body for graph edges
+    calls = _extract_calls(node)
+
     return CodeTurnSpec(
         qualified_name=qualified_name,
         searchable_text=searchable_text,
@@ -254,6 +336,8 @@ def _make_function_spec(
             "decorator_count": len(node.decorator_list),
             "has_docstring": bool(docstring),
         },
+        imports=list(file_imports) if file_imports else [],
+        calls=calls,
     )
 
 
@@ -261,6 +345,7 @@ def _make_class_spec(
     node: ast.ClassDef,
     module_path: str,
     source_path: str,
+    file_imports: list[str] | None = None,
 ) -> CodeTurnSpec | None:
     """Build a CodeTurnSpec for a class with Call/Assign body nodes.
 
@@ -292,6 +377,9 @@ def _make_class_spec(
         full_source = searchable_text
     content_hash = hashlib.sha256(full_source.encode()).hexdigest()[:32]
 
+    # Phase β-1: extract calls within the class body for graph edges
+    calls = _extract_calls(node)
+
     return CodeTurnSpec(
         qualified_name=qualified_name,
         searchable_text=searchable_text,
@@ -303,6 +391,8 @@ def _make_class_spec(
             "qualified_name": qualified_name,
             "body_call_count": len(class_body_calls),
         },
+        imports=list(file_imports) if file_imports else [],
+        calls=calls,
     )
 
 
@@ -417,6 +507,8 @@ def make_code_corpus_turn(
             {
                 "kind": spec.kind,
                 "qualified_name": spec.qualified_name,
+                "imports": spec.imports,
+                "calls": spec.calls,
                 **spec.metadata,
             }
         ),

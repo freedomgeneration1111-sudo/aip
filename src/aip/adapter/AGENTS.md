@@ -414,7 +414,18 @@ config/aip.config.toml ([models] section)
   the `{EXT_ID Upper}_...` namespace convention (ADR-014 §10).
 
 ## Last Cycle
-- **Phase α-5 — CorpusStoreFactory builds lexical + graph store slots (ND3)** (this cycle):
+- **Phase β-1 — Code dependency graph building** (this cycle): extended the
+  AST parser to extract imports (`_extract_imports`) + function calls
+  (`_extract_calls`) from each function/class. Added `imports` + `calls`
+  fields to `CodeTurnSpec`. Added `build_code_graph()` to the ingest
+  pipeline — creates FUNCTION/CLASS/MODULE_REGISTRATION nodes +
+  `imports`/`calls` edges in the per-corpus GraphStore. The
+  `ingest_python_directory` now accepts an optional `graph_store` kwarg;
+  when provided, it builds the code graph after writing turns. The
+  `make_code_corpus_turn` metadata now includes imports + calls. 13 tests
+  in `test_code_graph_building.py`. This is "Graph B" from
+  PLANNED_FEATURES.md — the code dependency graph.
+- **Phase α-5 — CorpusStoreFactory builds lexical + graph store slots (ND3)** (prior cycle):
   the factory now builds `lexical_store` (SqliteFts5LexicalStore) and
   `graph_store` (GraphStore) for each corpus at registration time.
   Previously only `turn_store`, `ecs_store`, `artifact_store` were built;
