@@ -29,7 +29,7 @@ from aip.foundation.corpus_constants import (
     SEXTON_WRITE_BATCH_SIZE,
 )
 from aip.foundation.corpus_exceptions import (
-    BranhamIsolationViolation,
+    RestrictedCorpusAccessViolation,
     ConnectionBudgetExceeded,
     CorpusError,
     CorpusMigrationError,
@@ -156,7 +156,7 @@ class TestCorpusExceptions:
             EmbeddingModelMismatch,
             CorpusNotFound,
             ConnectionBudgetExceeded,
-            BranhamIsolationViolation,
+            RestrictedCorpusAccessViolation,
             CorpusMigrationError,
             DeletionStateError,
             EcsTransitionError,
@@ -174,7 +174,7 @@ class TestCorpusExceptions:
             EmbeddingModelMismatch,
             CorpusNotFound,
             ConnectionBudgetExceeded,
-            BranhamIsolationViolation,
+            RestrictedCorpusAccessViolation,
             CorpusMigrationError,
             DeletionStateError,
             EcsTransitionError,

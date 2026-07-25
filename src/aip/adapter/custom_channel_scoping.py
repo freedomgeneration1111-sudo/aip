@@ -85,7 +85,7 @@ async def resolve_scoped_stores(
     ADR-008 Rev 3.1 §A14: this is the resolution point where Branham
     isolation is enforced. Each corpus is fetched via
     registry.get_stores(corpus_id, allowed_restricted_corpora=...).
-    BranhamIsolationViolation is caught and the corpus is simply omitted
+    RestrictedCorpusAccessViolation is caught and the corpus is simply omitted
     from the resolved set (graceful degrade, not an error).
 
     Returns a ScopedCorpusStores that custom channels can safely receive.
@@ -94,14 +94,14 @@ async def resolve_scoped_stores(
     if registry is None:
         return ScopedCorpusStores({})
 
-    from aip.foundation.corpus_exceptions import BranhamIsolationViolation
+    from aip.foundation.corpus_exceptions import RestrictedCorpusAccessViolation
 
     resolved: dict[str, Any] = {}
     for cid in active_corpus_ids:
         try:
             stores = await registry.get_stores(cid, allowed_restricted_corpora=allowed_restricted_corpora)
             resolved[cid] = stores
-        except BranhamIsolationViolation:
+        except RestrictedCorpusAccessViolation:
             logger.info("scoped_stores_restricted_suppressed corpus=%s", cid)
             # Omit from resolved set — custom channel won't see it
         except Exception as exc:

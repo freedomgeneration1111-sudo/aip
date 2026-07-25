@@ -86,7 +86,6 @@ def build_session_meta_update(
     allowed_restricted_corpora: list[str],
     *,
     restricted_policy_enabled: bool,
-    branham_policy_enabled: bool | None = None,  # deprecated alias
 ) -> dict:
     """Build a session metadata update dict that enforces restricted-corpus policy.
 
@@ -103,14 +102,11 @@ def build_session_meta_update(
             is allowed to access. Cleared to [] when policy is disabled.
         restricted_policy_enabled: if False, allowed_restricted_corpora is
             stripped from the update (never persisted).
-        branham_policy_enabled: DEPRECATED alias for restricted_policy_enabled.
 
     Returns:
         A dict suitable for passing to session_store.update_session().
     """
     # Handle deprecated alias
-    if branham_policy_enabled is not None:
-        restricted_policy_enabled = branham_policy_enabled
 
     update: dict = {}
 

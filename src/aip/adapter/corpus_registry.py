@@ -45,7 +45,7 @@ from aip.foundation.corpus_constants import (
     NON_CORPUS_READ_POOL_SIZE,
 )
 from aip.foundation.corpus_exceptions import (
-    BranhamIsolationViolation,
+    RestrictedCorpusAccessViolation,
     ConnectionBudgetExceeded,
     CorpusNotFound,
     DeletionStateError,
@@ -106,7 +106,6 @@ class CorpusRegistry:
         corpora_to_register: list[tuple[str, CorpusType, Path]] | None = None,
         embedding_model: str | None = None,
         restricted_policy_enabled: bool = False,
-        branham_policy_enabled: bool | None = None,  # deprecated alias
     ) -> None:
         """Initialize all pre-configured corpora, run migrations, set migration_ready.
 
@@ -121,7 +120,6 @@ class CorpusRegistry:
                 isolation is enforced (§3.4). Any corpus registered with sensitive=True
                 is gated — the session must include its corpus_id in
                 allowed_restricted_corpora to access it.
-            branham_policy_enabled: DEPRECATED alias for restricted_policy_enabled.
                 Kept for backward compat with existing callers.
 
         Raises:
@@ -136,8 +134,6 @@ class CorpusRegistry:
         """
         self._embedding_model = embedding_model
         # Handle deprecated alias
-        if branham_policy_enabled is not None:
-            restricted_policy_enabled = branham_policy_enabled
         self._restricted_policy_enabled = restricted_policy_enabled
 
         # Measure non-corpus connection budget (conservative default if unavailable)
@@ -213,7 +209,6 @@ class CorpusRegistry:
         db_path: Path,
         sensitive: bool = False,
         access_note: str = "",
-        branham_policy_enabled: bool | None = None,  # deprecated alias for sensitive
     ) -> CorpusStores:
         """Open or create a corpus database.
 
@@ -228,7 +223,6 @@ class CorpusRegistry:
                 allowed_restricted_corpora to access (§3.4 generic 4-layer defense).
             access_note: human-readable explanation of why the corpus is sensitive,
                 shown in the GUI confirmation dialog.
-            branham_policy_enabled: DEPRECATED alias for sensitive. Kept for
                 backward compat with existing callers.
 
         Raises:
@@ -241,8 +235,6 @@ class CorpusRegistry:
             return self._corpora[corpus_id]
 
         # Handle deprecated alias
-        if branham_policy_enabled is not None:
-            sensitive = branham_policy_enabled
 
         # Budget validation
         self._validate_connection_budget()
@@ -288,7 +280,6 @@ class CorpusRegistry:
         corpus_id: str,
         *,
         allowed_restricted_corpora: list[str] | None = None,
-        session_branham_allowlist: bool | None = None,  # deprecated
     ) -> CorpusStores:
         """Look up stores by corpus_id.
 
@@ -297,7 +288,6 @@ class CorpusRegistry:
             allowed_restricted_corpora: session-level opt-in list. If the corpus
                 is sensitive=True and its corpus_id is NOT in this list, raises
                 RestrictedCorpusAccessViolation (Layer 3 of 4-layer defense).
-            session_branham_allowlist: DEPRECATED — if True, adds "branham" to
                 allowed_restricted_corpora for backward compat.
 
         Raises:
@@ -315,9 +305,6 @@ class CorpusRegistry:
 
         # Build the effective allowed list (handle deprecated alias)
         effective_allowed: set[str] = set(allowed_restricted_corpora or [])
-        if session_branham_allowlist:
-            effective_allowed.add("branham")  # backward compat
-
         # Layer 3: generic restricted-corpus access check
         if getattr(stores, "_sensitive", False) and corpus_id not in effective_allowed:
             await self._write_audit(
@@ -326,7 +313,7 @@ class CorpusRegistry:
                 outcome="DENIED",
                 detail={"reason": "corpus_id not in allowed_restricted_corpora"},
             )
-            raise BranhamIsolationViolation(
+            raise RestrictedCorpusAccessViolation(
                 f"Restricted corpus {corpus_id!r} requires opt-in via "
                 f"allowed_restricted_corpora. Layer 3 of 4-layer defense "
                 f"(ADR-008 Rev 3.1 §3.4). Access note: {getattr(stores, '_access_note', '')}"

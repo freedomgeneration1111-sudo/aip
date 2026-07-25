@@ -11,7 +11,7 @@ Provides the building blocks for cross-corpus retrieval:
   - Cache key: SHA256 of (query, sorted(active_corpus_ids), model_id) so
     different corpus selections get different cache entries.
   - Multi-corpus fan-out: asyncio.gather with return_exceptions=True so a
-    BranhamIsolationViolation on one corpus doesn't abort the others.
+    RestrictedCorpusAccessViolation on one corpus doesn't abort the others.
 
 Layer: adapter. Imports from foundation and adapter. Consumed by
 routes/_augmented_context.py.
@@ -25,7 +25,7 @@ import hashlib
 import logging
 from typing import TYPE_CHECKING, Any
 
-from aip.foundation.corpus_exceptions import BranhamIsolationViolation
+from aip.foundation.corpus_exceptions import RestrictedCorpusAccessViolation
 from aip.foundation.corpus_types import RETRIEVAL_EXCLUDED_STATES
 
 if TYPE_CHECKING:
@@ -178,7 +178,7 @@ async def gather_corpus_results(
 
     Returns:
         (hits, exceptions) where hits is a list of namespaced hit dicts
-        and exceptions is a list of non-fatal exceptions (BranhamIsolationViolation
+        and exceptions is a list of non-fatal exceptions (RestrictedCorpusAccessViolation
         only — other exceptions are re-raised).
     """
     if not active_corpus_ids:
@@ -235,7 +235,7 @@ async def gather_corpus_results(
     suppressed: list[Exception] = []
 
     for cid, result in zip(active_corpus_ids, results):
-        if isinstance(result, BranhamIsolationViolation):
+        if isinstance(result, RestrictedCorpusAccessViolation):
             # Suppressed — audit and continue
             suppressed.append(result)
             if audit_fn is not None:

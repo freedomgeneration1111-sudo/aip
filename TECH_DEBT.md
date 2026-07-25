@@ -336,9 +336,10 @@ next GUI modification pass on trace_panel.py.
 
 ## DEBT-011 — Branham Deprecated Aliases (One-Release-Cycle Removal)
 
-**Status:** Active — scheduled removal after one release cycle  
-**Phase:** ADR-014 Phase 0 Extension Platform (step 0)  
+**Status:** RESOLVED — 2026-07-23 (Phase β-4c)
+**Phase:** ADR-014 Phase 0 Extension Platform (step 0)
 **Filed:** 2026-06-18
+**Resolved:** 2026-07-23
 
 **What was deferred:**
 The branham → sensitive generalization (commit `956f06f`) removed the

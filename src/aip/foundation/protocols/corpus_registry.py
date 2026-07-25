@@ -11,7 +11,7 @@ Contract (ADR-008 Rev 3.1 §5.4):
   - register(): open or create a corpus database. Raises
     ConnectionBudgetExceeded, EmbeddingModelMismatch, CorpusMigrationError.
   - get_stores(): look up stores by corpus_id. Raises CorpusNotFound,
-    BranhamIsolationViolation, DeletionStateError.
+    RestrictedCorpusAccessViolation, DeletionStateError.
   - delete_corpus(): two-phase deletion (DELETING → cleanup → DELETED).
   - list_corpora(): return list of registered corpus_ids.
   - list_review_items(): fan out across corpus artifact_stores, merge
@@ -104,7 +104,7 @@ class CorpusRegistryProtocol(Protocol):
 
         Raises:
             CorpusNotFound: if corpus_id is not registered.
-            BranhamIsolationViolation: if Branham corpus is requested without
+            RestrictedCorpusAccessViolation: if Branham corpus is requested without
                 session_branham_allowlist=True (Layer 3 of 4-layer defense).
             DeletionStateError: if the corpus is in DELETING state.
         """

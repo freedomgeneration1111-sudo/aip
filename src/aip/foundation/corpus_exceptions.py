@@ -42,15 +42,9 @@ class RestrictedCorpusAccessViolation(CorpusError):
     in the session's allowed_restricted_corpora set.
 
     This is the GENERIC version — any corpus can be sensitive, not just
-    Branham. BranhamIsolationViolation is kept as an alias for backward
-    compatibility with the 1000-query acceptance test.
+    Branham. The RestrictedCorpusAccessViolation alias was removed on
+    2026-07-23 (DEBT-011) after one release cycle.
     """
-
-
-# Backward-compat alias — BranhamIsolationViolation is the old name.
-# The 1000-query acceptance test catches this by name. New code should
-# catch RestrictedCorpusAccessViolation instead.
-BranhamIsolationViolation = RestrictedCorpusAccessViolation
 
 
 class CorpusMigrationError(CorpusError):

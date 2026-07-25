@@ -28,7 +28,7 @@ from aip.adapter.corpus_registry import CorpusRegistry
 from aip.adapter.corpus_retrieval import gather_corpus_results, namespace_hit_id
 from aip.adapter.graph_store import GraphStore
 from aip.foundation.corpus_exceptions import (
-    BranhamIsolationViolation,
+    RestrictedCorpusAccessViolation,
     ConnectionBudgetExceeded,
     CorpusMigrationError,
 )
@@ -72,7 +72,7 @@ class TestAC01BranhamIsolation:
     """AC-01: Branham isolation — zero cross-contamination."""
 
     async def test_branham_not_accessible_without_allowlist(self, tmp_path: Path):
-        """BranhamIsolationViolation raised on direct access without allowlist."""
+        """RestrictedCorpusAccessViolation raised on direct access without allowlist."""
         registry = CorpusRegistry(max_corpora=4)
         await registry.startup()
 
@@ -88,7 +88,7 @@ class TestAC01BranhamIsolation:
             sensitive=True,
         )
 
-        with pytest.raises(BranhamIsolationViolation):
+        with pytest.raises(RestrictedCorpusAccessViolation):
             await registry.get_stores("branham", allowed_restricted_corpora=[])
 
         for cid in await registry.list_corpora():
@@ -124,7 +124,7 @@ class TestAC01BranhamIsolation:
 
         # Branham was suppressed
         assert len(suppressed) == 1
-        assert isinstance(suppressed[0], BranhamIsolationViolation)
+        assert isinstance(suppressed[0], RestrictedCorpusAccessViolation)
 
         for cid in await registry.list_corpora():
             try:

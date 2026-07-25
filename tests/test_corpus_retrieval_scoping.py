@@ -243,7 +243,7 @@ class TestGatherCorpusResults:
         assert excs == []
 
     async def test_gather_suppresses_branham_violation(self, tmp_path: Path):
-        """BranhamIsolationViolation is suppressed, not re-raised (§A12)."""
+        """RestrictedCorpusAccessViolation is suppressed, not re-raised (§A12)."""
         registry = CorpusRegistry(max_corpora=4)
         await registry.startup()
 

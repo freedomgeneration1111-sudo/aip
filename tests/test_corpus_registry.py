@@ -29,7 +29,7 @@ from aip.adapter.corpus_registry import CorpusRegistry
 from aip.adapter.corpus_store_factory import MIGRATIONS, CorpusStoreFactory
 from aip.adapter.corpus_stores import CorpusStores
 from aip.foundation.corpus_exceptions import (
-    BranhamIsolationViolation,
+    RestrictedCorpusAccessViolation,
     ConnectionBudgetExceeded,
     CorpusMigrationError,
     CorpusNotFound,
@@ -715,7 +715,7 @@ class TestCorpusRegistry:
             await stores.close_all()
 
     async def test_branham_isolation_violation(self, temp_dir: Path):
-        """get_stores() raises BranhamIsolationViolation without allowlist."""
+        """get_stores() raises RestrictedCorpusAccessViolation without allowlist."""
         registry = CorpusRegistry()
         await registry.startup()
 
@@ -723,15 +723,15 @@ class TestCorpusRegistry:
             corpus_id="branham",
             corpus_type=CorpusType.DOCUMENT,
             db_path=temp_dir / "branham.db",
-            branham_policy_enabled=True,
+            sensitive=True,
         )
 
         # Without allowlist → raises
-        with pytest.raises(BranhamIsolationViolation):
-            await registry.get_stores("branham", session_branham_allowlist=False)
+        with pytest.raises(RestrictedCorpusAccessViolation):
+            await registry.get_stores("branham", allowed_restricted_corpora=[])
 
         # With allowlist → succeeds
-        retrieved = await registry.get_stores("branham", session_branham_allowlist=True)
+        retrieved = await registry.get_stores("branham", allowed_restricted_corpora=["branham"])
         assert retrieved is stores
 
         await stores.close_all()
