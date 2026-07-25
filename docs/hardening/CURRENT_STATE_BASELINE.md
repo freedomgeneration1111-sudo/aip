@@ -146,7 +146,7 @@ health, chat, ask, ingest, corpus, artifacts, review, knowledge, graph, graph_vi
 | Surface | What's Real | What's Scaffold |
 |---|---|---|
 | MCP tool dispatch | Tool listing, autonomy gate enforcement (fail-closed when gate is None), real search dispatch, real artifact approval (ECS transition + canonical write), layering discipline | MCP server not wired into `app.py` runtime (no transport, no API route); `start()` is direct-invocation mode only |
-| Adaptive router | Budget enforcement, route existence | `update_weights()` is `pass`; exploration/exploitation is random |
+ Adaptive router | Budget enforcement, route existence | update_weights() is fully implemented but never called (dead code); exploration/exploitation is random |
 | ScriptNode | Type declaration, fixture mode, YAML parsing | Production execution returns DISABLED |
 | MCP start/stop | `_running` flag | No stdio/SSE transport |
 | Workflow 0.1 | `_ReviewGateNode` with validation + eval gates, `_CommitNode` with approval check | `workflow_01` not wired into runtime; default gate mode changed to MANUAL in Chunk 2 |

@@ -418,7 +418,7 @@ continuous operation.
 | Surface | What's Real | What's Scaffold |
 |---|---|---|
 | MCP tool dispatch | Tool listing, autonomy gate enforcement, layering discipline, real dispatch via Protocols | MCP server not wired into runtime; autonomy_gate=None fail-open risk for write/admin tools |
-| Adaptive router | Budget enforcement, route existence | update_weights() is no-op; exploration/exploitation is random |
+| Adaptive router | Budget enforcement, route existence | update_weights() is fully implemented but never called (dead code); exploration/exploitation is random |
 | ScriptNode | Type declaration, fixture mode, YAML parsing | Production execution disabled (returns DISABLED) |
 | MCP start/stop | _running flag | No stdio/SSE transport implementation |
 
@@ -462,7 +462,7 @@ for deployment with real user data. Known limitations that alpha testers should 
    FTS5 search works well; hybrid retrieval improvement will be measurable after full embedding.
    Sexton actor is wired and will process embeddings automatically when the provider is available.
 2. **MCP tool dispatch is built but not runtime-wired** — real search and approval dispatch exists but is not reachable via API/CLI; autonomy_gate=None fail-open risk must be hardened before wiring
-3. **Adaptive router does not adapt** — exploration/exploitation is random
+3. **Adaptive router is dead code (update_weights() implemented but never called); exploration/exploitation is random
 4. **No sandbox for ScriptNode execution** — production mode returns DISABLED
 5. **No review queue web UI for MANUAL mode** — CLI review works (`aip review list/approve/reject`)
 6. **Per-component performance metrics are estimated**, not measured

@@ -780,9 +780,10 @@ This debt item covers the container-level None bypass.
 
 ## DEBT-022 — AdaptiveRouter + update_weights() Dead Code (ADR-015 §5.7)
 
-**Status:** Active — HIGH (documentation-vs-code discrepancy, settled)
+**Status:** DOCS RESOLVED — 2026-07-23 (Phase β-4b); wiring deferred to Phase 3C
 **Phase:** Phase 3C (CURATOR + trajectory memory)
 **Filed:** 2026-06-26
+**Resolved:** 2026-07-23 (doc correction); wiring pending Phase 3C
 **Source:** ADR-015 §5.7 (Closing Loop 5)
 **Verification:** 2026-06-26 — DEFINER-confirmed + codebase-verified
 

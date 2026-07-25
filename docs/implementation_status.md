@@ -157,7 +157,7 @@ Documentation truth pass and small governance hardening:
 | **Foundation: protocols/** | Real/Mostly Working | 5% | **Refactored** into 7 domain modules under `protocols/`. Barrel re-exports 17 Protocol names. | None — clean split complete. | Low |
 | **Foundation: ecs_graph.py** | Real/Mostly Working | 0% | Pure validation logic — single source of truth for ECS. Gold standard. | None | Low |
 | **Foundation: validation.py** | Real/Mostly Working | 15% | Real structural validation with 3 default rules. | Expand validation rules. Make thresholds configurable. | Medium |
-| **Orchestration: router.py** | Mostly Scaffolding | 65% | **"Adaptive" router is not adaptive**: `update_weights()` is `pass`. Budget enforcement is real. | Implement update_weights with routing_outcomes queries. Replace count=5. | Critical |
+| **Orchestration: router.py** | Mostly Scaffolding | 65% | **"Adaptive" router is not adaptive**: `update_weights()` is fully implemented but never called (dead code). Budget enforcement is real. | Implement update_weights with routing_outcomes queries. Replace count=5. | Critical |
 | **Orchestration: session.py** | Partial/Hybrid | 30% | Real create/advance/context utilization. | Fix Type E recovery. Implement real token counting. | High |
 | **Orchestration: budget.py** | Real/Mostly Working | 20% | `InMemoryBudgetStore.check_limit()` always returns True. `record_autonomy_use()` is `pass`. | Fix check_limit to actually check. Implement record_autonomy_use. | Medium |
 | **Orchestration: retrieval.py** | Real/Mostly Working | 15% | Real four-factor reranking (semantic, recency, authority, frequency). | Replace fake_embed with real provider when available. Expand ACE matching. | Medium |
@@ -428,7 +428,7 @@ background scheduler.
 8. **health.py** — Embedding status always returns `{"status": "healthy"}` with model name
 "nomic-embed-text:v1.5" without actually checking if Ollama is running.
 
-9. **router.py** ("Adaptive Router") — The "adaptive" component is not adaptive at all. `update_weights()` is
+9. **router.py** ("Adaptive Router") — The "adaptive" component is dead code. `update_weights()` is fully implemented but never called (dead code).
 `pass` (no-op). `recommend_exploration_weight()` uses hardcoded `count=5`. Exploration/exploitation is
 `random.random() < 0.10`.
 

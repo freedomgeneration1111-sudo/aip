@@ -234,7 +234,7 @@ from the grep scans and code review.
 |---|---|
 | Severity | HIGH |
 | Discovery | From implementation_status.md (line 422-424) and code inspection |
-| Summary | `orchestration/router.py` is labeled "adaptive" but `update_weights()` is `pass` (no-op). `recommend_exploration_weight()` uses hardcoded `count=5`. Exploration/exploitation is `random.random() < 0.10`. Budget enforcement IS real. This is honestly disclosed in STATUS.md as scaffold. |
+| Summary | `orchestration/router.py` is labeled "adaptive" but `update_weights()` is fully implemented but never called (dead code — 60 lines of recency-weighted exponential decay logic). `recommend_exploration_weight()` uses hardcoded `count=5`. Exploration/exploitation is `random.random() < 0.10`. Budget enforcement IS real. Loop 5 is dormant not for lack of implementation but for lack of invocation. |
 | Resolution | Either implement real adaptation (using routing_outcomes from trace_store) or rename to `StaticRouter` and remove the "adaptive" label to prevent confusion. |
 
 ### CDR-015 — InMemoryBudgetStore.check_limit() Always Returns True
