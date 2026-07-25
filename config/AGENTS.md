@@ -40,7 +40,7 @@ against the owner module:
 | `[rate_limit]` | `adapter/middleware/rate_limiter.py` | enabled, requests_per_minute, burst_size, model_budget_protection |
 | `[alerting]` | `adapter/alerting.py` | enabled, webhook_url, alert_on_quality_degradation |
 | `[canonical_pipeline]` | `orchestration/canonical_pipeline.py` | faithfulness/coherence thresholds, require_vigil_health_check |
-| `[trajectory]` | `orchestration/trajectory/` | loop_detection_window, anxiety_threshold, failure_streak_threshold |
+| `[trajectory]` | `orchestration/l4_regulation/` | loop_detection_window, anxiety_threshold, failure_streak_threshold |
 | `[vigil]` | `orchestration/actors/vigil.py` | canonical_health_check_interval, stale_threshold_days |
 
 ### Environment Override Contract

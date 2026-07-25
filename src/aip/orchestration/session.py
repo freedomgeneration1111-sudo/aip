@@ -10,11 +10,11 @@ from __future__ import annotations
 
 from aip.foundation.protocols import ArtifactStore, EcsStore, EventStore, TraceStore
 from aip.foundation.schemas import SessionContext, TrajectorySignal
-from aip.orchestration.trajectory.context_reset import (
+from aip.orchestration.l4_regulation.context_reset import (
     execute_context_reset,
     inject_deterministic_recovery,
 )
-from aip.orchestration.trajectory.regulator import regulate_trajectory, should_intervene
+from aip.orchestration.l4_regulation.regulator import regulate_trajectory, should_intervene
 
 
 class SessionManager:

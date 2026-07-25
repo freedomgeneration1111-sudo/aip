@@ -850,9 +850,10 @@ CURATOR cycle."
 
 ## DEBT-023 — trajectory/ Directory Naming Collision Risk (ADR-015 §Related)
 
-**Status:** Active — MEDIUM (before Phase 3C)
+**Status:** RESOLVED — 2026-07-23 (Phase β-4a)
 **Phase:** Phase 3C (Trajectory Memory)
 **Filed:** 2026-06-26
+**Resolved:** 2026-07-23
 **Source:** ADR-015 §Related
 
 **What is at risk:**

@@ -3,7 +3,7 @@
 import pytest
 
 from aip.foundation.schemas import SessionContext, TrajectorySignal
-from aip.orchestration.trajectory.context_reset import (
+from aip.orchestration.l4_regulation.context_reset import (
     execute_context_reset,
     inject_deterministic_recovery,
 )
