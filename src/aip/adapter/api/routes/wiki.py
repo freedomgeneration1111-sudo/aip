@@ -491,6 +491,30 @@ async def create_wiki_article(
                 request.title,
             )
 
+            # Phase β-3 (2026-07-23): create a WIKI_ARTICLE graph node so wiki
+            # articles appear as first-class graph entities. This enables
+            # "what concepts does this wiki article relate to?" queries and
+            # makes the wiki visible in the graph visualization.
+            try:
+                from aip.adapter.graph_store import GraphNode
+
+                _graph_store = getattr(container, "graph_store", None)
+                if _graph_store is not None:
+                    _node_id = f"wiki_{article_id.replace(':', '_').lower()}"
+                    _wiki_node = GraphNode(
+                        id=_node_id,
+                        entity_type="WIKI_ARTICLE",
+                        canonical_name=request.title,
+                        domain=request.domain,
+                        confidence=1.0,
+                        source="wiki_create",
+                        metadata={"article_id": article_id, "tags": request.tags},
+                    )
+                    await _graph_store.upsert_node(_wiki_node)
+                    logger.info("wiki_graph_node_created id=%s title='%s'", _node_id, request.title)
+            except Exception as _graph_exc:
+                logger.debug("wiki_graph_node_failed article=%s error=%s", article_id, _graph_exc)
+
             return {
                 "id": article_id,
                 "title": request.title,

@@ -414,7 +414,16 @@ config/aip.config.toml ([models] section)
   the `{EXT_ID Upper}_...` namespace convention (ADR-014 §10).
 
 ## Last Cycle
-- **Phase β-2 — Wiki → user manual evolution** (this cycle): added
+- **Phase β-3 — Wiki as graph nodes** (this cycle): the POST
+  /wiki/articles endpoint now creates a WIKI_ARTICLE graph node (via
+  graph_store.upsert_node) when a wiki article is created. The node has
+  entity_type='WIKI_ARTICLE', canonical_name=title, domain=article domain.
+  This makes wiki articles first-class graph entities — they appear in
+  the graph visualization and can be connected to concepts, code
+  functions, and other articles via edges. The upsert is best-effort
+  (try/except, debug-level log on failure) — wiki creation never fails
+  due to graph issues. 5 tests in `test_wiki_graph_nodes.py`.
+- **Phase β-2 — Wiki → user manual evolution** (prior cycle): added
   `prerequisite_of` to `VALID_RELATION_TYPES` (for chapter ordering via
   crosslinks). Added `manual_chapter` as a recognized artifact_type in the
   wiki route (classifies `manual:*` ID prefix). Updated all SQL LIKE
