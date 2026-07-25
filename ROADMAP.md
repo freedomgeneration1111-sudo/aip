@@ -1,8 +1,8 @@
 # AIP Brain Roadmap
 # DEFINER: B. Moses Jorgensen
-# Last Updated: 2026-06-20
+# Last Updated: 2026-07-24
 # Process: Update this document after each significant build session or architectural decision.
-# Release: 0.1.0-alpha (extension platform + ARISTOTLE dogfood-ready)
+# Release: 1.0.0 (multi-corpus + extension platform + codebase-as-corpus + wiki→manual)
 
 ---
 

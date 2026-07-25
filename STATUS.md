@@ -1,10 +1,10 @@
 # AIP Status
 
-**Version:** 0.1.0-alpha
+**Version:** 1.0.0
 **Architecture Revision:** 6.4
-**Last Updated:** 2026-07-23
-**Release:** Alpha Test Release
-**Project Mode:** ACTIVE DEVELOPMENT — Fusion pipeline + Phase 4.1 + ADR-014 Extension Platform + ADR-008 Multi-Corpus shipped; ARISTOTLE extracted to separate repo; see PLANNED_FEATURES.md
+**Last Updated:** 2026-07-24
+**Release:** 1.0 Release
+**Project Mode:** 1.0 READY — all four target capabilities shipped; see RELEASE_NOTES_1_0.md
 
 > This document reflects the state after the Fusion pipeline upgrade (Phases 1-3 + 4.1),
 > the ADR-008 Multi-Corpus Chunks 1-9, the ADR-014 Phase 0 Extension Platform,
