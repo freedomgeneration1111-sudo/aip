@@ -179,11 +179,15 @@ def _row_to_article(
         "approved_at": row["updated_at"] if current_state == "APPROVED" else None,
         # Convenience fields
         "domain": article_domain,
-        "artifact_type": "wiki"
-        if artifact_id.startswith("beast:wiki:")
-        or artifact_id.startswith("wiki:")
-        or artifact_id.startswith("sexton:wiki:")
-        else "proposal",
+        "artifact_type": (
+            "manual_chapter"
+            if artifact_id.startswith("manual:")
+            else "wiki"
+            if artifact_id.startswith("beast:wiki:")
+            or artifact_id.startswith("wiki:")
+            or artifact_id.startswith("sexton:wiki:")
+            else "proposal"
+        ),
         "version": row["version"],
         "word_count": len(content_text.split()) if content_text else 0,
         "metadata": metadata,
@@ -220,7 +224,7 @@ async def list_wiki_articles(
 
     # Build WHERE clause
     conditions = [
-        "(a.id LIKE 'beast:wiki:%' OR a.id LIKE 'beast:proposal:%' OR a.id LIKE 'wiki:%' OR a.id LIKE 'sexton:wiki:%')"
+        "(a.id LIKE 'beast:wiki:%' OR a.id LIKE 'beast:proposal:%' OR a.id LIKE 'wiki:%' OR a.id LIKE 'sexton:wiki:%' OR a.id LIKE 'manual:%')"
     ]
     params: list[str] = []
 
@@ -1025,7 +1029,7 @@ async def wiki_stats(
                 SELECT e.current_state, COUNT(*) as c
                 FROM artifacts a
                 INNER JOIN ecs_state e ON a.id = e.artifact_id
-                WHERE a.id LIKE 'beast:wiki:%' OR a.id LIKE 'beast:proposal:%' OR a.id LIKE 'wiki:%'
+                WHERE a.id LIKE 'beast:wiki:%' OR a.id LIKE 'beast:proposal:%' OR a.id LIKE 'wiki:%' OR a.id LIKE 'manual:%'
                 GROUP BY e.current_state
                 """,
             )
@@ -1050,7 +1054,7 @@ async def wiki_stats(
                     COUNT(*) as c
                 FROM artifacts a
                 INNER JOIN ecs_state e ON a.id = e.artifact_id
-                WHERE a.id LIKE 'beast:wiki:%' OR a.id LIKE 'beast:proposal:%' OR a.id LIKE 'wiki:%'
+                WHERE a.id LIKE 'beast:wiki:%' OR a.id LIKE 'beast:proposal:%' OR a.id LIKE 'wiki:%' OR a.id LIKE 'manual:%'
                 GROUP BY domain, e.current_state
                 ORDER BY domain
                 """,

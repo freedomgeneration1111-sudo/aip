@@ -77,6 +77,7 @@ VALID_RELATION_TYPES = frozenset(
         "generated_from",
         "reviewed_by",
         "approved_by",
+        "prerequisite_of",  # Phase β-2 (2026-07-23): wiki → manual chapter ordering
     }
 )
 

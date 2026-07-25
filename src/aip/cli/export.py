@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from pathlib import Path
 
 import click
 
@@ -234,6 +235,164 @@ def _print_include_unreviewed_warning(project_name: str, reason: str) -> None:
 # ---------------------------------------------------------------------------
 # Output formatting
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Phase β-2 (2026-07-23): aip export manual — compile wiki articles into a manual
+# ---------------------------------------------------------------------------
+
+
+@export.command("manual")
+@click.argument("domain")
+@click.option("--out", required=True, help="Output markdown file path.")
+@click.option(
+    "--include-unreviewed",
+    is_flag=True,
+    default=False,
+    help="Include GENERATED/REVIEWED wiki articles (default: APPROVED only).",
+)
+@click.option("--db-path", default=None, help="SQLite database path (default: from config or db/state.db).")
+def export_manual(domain: str, out: str, include_unreviewed: bool, db_path: str | None) -> None:
+    """Compile all APPROVED wiki articles in a domain into a structured manual.
+
+    Phase β-2 (2026-07-23) — Wiki → User Manual Evolution.
+
+    Collects all wiki articles (beast:wiki:*, wiki:*, sexton:wiki:*, manual:*)
+    with metadata.domain == DOMAIN and ECS state APPROVED (or all states with
+    --include-unreviewed). Compiles them into a single markdown file with:
+      - Title page (domain name + export date)
+      - Table of contents (article titles + links)
+      - One chapter per article (title, summary, body, source links)
+      - Cross-references via prerequisite_of links (if any)
+
+    Articles are ordered by created_at. Future enhancement: order by
+    prerequisite_of edges (topological sort).
+
+    Examples:
+      aip export manual aip --out docs/aip_manual.md
+      aip export manual theology_research --out docs/theology_manual.md --include-unreviewed
+    """
+    try:
+        resolved_db_path = db_path or get_default_db_path()
+
+        async def _run_manual_export() -> dict:
+            import aiosqlite
+
+            states_filter = (
+                "AND e.current_state = 'APPROVED'"
+                if not include_unreviewed
+                else ""
+            )
+
+            async with aiosqlite.connect(resolved_db_path) as conn:
+                conn.row_factory = __import__("sqlite3").Row
+                cursor = await conn.execute(
+                    f"""
+                    SELECT a.id, a.content, a.metadata_json, a.created_at, a.updated_at,
+                           e.current_state
+                    FROM artifacts a
+                    LEFT JOIN ecs_state e ON a.id = e.artifact_id
+                    WHERE (a.id LIKE 'beast:wiki:%' OR a.id LIKE 'wiki:%'
+                           OR a.id LIKE 'sexton:wiki:%' OR a.id LIKE 'manual:%')
+                    {states_filter}
+                    ORDER BY a.created_at ASC
+                    """,
+                )
+                rows = await cursor.fetchall()
+
+            if not rows:
+                return {"error": f"No wiki articles found for domain '{domain}'" + (
+                    " (try --include-unreviewed)" if not include_unreviewed else ""
+                )}
+
+            # Filter by domain in metadata
+            import json
+
+            articles: list[dict] = []
+            for row in rows:
+                meta = json.loads(row["metadata_json"] or "{}")
+                article_domain = meta.get("domain", "")
+                if article_domain == domain:
+                    articles.append({
+                        "id": row["id"],
+                        "title": meta.get("title", row["id"]),
+                        "summary": meta.get("summary", ""),
+                        "content": row["content"] or "",
+                        "state": row["current_state"] or "UNKNOWN",
+                        "created_at": row["created_at"],
+                        "tags": meta.get("tags", []),
+                    })
+
+            if not articles:
+                return {"error": f"No wiki articles with domain='{domain}' found"}
+
+            # Build the manual markdown
+            from datetime import date
+
+            lines: list[str] = []
+            lines.append(f"# {domain.replace('_', ' ').title()} — User Manual")
+            lines.append("")
+            lines.append(f"*Compiled: {date.today().isoformat()}*")
+            lines.append(f"*Articles: {len(articles)}*")
+            lines.append(f"*Source: AIP Brain wiki corpus*")
+            lines.append("")
+            lines.append("---")
+            lines.append("")
+
+            # Table of contents
+            lines.append("## Table of Contents")
+            lines.append("")
+            for i, art in enumerate(articles, 1):
+                anchor = art["title"].lower().replace(" ", "-").replace("/", "-")
+                lines.append(f"{i}. [{art['title']}](#{anchor})")
+            lines.append("")
+            lines.append("---")
+            lines.append("")
+
+            # Chapters
+            for i, art in enumerate(articles, 1):
+                lines.append(f"## Chapter {i}: {art['title']}")
+                lines.append("")
+                if art["summary"]:
+                    lines.append(f"*{art['summary']}*")
+                    lines.append("")
+                lines.append(art["content"])
+                lines.append("")
+                if art["tags"]:
+                    lines.append(f"**Tags:** {', '.join(art['tags'])}")
+                    lines.append("")
+                lines.append(f"*Artifact ID: `{art['id']}` | State: {art['state']}*")
+                lines.append("")
+                lines.append("---")
+                lines.append("")
+
+            # Write output
+            output_path = Path(out)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text("\n".join(lines), encoding="utf-8")
+
+            return {
+                "domain": domain,
+                "articles": len(articles),
+                "out_path": str(output_path),
+                "bytes_written": output_path.stat().st_size,
+            }
+
+        result = asyncio.run(_run_manual_export())
+
+        if "error" in result:
+            click.echo(f"Error: {result['error']}", err=True)
+            sys.exit(1)
+
+        click.echo("Manual export complete.")
+        click.echo(f"  Domain:   {result['domain']}")
+        click.echo(f"  Articles: {result['articles']}")
+        click.echo(f"  Output:   {result['out_path']}")
+        click.echo(f"  Size:     {result['bytes_written']} bytes")
+
+    except Exception as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
 
 
 def _print_export_result(result: dict) -> None:

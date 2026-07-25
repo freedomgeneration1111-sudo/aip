@@ -414,7 +414,16 @@ config/aip.config.toml ([models] section)
   the `{EXT_ID Upper}_...` namespace convention (ADR-014 §10).
 
 ## Last Cycle
-- **Phase β-1 — Code dependency graph building** (this cycle): extended the
+- **Phase β-2 — Wiki → user manual evolution** (this cycle): added
+  `prerequisite_of` to `VALID_RELATION_TYPES` (for chapter ordering via
+  crosslinks). Added `manual_chapter` as a recognized artifact_type in the
+  wiki route (classifies `manual:*` ID prefix). Updated all SQL LIKE
+  patterns to include `manual:%`. Added `aip export manual <domain>`
+  CLI command that compiles all APPROVED wiki articles in a domain into
+  a structured markdown manual with title page, TOC, and one chapter per
+  article. 7 tests in `test_wiki_manual_evolution.py`. This is the wiki
+  → manual evolution path from the tech-debt assessment.
+- **Phase β-1 — Code dependency graph building** (prior cycle): extended the
   AST parser to extract imports (`_extract_imports`) + function calls
   (`_extract_calls`) from each function/class. Added `imports` + `calls`
   fields to `CodeTurnSpec`. Added `build_code_graph()` to the ingest
