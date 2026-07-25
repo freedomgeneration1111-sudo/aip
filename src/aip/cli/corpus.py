@@ -266,20 +266,26 @@ def corpus_ingest_code_cmd(
         from aip.adapter.corpus_turn_store import CorpusTurnStore
 
         async def _run_ingest() -> dict[str, int]:
+            from aip.adapter.graph_store import GraphStore
+
             turn_store = CorpusTurnStore(codeforge_db)
+            graph_store = GraphStore(codeforge_db)  # Phase β-1: code dependency graph
             try:
                 # Ensure the schema exists (idempotent — safe if the
                 # app server already created the db via the registry).
                 await turn_store.initialize()
+                await graph_store.initialize()
                 counts = await ingest_python_directory(
                     source_dir=source_dir,
                     turn_store=turn_store,
                     corpus_id=corpus_id,
                     skip_existing=not force,
+                    graph_store=graph_store,  # Phase β-1: build code dependency graph
                 )
                 return counts
             finally:
                 await turn_store.close()
+                await graph_store.close()
 
         counts = asyncio.run(_run_ingest())
 
@@ -290,6 +296,9 @@ def corpus_ingest_code_cmd(
         click.echo(f"  Turns created:    {counts['turns_created']}")
         click.echo(f"  Skipped (stale):  {counts['turns_skipped_stale']}")
         click.echo(f"  Superseded:       {counts['turns_superseded']}")
+        if counts.get("graph_nodes", 0) > 0 or counts.get("graph_edges", 0) > 0:
+            click.echo(f"  Graph nodes:      {counts.get('graph_nodes', 0)}")
+            click.echo(f"  Graph edges:      {counts.get('graph_edges', 0)}")
         click.echo("")
         click.echo(f"Corpus '{corpus_id}' now searchable. Restart the AIP server if running")
         click.echo("to pick up the new corpus content in retrieval.")
@@ -403,17 +412,23 @@ def corpus_watch_code_cmd(
         click.echo(f"[initial] {len(file_mtimes)} .py files found. Running initial ingest...")
 
         async def _run_ingest() -> dict[str, int]:
+            from aip.adapter.graph_store import GraphStore
+
             turn_store = CorpusTurnStore(codeforge_db)
+            graph_store = GraphStore(codeforge_db)  # Phase β-1: code dependency graph
             try:
                 await turn_store.initialize()
+                await graph_store.initialize()
                 return await ingest_python_directory(
                     source_dir=source_dir,
                     turn_store=turn_store,
                     corpus_id=corpus_id,
                     skip_existing=True,
+                    graph_store=graph_store,  # Phase β-1: build code dependency graph
                 )
             finally:
                 await turn_store.close()
+                await graph_store.close()
 
         counts = asyncio.run(_run_ingest())
         click.echo(

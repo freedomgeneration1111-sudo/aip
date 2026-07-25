@@ -1712,6 +1712,7 @@ async def lifespan(app: FastAPI):
                         turn_store=stores.turn_store,
                         corpus_id="codeforge",
                         skip_existing=True,
+                        graph_store=stores.graph_store,  # Phase β-1: build code dependency graph
                     )
 
                     # Only log when something changed (avoids log spam on no-op cycles)
