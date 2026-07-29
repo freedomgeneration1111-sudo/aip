@@ -656,6 +656,39 @@ async def health(container: AipContainer = Depends(get_container)):
         "dogfood_mode": get_dogfood_mode(container.config).value,
         # Chunk 5: Per-channel retrieval health
         "retrieval_channel_health": retrieval_channel_health,
+        # ADR-017: Web Source Acquisition health
+        "web": _web_health(container),
+    }
+
+
+def _web_health(container: AipContainer) -> dict[str, Any]:
+    """Build the web-source-acquisition health block.
+
+    Reports the provider's configured/available state WITHOUT calling
+    the provider live (per ADR-017 + W2 pattern: derive readiness from
+    actual container state, never claim "available" when unconfigured).
+    """
+    provider = getattr(container, "web_search_provider", None)
+    fetcher = getattr(container, "web_fetcher", None)
+    source_store = getattr(container, "web_source_store", None)
+    snapshot_store = getattr(container, "web_snapshot_store", None)
+
+    # Provider state: not_configured / available / unknown
+    if provider is None:
+        provider_state = "not_configured"
+        provider_name = None
+    else:
+        from aip.adapter.web.providers.factory import provider_status
+        provider_state = provider_status(provider)
+        provider_name = getattr(provider, "name", "unknown")
+
+    return {
+        "enabled": provider is not None,
+        "provider": provider_name,
+        "provider_state": provider_state,
+        "fetcher_wired": fetcher is not None,
+        "source_store_wired": source_store is not None,
+        "snapshot_store_wired": snapshot_store is not None,
     }
 
 

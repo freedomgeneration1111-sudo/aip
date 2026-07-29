@@ -35,6 +35,7 @@ import os
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -71,6 +72,7 @@ from aip.adapter.api.routes import (
     sessions,
     sources,
     turns,
+    web,
     wiki,
 )
 from aip.adapter.embedding.factory import create_embedding_provider
@@ -121,6 +123,155 @@ class CorrelationIdMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
         return response
+
+
+# ---------------------------------------------------------------------------
+# ADR-017 WS-3.5: Web Source Acquisition lifespan wiring.
+#
+# This helper is called once during lifespan startup.  It reads the [web]
+# and [web.providers.<name>] config sections and constructs:
+#   - container.web_search_provider  (SearchProvider | None)
+#   - container.web_fetcher          (WebFetcher | None)
+#   - container.web_source_store     (WebSourceStore)
+#   - container.web_snapshot_store   (WebSnapshotStore)
+#   - container.web_task_registry    (BackgroundTaskRegistry)
+#   - container.web_fetch_policy     (FetchPolicy)
+#
+# All components are None-safe: if [web] enabled = false, the routes
+# return 503 not_configured, which is the honest "off" state.
+#
+# The stores default to in-memory implementations for the MVP.  A future
+# slice can swap in SQLite-backed stores by checking config and
+# constructing the appropriate class — the Protocols are stable.
+# ---------------------------------------------------------------------------
+
+
+def _wire_web_source_acquisition(container: AipContainer, config: dict, logger: Any) -> None:
+    """Construct and wire Web Source Acquisition components from config.
+
+    Idempotent and failure-tolerant: if any step raises, the remaining
+    web_* attributes stay None and the routes return 503.  This matches
+    the existing lifespan pattern (component failures are logged, not
+    fatal, unless they're on the critical path — web is optional).
+    """
+    web_config = config.get("web", {}) or {}
+    # Guard against non-dict config values (e.g. "web = true" in TOML).
+    if not isinstance(web_config, dict):
+        web_config = {}
+    providers_config = web_config.get("providers", {}) or {}
+    if not isinstance(providers_config, dict):
+        providers_config = {}
+
+    # ---- 1. Search provider ----
+    try:
+        from aip.adapter.web.providers.factory import build_search_provider
+
+        provider = build_search_provider(web_config, providers_config=providers_config)
+        container.web_search_provider = provider
+        if provider is not None:
+            logger.info(
+                "web_search_provider_wired",
+                provider=getattr(provider, "name", "unknown"),
+            )
+        else:
+            logger.info("web_search_disabled")
+    except Exception as exc:
+        logger.warning("web_search_provider_wiring_failed", error=str(exc))
+        container.web_search_provider = None
+
+    # ---- 2. Task registry (always wired, even if provider is None) ----
+    # The registry is needed by the fetcher for lifecycle management.
+    # We construct it unconditionally so the shutdown handler can call
+    # cancel_all() without None-checking.
+    try:
+        from aip.adapter.web.lifecycle import BackgroundTaskRegistry
+
+        container.web_task_registry = BackgroundTaskRegistry()
+        logger.info("web_task_registry_wired")
+    except Exception as exc:
+        logger.warning("web_task_registry_wiring_failed", error=str(exc))
+        container.web_task_registry = None
+
+    # ---- 3. Fetcher (only when the provider is wired — no point otherwise) ----
+    if container.web_search_provider is not None:
+        try:
+            from aip.adapter.web.http_fetcher import HttpxWebFetcher
+
+            # Build a bytes_sink that persists fetched bytes to the
+            # snapshot store.  The sink returns the snapshot_id, which
+            # the fetcher stores as content_bytes_ref — so downstream
+            # extractors can retrieve the bytes directly via
+            # snapshot_store.get_bytes(content_bytes_ref).
+            # This closes the WS-3 known limitation where bytes were
+            # lost after the fetch returned.
+            snapshot_store_ref = container.web_snapshot_store
+
+            async def _bytes_sink(body: bytes, fetched: Any) -> str:
+                if snapshot_store_ref is None:
+                    return ""
+                sid, _deduped = await snapshot_store_ref.put(
+                    requested_url=fetched.requested_url,
+                    final_url=fetched.final_url,
+                    retrieved_at=fetched.retrieved_at,
+                    content_type=fetched.content_type,
+                    content_hash=fetched.content_hash,
+                    bytes_data=body,
+                )
+                return sid
+
+            container.web_fetcher = HttpxWebFetcher(
+                task_registry=container.web_task_registry,
+                bytes_sink=_bytes_sink,
+            )
+            logger.info("web_fetcher_wired", bytes_sink=True)
+        except Exception as exc:
+            logger.warning("web_fetcher_wiring_failed", error=str(exc))
+            container.web_fetcher = None
+    else:
+        container.web_fetcher = None
+
+    # ---- 4. Snapshot store (in-memory for MVP; SQLite variant is a future slice) ----
+    try:
+        from aip.adapter.web.snapshot import (
+            InMemoryWebSnapshotStore,
+            InMemoryWebSourceStore,
+        )
+
+        container.web_snapshot_store = InMemoryWebSnapshotStore()
+        container.web_source_store = InMemoryWebSourceStore()
+        logger.info("web_stores_wired", backend="in_memory")
+    except Exception as exc:
+        logger.warning("web_stores_wiring_failed", error=str(exc))
+        container.web_snapshot_store = None
+        container.web_source_store = None
+
+    # ---- 5. Fetch policy (from [web] config fields) ----
+    try:
+        from aip.foundation.schemas.web import FetchPolicy
+
+        container.web_fetch_policy = FetchPolicy(
+            allowed_schemes=("http", "https"),
+            max_redirects=5,
+            timeout_seconds=float(web_config.get("fetch_timeout_seconds", 20.0)),
+            max_bytes=int(web_config.get("max_resource_bytes", 20_000_000)),
+            allowed_content_types=None,
+            allow_private_networks=bool(web_config.get("allow_private_networks", False)),
+        )
+        logger.info(
+            "web_fetch_policy_wired",
+            timeout=container.web_fetch_policy.timeout_seconds,
+            max_bytes=container.web_fetch_policy.max_bytes,
+            allow_private_networks=container.web_fetch_policy.allow_private_networks,
+        )
+    except Exception as exc:
+        logger.warning("web_fetch_policy_wiring_failed", error=str(exc))
+        # Fall back to default policy so the fetcher still works.
+        try:
+            from aip.foundation.schemas.web import FetchPolicy
+
+            container.web_fetch_policy = FetchPolicy()
+        except Exception:
+            container.web_fetch_policy = None
 
 
 @asynccontextmanager
@@ -476,8 +627,8 @@ async def lifespan(app: FastAPI):
         from pathlib import Path as _Path
 
         from aip.adapter.corpus_registry import CorpusRegistry
-        from aip.foundation.corpus_types import CorpusType
         from aip.foundation.corpus_constants import MAX_CORPORA
+        from aip.foundation.corpus_types import CorpusType
 
         # ── Build the corpora_to_register list ──────────────────────
         # Phase α-2 (2026-07-23): corpora are declared in the [corpora.*]
@@ -1887,6 +2038,15 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         log.warning("orchestration_functions_wiring_failed", module="adaptive_budget", error=str(exc))
 
+    # =====================================================================
+    # ADR-017 WS-3.5: Wire Web Source Acquisition from [web] config.
+    # Constructs the search provider, fetcher, stores, and task registry
+    # and assigns them to the container.  All default to None when [web]
+    # enabled = false or no provider is configured — the routes return
+    # 503 not_configured, which is the honest "off" state.
+    # =====================================================================
+    _wire_web_source_acquisition(container, config, log)
+
     log.info(
         "startup_complete",
         required_initialized=5,
@@ -1914,6 +2074,10 @@ async def lifespan(app: FastAPI):
         codeforge_auto_ingest=codeforge_ingest_task is not None,
         codeforge_source_dir=_codeforge_source_dir if codeforge_ingest_task is not None else None,
         codeforge_interval_s=_codeforge_interval if codeforge_ingest_task is not None else None,
+        # ADR-017: Web Source Acquisition wired state
+        web_enabled=getattr(container, "web_search_provider", None) is not None,
+        web_provider=getattr(getattr(container, "web_search_provider", None), "name", None),
+        web_fetcher=getattr(container, "web_fetcher", None) is not None,
         # Sprint 8: Dogfood mode
         dogfood_mode=getattr(dogfood_mode, "value", "unknown") if "dogfood_mode" in dir() else "unknown",
     )
@@ -1921,6 +2085,16 @@ async def lifespan(app: FastAPI):
     yield
 
     # --- Shutdown ---
+    # ADR-017 WS-3.5: cancel in-flight web fetches BEFORE closing stores,
+    # so HTTP connections release before the snapshot/source stores close.
+    _web_registry = getattr(container, "web_task_registry", None)
+    if _web_registry is not None:
+        try:
+            _cancelled = await _web_registry.cancel_all(timeout_per_task=5.0)
+            log.info("web_task_registry_cancelled", cancelled=_cancelled)
+        except Exception as exc:
+            log.warning("web_task_registry_cancel_failed", error=str(exc))
+
     # Cancel scheduler tasks first (long-running loops)
     for task_name, task in [
         ("beast", beast_task),
@@ -2152,6 +2326,7 @@ def create_app(config: dict | None = None) -> "FastAPI":
     app.include_router(ecs.router, prefix="/api/v1", tags=["ecs"])
     app.include_router(sources.router, prefix="/api/v1", tags=["sources"])
     app.include_router(corpus.router, prefix="/api/v1", tags=["corpus"])
+    app.include_router(web.router, prefix="/api/v1", tags=["web"])
     app.include_router(maintenance.router, prefix="/api/v1", tags=["maintenance"])
     app.include_router(turns.router, prefix="/api/v1", tags=["turns"])
     app.include_router(beast_commentary.router, prefix="/api/v1", tags=["beast_commentary"])

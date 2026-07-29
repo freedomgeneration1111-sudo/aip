@@ -97,6 +97,15 @@ class AipContainer:
         self._alert_history_store: Any = None  # AlertHistoryStore for SQLite-backed alert history
         # SyncAlertHistoryBridge for AlertManager compatibility (wraps async store)
         self._alert_history_bridge: Any = None
+        # ADR-017 Web Source Acquisition: wired in lifespan from [web] config.
+        # None when [web] enabled = false or no provider is configured.
+        # Routes use is_provider_configured() to produce honest 503s.
+        self.web_search_provider: Any = None  # SearchProvider | None
+        self.web_fetcher: Any = None  # WebFetcher | None
+        self.web_source_store: Any = None  # WebSourceStore | None
+        self.web_snapshot_store: Any = None  # WebSnapshotStore | None
+        self.web_task_registry: Any = None  # BackgroundTaskRegistry | None
+        self.web_fetch_policy: Any = None  # FetchPolicy | None
         # Backfill status for async backfill tracking (simple in-memory for now)
         self.backfill_status: dict = {"running": False, "last_result": None, "progress": {}}
         # Startup background tasks — stored on container so shutdown can cancel them

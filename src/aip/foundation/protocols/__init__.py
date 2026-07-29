@@ -68,6 +68,15 @@ from .storage import (
     VectorStore,
 )
 
+# -- web (ADR-017) --
+from .web import (
+    ContentExtractor,
+    SearchProvider,
+    WebFetcher,
+    WebSnapshotStore,
+    WebSourceStore,
+)
+
 __all__ = [
     # storage
     "VectorStore",
@@ -101,4 +110,10 @@ __all__ = [
     # corpus_registry (ADR-008 Multi-Corpus)
     "CorpusRegistryProtocol",
     "ReviewItem",
+    # web (ADR-017)
+    "SearchProvider",
+    "WebFetcher",
+    "ContentExtractor",
+    "WebSnapshotStore",
+    "WebSourceStore",
 ]

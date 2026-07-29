@@ -148,6 +148,20 @@ from .vector import (
     VectorDegradationInfo,
 )
 
+# -- web (ADR-017) --
+from .web import (
+    ExtractedDocument,
+    FetchedResource,
+    FetchPolicy,
+    SearchOptions,
+    SearchResult,
+    WebProviderConfig,
+    WebSnapshotRecord,
+    WebSourceRecord,
+    normalize_text_for_hash,
+    sha256_hex,
+)
+
 # -- workflow --
 from .workflow import (
     BeastCadenceConfig,
@@ -254,4 +268,15 @@ __all__ = [
     "CodexContradiction",
     "CodexDashboard",
     "CodexConfig",
+    # web (ADR-017)
+    "SearchOptions",
+    "SearchResult",
+    "FetchPolicy",
+    "FetchedResource",
+    "ExtractedDocument",
+    "WebSourceRecord",
+    "WebSnapshotRecord",
+    "WebProviderConfig",
+    "sha256_hex",
+    "normalize_text_for_hash",
 ]

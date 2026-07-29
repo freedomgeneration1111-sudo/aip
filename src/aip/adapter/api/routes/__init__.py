@@ -22,6 +22,7 @@ from . import (
     sessions,
     sources,
     turns,
+    web,
     wiki,
 )
 
@@ -47,5 +48,6 @@ __all__ = [
     "sessions",
     "sources",
     "turns",
+    "web",
     "wiki",
 ]

@@ -412,3 +412,36 @@ dogfood_mode = "minimal"   # Change to "full" when all components are wired
 auto_ingest = true
 source_dir = "src/aip"
 interval_seconds = 60
+
+# ---------------------------------------------------------------------------
+# ADR-017: Web Source Acquisition (Dogfood Phase D2)
+# Web grounding is OFF by default. Enable here and provide
+# AIP_WEB_SEARCH_API_KEY in the environment to activate.
+#
+# When disabled, /api/v1/web/* routes return 503 not_configured and
+# the /health endpoint reports web.provider_state = "not_configured".
+#
+# When enabled + key set:
+#   - /api/v1/web/search  runs a Tavily search
+#   - /api/v1/web/fetch   fetches + extracts a single URL
+#   - /api/v1/web/ground  search + fetch + extract top-N for grounding
+#   - /api/v1/web/sources/{id} retrieves a stored source record
+#
+# The OpenRouter key (AIP_OPENAI_API_KEY) is for model slots only —
+# do NOT use it for web search.  Tavily has its own key.
+# ---------------------------------------------------------------------------
+[web]
+enabled = false
+default_provider = "tavily"
+max_results = 8
+fetch_timeout_seconds = 20
+max_resource_bytes = 20000000
+snapshot_enabled = true
+allow_private_networks = false   # NEVER set to true in production
+grounding_max_sources = 3        # cap for ephemeral Ask grounding
+grounding_context_chars = 8000   # cap per source in augmented context
+
+[web.providers.tavily]
+api_key_env = "AIP_WEB_SEARCH_API_KEY"
+# options: endpoint, timeout_seconds, topic, include_raw_content
+# topic = "general"  # "general" | "news"
