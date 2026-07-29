@@ -231,6 +231,30 @@ class ModelCouncilResponse(BaseModel):
     # or JSON parse failed.
     judge_analysis: dict[str, Any] = Field(default_factory=dict)
 
+    # ── ADR-017 retrieval telemetry (observability fix) ──
+    # These fields expose what the augmented-context assembler actually
+    # did, so the GUI can render sources and the user can diagnose
+    # "why did the panel get no codeforge material?" without guessing.
+    #
+    # ``retrieval_attempted``: True if assemble_augmented_context was
+    #   called at all (i.e. the flag was True AND a valid session existed).
+    # ``context_assembled``: True if the assembler returned assembled=True
+    #   (retrieval ran and produced messages, even if zero sources).
+    # ``active_corpus_ids``: the corpus IDs that were active for the
+    #   session at retrieval time (from session_meta).  Empty list when
+    #   no session or no corpus selection.
+    # ``source_count``: total number of sources returned by the assembler.
+    # ``augmented_sources``: the full source dicts (source_id, source_type,
+    #   title, score, domain) — same shape as the /ask route's sources.
+    # ``retrieval_warnings``: human-readable warnings from the assembler
+    #   (e.g. "retrieval fell back to legacy path", "no corpus turns found").
+    retrieval_attempted: bool = False
+    context_assembled: bool = False
+    active_corpus_ids: list[str] = Field(default_factory=list)
+    source_count: int = 0
+    augmented_sources: list[dict[str, Any]] = Field(default_factory=list)
+    retrieval_warnings: list[str] = Field(default_factory=list)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -671,9 +695,9 @@ async def compare_models(
     user_prompt = f"""{request.prompt[:4000]}{sources_text}{existing_answer_block}"""
 
     # --- Phase 1 retrieval bridge: assemble augmented context ONCE ---
-    # When ``request.assemble_augmented_context`` is True AND
-    # ``request.turn_id`` is non-empty, call the shared
-    # ``routes/_augmented_context.py::assemble_augmented_context()``
+    # When ``request.assemble_augmented_context`` is True AND a valid
+    # session exists (``request.session_id`` is non-empty), call the
+    # shared ``routes/_augmented_context.py::assemble_augmented_context()``
     # helper to build the augmented system messages (corpus turns +
     # wiki + graph + definer profile). The resulting messages are
     # PREPENDED to each panel call's user prompt — every panelist
@@ -683,35 +707,90 @@ async def compare_models(
     # The Judge and Synth calls do NOT receive this prefix (the Judge
     # reads panel outputs; the Synth reads only the Judge JSON).
     #
-    # When the flag is False (default) or turn_id is empty,
+    # When the flag is False (default) or no session exists,
     # ``augmented_prefix`` is an empty list and the panel calls
     # proceed with the bare prompt (existing behavior — backward
     # compatible).
+    #
+    # ADR-017 observability fix: we now track retrieval telemetry
+    # (retrieval_attempted, context_assembled, active_corpus_ids,
+    # source_count, augmented_sources, retrieval_warnings) so the GUI
+    # can render sources and the user can diagnose "why no codeforge
+    # material?" without guessing.  These are populated below and
+    # attached to the ModelCouncilResponse.
+    #
+    # ADR-017 gate fix: the retrieval gate is now
+    # ``request.assemble_augmented_context and request.session_id``
+    # (previously ``and request.turn_id``).  The old gate required a
+    # non-empty turn_id, which the GUI faked by passing session_id as
+    # turn_id.  The real gate should be "did the user request retrieval
+    # AND do we have a session to look up corpus selection from?" —
+    # turn_id is irrelevant to the assembler (it uses session_id for
+    # session_meta lookup).  The fake turn_id workaround is no longer
+    # needed.
     augmented_prefix: list[dict] = []
     augmented_sources: list[dict] = []
-    if request.assemble_augmented_context and request.turn_id:
-        from aip.adapter.api.routes._augmented_context import assemble_augmented_context
+    # Telemetry variables (populated below, attached to the response)
+    retrieval_attempted = False
+    context_assembled = False
+    retrieval_active_corpus_ids: list[str] = []
+    retrieval_warnings: list[str] = []
 
+    if request.assemble_augmented_context and request.session_id:
+        from aip.adapter.api.routes._augmented_context import assemble_augmented_context
+        from aip.adapter.api.routes.sessions import get_session_meta
+
+        retrieval_attempted = True
         try:
+            # Look up session_meta to capture active_corpus_ids for telemetry.
+            try:
+                session_meta = get_session_meta(request.session_id) or {}
+                retrieval_active_corpus_ids = list(
+                    session_meta.get("active_corpus_ids") or []
+                )
+            except Exception:
+                session_meta = {}
+                retrieval_active_corpus_ids = []
+
             aug = await assemble_augmented_context(
                 content=request.prompt,
                 session_id=request.session_id,
                 container=container,
+                session_meta=session_meta,
             )
             augmented_prefix = aug.messages
             augmented_sources = aug.sources
+            context_assembled = aug.assembled
+            if not aug.assembled:
+                retrieval_warnings.append(
+                    "Augmented-context assembler returned assembled=False "
+                    "(no stores available or retrieval raised)."
+                )
+            if not augmented_sources and aug.assembled:
+                retrieval_warnings.append(
+                    "Retrieval ran but returned zero sources — check corpus "
+                    "selection and min_importance threshold."
+                )
+            if not retrieval_active_corpus_ids:
+                retrieval_warnings.append(
+                    "Session has no active_corpus_ids — retrieval fell back "
+                    "to the legacy single-corpus path.  Select corpora in the "
+                    "Corpus Selection panel."
+                )
             logger.info(
-                "council_augmented_context_assembled assembled=%s messages=%d sources=%d domain=%s",
+                "council_augmented_context_assembled assembled=%s messages=%d sources=%d domain=%s active_corpus_ids=%s",
                 aug.assembled,
                 len(aug.messages),
                 len(aug.sources),
                 aug.domain,
+                retrieval_active_corpus_ids,
             )
         except Exception as exc:
             # The helper itself never raises, but guard defensively.
             logger.warning("council_augmented_context_failed error=%s", str(exc))
             augmented_prefix = []
             augmented_sources = []
+            retrieval_warnings.append(f"Augmented-context assembly raised: {exc}")
 
     # --- Build the panel behavioral system prompt (Bug 1 fix) ---
     # Every panel call receives a clean system/user separation:
@@ -1376,6 +1455,13 @@ Write the final fused answer now."""
         synthesis_status=synthesis_status,
         fusion_answer=fusion_answer,
         judge_analysis=judge_analysis,
+        # ADR-017 retrieval telemetry
+        retrieval_attempted=retrieval_attempted,
+        context_assembled=context_assembled,
+        active_corpus_ids=retrieval_active_corpus_ids,
+        source_count=len(augmented_sources),
+        augmented_sources=augmented_sources,
+        retrieval_warnings=retrieval_warnings,
     )
 
     # --- Save as artifact if requested ---

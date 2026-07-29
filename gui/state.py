@@ -195,6 +195,21 @@ class GuiState:
         self.current_project: str | None = None
         self.client = None  # NiceGUI client reference for background task UI updates
 
+        # ── ADR-017 / Multi-Corpus: persistent corpus selection ──
+        # ``active_corpus_ids`` is the user's workspace-level corpus
+        # selection, INDEPENDENT of session_id.  It survives
+        # reset_session() (which only clears session_id, not workspace
+        # preferences).  When ensure_session() creates a replacement
+        # session, it immediately applies this selection so retrieval
+        # doesn't silently fall back to the definer-only default.
+        #
+        # This fixes the bug where changing models/modes called
+        # reset_session(), discarding the session — and the replacement
+        # session created by ensure_session() had no active_corpus_ids,
+        # so Multi-Cast retrieval fell back to the legacy single-corpus
+        # path and codeforge material never reached the panel.
+        self.active_corpus_ids: list[str] = ["definer"]
+
         # ── New fields for UI Cycle 2 ──
         self.dogfood_mode: str = "BARE"  # "FULL" | "DEGRADED" | "BARE" | "DIRECT MODEL ONLY"
         self.actor_status: dict[str, Any] = {}
@@ -253,7 +268,15 @@ class GuiState:
         self.compress_panel_outputs: bool = False
 
     async def ensure_session(self) -> str:
-        """Create a session if one doesn't exist, or return the existing one."""
+        """Create a session if one doesn't exist, or return the existing one.
+
+        When creating a NEW session, immediately applies the persistent
+        ``active_corpus_ids`` selection so retrieval uses the user's
+        chosen corpora (e.g. codeforge) rather than falling back to the
+        definer-only default.  This fixes the bug where changing
+        models/modes called reset_session() and the replacement session
+        lost the corpus selection.
+        """
         if self.session_id is not None:
             return self.session_id
 
@@ -263,10 +286,32 @@ class GuiState:
             mode=self.current_mode,
         )
         self.session_id = result["id"]
+
+        # Apply the persistent corpus selection to the new session.
+        # This is best-effort — if the PATCH fails, the session still
+        # exists with the default (definer-only) selection, and the
+        # user can re-select via the Corpus Selection panel.
+        if self.active_corpus_ids and self.active_corpus_ids != ["definer"]:
+            try:
+                await self.api_client.update_session_corpora(
+                    self.session_id, self.active_corpus_ids
+                )
+            except Exception:
+                # Non-fatal — the session is usable, just without the
+                # custom corpus selection.  The user will see the
+                # selector default and can re-apply.
+                pass
+
         return self.session_id
 
     def reset_session(self) -> None:
-        """Reset session state (e.g., when changing models/modes)."""
+        """Reset session state (e.g., when changing models/modes).
+
+        IMPORTANT: does NOT clear ``active_corpus_ids`` — that is a
+        workspace-level preference, not disposable conversation state.
+        The next ``ensure_session()`` call will re-apply it to the new
+        session.
+        """
         self.session_id = None
         self.pending_gate = None
         self.ingestion_status = "idle"

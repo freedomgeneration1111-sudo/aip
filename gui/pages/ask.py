@@ -75,7 +75,13 @@ from nicegui import context, ui
 from gui.components.answer_card import add_answer_card
 from gui.components.beast_panel import BeastPanel
 from gui.components.chat import add_message, add_system_message, build_chat_input
-from gui.components.layout import build_left_nav, build_right_rail, build_top_bar, clear_active_extension, set_active_extension
+from gui.components.layout import (
+    build_left_nav,
+    build_right_rail,
+    build_top_bar,
+    clear_active_extension,
+    set_active_extension,
+)
 from gui.components.modals import show_api_key_prompt
 from gui.components.model_council_panel import ModelCouncilPanel
 from gui.components.source_panel import SourcePanel
@@ -427,8 +433,12 @@ async def _ask_page_impl():
                 if not state.backend_reachable:
                     return
                 corpora = await fetch_registered_corpora(state.api_client)
-                # Default: definer only
-                active_ids = ["definer"]
+                # Use the persistent workspace-level selection from GuiState.
+                # This survives reset_session() (model/mode changes) so the
+                # replacement session created by ensure_session() inherits
+                # the user's corpus selection (e.g. codeforge).
+                # Fallback to ["definer"] only if state was never initialized.
+                active_ids = list(state.active_corpus_ids) if state.active_corpus_ids else ["definer"]
                 # Clear previous content
                 expansion_elem.clear()
                 with expansion_elem:
@@ -445,10 +455,7 @@ async def _ask_page_impl():
                     )
 
             async def _on_update_corpora() -> None:
-                """Read checkbox values and PATCH the session."""
-                if state.session_id is None:
-                    ui.notify("No active session — start a chat first.", color="warning")
-                    return
+                """Read checkbox values and persist to state + PATCH the session."""
                 # definer is always active
                 selected = [
                     cid
@@ -457,6 +464,20 @@ async def _ask_page_impl():
                 ]
                 if "definer" not in selected:
                     selected = ["definer"] + selected
+
+                # Persist to workspace-level state — survives reset_session()
+                state.active_corpus_ids = list(selected)
+
+                if state.session_id is None:
+                    # No active session yet — the selection is retained in
+                    # state.active_corpus_ids and will be applied when
+                    # ensure_session() creates the next session.
+                    ui.notify(
+                        f"Active corpora (will apply to next session): {', '.join(selected)}",
+                        color="positive",
+                    )
+                    return
+
                 ok = await update_session_corpora(
                     state.api_client, state.session_id, selected
                 )
@@ -997,21 +1018,18 @@ async def _send_multicast(
         return
 
     try:
-        # Phase 1 retrieval bridge (Step 2-B): pass a real, non-empty
-        # turn_id + the assemble_augmented_context flag so the backend
-        # calls the shared ``_augmented_context.assemble_augmented_context()``
-        # helper and prepends corpus/wiki/graph/definer context to each
-        # panel call's user prompt.
+        # Phase 1 retrieval bridge (Step 2-B): pass the
+        # assemble_augmented_context flag so the backend calls the shared
+        # ``_augmented_context.assemble_augmented_context()`` helper and
+        # prepends corpus/wiki/graph/definer context to each panel call's
+        # user prompt.
         #
-        # turn_id: the helper uses ``session_id`` (not turn_id) for
-        # session_meta lookup — turn_id only (a) gates the helper call
-        # (must be non-empty) and (b) computes the council artifact_id.
-        # We pass ``session_id`` as the turn_id signal so the gate
-        # passes when augmented mode is on. This is layer-discipline-
-        # compliant (GUI can't import ``make_turn_id`` from foundation)
-        # and gives a per-session-deterministic artifact_id. A future
-        # step can add a backend endpoint that returns a per-turn
-        # turn_id if per-send artifact uniqueness becomes needed.
+        # ADR-017 gate fix: the backend now gates retrieval on
+        # ``assemble_augmented_context and session_id`` (previously
+        # ``and turn_id``).  We no longer need to fake turn_id=session_id
+        # to pass the gate.  turn_id is now "" (no originating chat turn)
+        # — the backend uses session_id for session_meta lookup, which is
+        # where active_corpus_ids lives.
         #
         # assemble_augmented_context: True when state.current_mode ==
         # 'augmented' — the backend will run retrieval (corpus turns +
@@ -1021,7 +1039,7 @@ async def _send_multicast(
         is_augmented = state.current_mode == "augmented"
         result = await state.api_client.run_model_council(
             prompt=prompt,
-            turn_id=session_id if is_augmented else "",  # non-empty signals "run retrieval"
+            turn_id="",  # No fake turn_id — backend gates on session_id now
             session_id=session_id,
             existing_answer="",  # Pre-send mode: no existing answer to compare
             sources=[],
@@ -1058,6 +1076,25 @@ async def _send_multicast(
         return
 
     per_model = result.get("selected_models", [])
+    # ADR-017 retrieval telemetry — extract from the response so we can
+    # render sources and warnings on each per-model card.  Previously
+    # these were hardcoded to sources=[] / trace_available=False, which
+    # made it impossible to diagnose "why no codeforge material?"
+    augmented_sources = result.get("augmented_sources", [])
+    retrieval_attempted = result.get("retrieval_attempted", False)
+    context_assembled = result.get("context_assembled", False)
+    active_corpus_ids = result.get("active_corpus_ids", [])
+    retrieval_warnings = result.get("retrieval_warnings", [])
+    source_count = result.get("source_count", 0)
+    has_retrieval_telemetry = retrieval_attempted or bool(augmented_sources)
+
+    # If retrieval ran but produced warnings, surface them as a system
+    # message so the user can diagnose (e.g. "Session has no
+    # active_corpus_ids — retrieval fell back to legacy path").
+    if retrieval_warnings:
+        for warning in retrieval_warnings:
+            add_system_message(chat_container, f"⚠️ Retrieval: {warning}")
+
     # Render one answer card per model that completed.
     # NOTE: in the new "models not tied to actor slots/roles" mode,
     # every panelist comes via ``selected_model_ids`` (OpenRouter IDs),
@@ -1090,19 +1127,21 @@ async def _send_multicast(
                 "content": answer,
                 "model": display_label,
                 "mode": "multicast",
-                "sources": [],
-                "trace_available": False,
+                "sources": augmented_sources,
+                "trace_available": has_retrieval_telemetry,
                 "lexical_only": False,
                 "vector_contributed": False,
                 "direct_model": False,
+                "active_corpus_ids": active_corpus_ids,
+                "source_count": source_count,
             }
             add_answer_card(
                 chat_container,
                 content=answer,
                 model=display_label,
                 latency_ms=latency,
-                sources=[],
-                trace_available=False,
+                sources=augmented_sources,
+                trace_available=has_retrieval_telemetry,
                 lexical_only=False,
                 vector_contributed=False,
                 direct_model=False,
@@ -1655,8 +1694,9 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
     through to intake — the learner will reach that concept naturally
     through the plan.
     """
-    import httpx
     import os
+
+    import httpx
 
     state = get_session_state()
     _BACKEND_URL = os.getenv("AIP_BACKEND_URL", "http://127.0.0.1:8000")
@@ -1736,7 +1776,7 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
         # message from intake, placer, and tutoring. flex:1 so it fills
         # the viewport between header and chat bar.
         chat_container = ui.column().classes("w-full flex-1").style(
-            f"padding:16px; gap:12px; overflow-y:auto; flex:1; min-height:300px;"
+            "padding:16px; gap:12px; overflow-y:auto; flex:1; min-height:300px;"
         )
 
         # Chat bar — VISIBLE from the first render. The learner types
@@ -2003,10 +2043,10 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                                         nonlocal _plan_id
                                         _plan_id = status.get("plan_id", "")
                                         await _render_aristotle_message(
-                                            f"✅ Learning plan ready! I've designed a "
-                                            f"phased curriculum based on your paper + "
-                                            f"background. Let's begin with a quick "
-                                            f"placement check."
+                                            "✅ Learning plan ready! I've designed a "
+                                            "phased curriculum based on your paper + "
+                                            "background. Let's begin with a quick "
+                                            "placement check."
                                         )
                                         await _set_phase("PLACER")
                                         await _start_placer()
@@ -2153,8 +2193,8 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                     return
 
                 await _render_aristotle_message(
-                    f"Great — let's begin. I'll ask what you think first, "
-                    f"then teach, then check your understanding."
+                    "Great — let's begin. I'll ask what you think first, "
+                    "then teach, then check your understanding."
                 )
                 try:
                     async with httpx.AsyncClient(base_url=_BACKEND_URL, timeout=300.0) as client:
@@ -2615,14 +2655,13 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                 # it fires even if everything else below is broken.
                 try:
                     ui.notify(
-                        f"Upload handler fired — processing file...",
+                        "Upload handler fired — processing file...",
                         color="info",
                         timeout=2000,
                     )
                 except Exception:
                     pass  # don't let the toast itself crash the handler
 
-                import os as _os
                 import traceback as _tb
 
                 try:
@@ -2797,9 +2836,9 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                                                 return
                                         # Timeout — don't error, just stop polling
                                         await _render_aristotle_message(
-                                            f"(Paper ingestion is still running in the background. "
-                                            f"I'll use the legacy path for now — once ingestion "
-                                            f"completes, I'll automatically switch to RAG retrieval.)"
+                                            "(Paper ingestion is still running in the background. "
+                                            "I'll use the legacy path for now — once ingestion "
+                                            "completes, I'll automatically switch to RAG retrieval.)"
                                         )
                                         # Auto-trigger even on timeout (legacy path)
                                         if _phase == "INTAKE" and _intake_session:
@@ -2831,7 +2870,7 @@ async def _ask_page_aristotle(concept_from_url: str = "", is_debug: bool = False
                 auto_upload=True,
                 max_file_size=10_000_000,
             ).props("flat dense dark").style(
-                f"max-width:40px; min-width:40px;"
+                "max-width:40px; min-width:40px;"
             ).tooltip("Upload textbook, paper, or notes")
 
             ui.button(
