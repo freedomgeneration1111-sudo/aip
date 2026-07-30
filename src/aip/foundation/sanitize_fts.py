@@ -13,11 +13,15 @@ def sanitize_fts_query(query: str) -> str:
     """Sanitize a user query for FTS5 MATCH syntax.
 
     FTS5 has special syntax for operators like AND, OR, NOT, NEAR, *, ^, etc.
-    Questions from users often contain ?, !, and other characters that
+    Questions from users often contain ?, !, /, and other characters that
     are not valid in FTS5 MATCH expressions.  This function extracts
     clean word tokens and joins them with AND for FTS5 matching.
+
+    The ``/`` character is included because file paths like
+    ``gui/pages/ask.py`` are common in code queries and FTS5 treats
+    ``/`` as syntax (causing "syntax error near /" OperationalError).
     """
-    cleaned = re.sub(r'[?!.*+\-^(){}|~"\\]', " ", query)
+    cleaned = re.sub(r'[?!.*+\-^(){}|~"\\/]', " ", query)
     tokens = cleaned.split()
     stop_words = {
         "a",

@@ -311,9 +311,17 @@ async def _search_corpus_turns(
         if _sanitize_fn:
             fts_query = _sanitize_fn(query)
         else:
-            fts_query = query
+            # Fallback: use the shared sanitize_fts_query directly.
+            # This ensures queries with /, ?, !, etc. are always
+            # sanitized even when the container's fn is not wired.
+            from aip.foundation.sanitize_fts import sanitize_fts_query
+
+            fts_query = sanitize_fts_query(query)
     except Exception:
-        fts_query = query
+        # Last-resort fallback: strip everything non-alphanumeric.
+        from aip.foundation.sanitize_fts import sanitize_fts_query
+
+        fts_query = sanitize_fts_query(query)
     turns = await corpus_turn_store.search(
         query=fts_query,
         primary_domain=domain,

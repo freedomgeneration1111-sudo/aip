@@ -200,17 +200,27 @@ async def gather_corpus_results(
         if stores.turn_store is None:
             return []
 
-        # Search the corpus — include_archived=False by default
+        # Search the corpus — include_archived=False by default.
+        # Per-corpus errors (e.g. FTS5 syntax errors from unsanitized
+        # queries) are caught and logged so one bad corpus doesn't
+        # kill the entire multi-corpus retrieval.
         from aip.adapter.api.routes._augmented_context import _search_corpus_turns
 
-        source_dicts = await _search_corpus_turns(
-            query=query,
-            corpus_turn_store=stores.turn_store,
-            domain=None,
-            limit=8,
-            min_importance=0.3,
-            container=container,
-        )
+        try:
+            source_dicts = await _search_corpus_turns(
+                query=query,
+                corpus_turn_store=stores.turn_store,
+                domain=None,
+                limit=8,
+                min_importance=0.3,
+                container=container,
+            )
+        except Exception as exc:
+            logger.warning(
+                "corpus_search_failed corpus_id=%s error=%s",
+                cid, exc,
+            )
+            return []
 
         # Apply fusion-layer ECS filter (§A2)
         source_dicts = await filter_excluded_states(source_dicts, stores.turn_store, include_archived=False)
