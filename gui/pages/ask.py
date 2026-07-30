@@ -1088,6 +1088,26 @@ async def _send_multicast(
     source_count = result.get("source_count", 0)
     has_retrieval_telemetry = retrieval_attempted or bool(augmented_sources)
 
+    # ADR-017 UX fix: when retrieval was NOT attempted (Normal mode or
+    # no session), surface a clear explanation so the user knows WHY
+    # there are no sources.  Previously the UI showed "NO SOURCES" with
+    # no context, making it impossible to distinguish "retrieval is off"
+    # from "retrieval ran but found nothing" from "codeforge not selected".
+    if not retrieval_attempted:
+        if state.current_mode == "normal":
+            add_system_message(
+                chat_container,
+                "ℹ️ Retrieval is OFF (Normal mode). The panel received only your "
+                "prompt with no corpus context. Switch to Augmented mode to include "
+                "codeforge + definer corpus material in Multi-Cast queries.",
+            )
+        elif not session_id:
+            add_system_message(
+                chat_container,
+                "⚠️ Retrieval skipped — no active session. The panel received only "
+                "your prompt. Try sending again (a session should be created automatically).",
+            )
+
     # If retrieval ran but produced warnings, surface them as a system
     # message so the user can diagnose (e.g. "Session has no
     # active_corpus_ids — retrieval fell back to legacy path").
