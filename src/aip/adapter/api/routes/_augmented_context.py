@@ -453,6 +453,13 @@ async def assemble_augmented_context(
         active_corpus_ids = (session_meta or {}).get("active_corpus_ids")
         registry = getattr(container, "corpus_registry", None)
 
+        logger.info(
+            "augmented_context_retrieval_start active_corpus_ids=%s registry=%s session_meta_keys=%s",
+            active_corpus_ids,
+            registry is not None,
+            list((session_meta or {}).keys()),
+        )
+
         if active_corpus_ids and registry is not None:
             # Multi-corpus path (§4, §A12)
             from aip.adapter.corpus_retrieval import gather_corpus_results
@@ -460,6 +467,10 @@ async def assemble_augmented_context(
 
             allowed_restricted = get_allowed_restricted_corpora(session_meta)
             audit_fn = getattr(registry, "_write_audit", None)
+            logger.info(
+                "augmented_context_multi_corpus_path active_corpus_ids=%s allowed_restricted=%s",
+                active_corpus_ids, allowed_restricted,
+            )
             multi_hits, _suppressed = await gather_corpus_results(
                 query=content,
                 active_corpus_ids=active_corpus_ids,
@@ -647,5 +658,5 @@ async def assemble_augmented_context(
         )
 
     except Exception as exc:
-        logger.warning("augmented_retrieval_failed", error=str(exc))
+        logger.warning("augmented_retrieval_failed", error=str(exc), exc_info=True)
         return AugmentedContext(assembled=False)
