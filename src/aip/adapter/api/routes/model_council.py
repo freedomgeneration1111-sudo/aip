@@ -738,19 +738,35 @@ async def compare_models(
 
     if request.assemble_augmented_context and request.session_id:
         from aip.adapter.api.routes._augmented_context import assemble_augmented_context
-        from aip.adapter.api.routes.sessions import get_session_meta
+        from aip.adapter.api.routes.sessions import get_session_meta, get_session_meta_async
 
         retrieval_attempted = True
         try:
-            # Look up session_meta to capture active_corpus_ids for telemetry.
+            # Look up session_meta — use the ASYNC version which checks
+            # SessionStore first (the sync version only checks in-memory
+            # _sessions dict, which may be empty if the session was
+            # created on a different worker or persisted to SQLite).
             try:
-                session_meta = get_session_meta(request.session_id) or {}
+                session_meta = await get_session_meta_async(request.session_id, container) or {}
+                if not session_meta:
+                    # Fall back to sync version (in-memory only)
+                    session_meta = get_session_meta(request.session_id) or {}
                 retrieval_active_corpus_ids = list(
                     session_meta.get("active_corpus_ids") or []
                 )
             except Exception:
                 session_meta = {}
                 retrieval_active_corpus_ids = []
+
+            # Diagnostic: log what stores are available so the
+            # "assembled=False" warning is self-explanatory.
+            _has_registry = getattr(container, "corpus_registry", None) is not None
+            _has_cts = getattr(container, "corpus_turn_store", None) is not None
+            _has_lex = getattr(container, "lexical_store", None) is not None
+            logger.info(
+                "council_retrieval_stores registry=%s corpus_turn_store=%s lexical_store=%s active_corpus_ids=%s",
+                _has_registry, _has_cts, _has_lex, retrieval_active_corpus_ids,
+            )
 
             aug = await assemble_augmented_context(
                 content=request.prompt,
@@ -763,8 +779,10 @@ async def compare_models(
             context_assembled = aug.assembled
             if not aug.assembled:
                 retrieval_warnings.append(
-                    "Augmented-context assembler returned assembled=False "
-                    "(no stores available or retrieval raised)."
+                    f"Augmented-context assembler returned assembled=False "
+                    f"(registry={_has_registry}, corpus_turn_store={_has_cts}, "
+                    f"lexical_store={_has_lex}). The container may not have "
+                    f"stores wired, or retrieval raised internally."
                 )
             if not augmented_sources and aug.assembled:
                 retrieval_warnings.append(
@@ -775,7 +793,7 @@ async def compare_models(
                 retrieval_warnings.append(
                     "Session has no active_corpus_ids — retrieval fell back "
                     "to the legacy single-corpus path.  Select corpora in the "
-                    "Corpus Selection panel."
+                    "Corpus Selection panel and click 'Update Selection'."
                 )
             logger.info(
                 "council_augmented_context_assembled assembled=%s messages=%d sources=%d domain=%s active_corpus_ids=%s",

@@ -296,11 +296,18 @@ class GuiState:
                 await self.api_client.update_session_corpora(
                     self.session_id, self.active_corpus_ids
                 )
-            except Exception:
+                log.info(
+                    "ensure_session_applied_corpora session_id=%s active_corpus_ids=%s",
+                    self.session_id, self.active_corpus_ids,
+                )
+            except Exception as exc:
                 # Non-fatal — the session is usable, just without the
-                # custom corpus selection.  The user will see the
-                # selector default and can re-apply.
-                pass
+                # custom corpus selection.  Log the failure so it's
+                # diagnosable (previously this was a silent pass).
+                log.warning(
+                    "ensure_session_corpus_apply_failed session_id=%s active_corpus_ids=%s error=%s",
+                    self.session_id, self.active_corpus_ids, exc,
+                )
 
         return self.session_id
 

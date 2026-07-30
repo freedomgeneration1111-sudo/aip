@@ -80,6 +80,7 @@ def render_corpus_selector(
             cb = ui.checkbox(
                 text=f"{cid} ({ctype})",
                 value=cid in active_corpus_ids,
+                on_change=on_change if on_change else None,
             )
             checkboxes[cid] = cb
 
@@ -90,8 +91,9 @@ def render_corpus_selector(
                 ui.label("(always active)").classes(f"text-xs {C_INK40}")
 
     if on_change:
-        # The on_change callback is responsible for reading the checkbox
-        # values and calling the session update API.
+        # Keep the button as a manual trigger for backward compat, but
+        # the checkbox on_change (above) now fires immediately when
+        # toggled — no need to click "Update Selection" separately.
         ui.button("Update Selection", on_click=on_change).classes(f"mt-2 {C_SURFACE} {C_CREAM}")
 
     return checkboxes
