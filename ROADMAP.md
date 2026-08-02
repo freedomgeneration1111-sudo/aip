@@ -1,8 +1,8 @@
 # AIP Brain Roadmap
 # DEFINER: B. Moses Jorgensen
-# Last Updated: 2026-07-24
+# Last Updated: 2026-07-30
 # Process: Update this document after each significant build session or architectural decision.
-# Release: 1.0.0 (multi-corpus + extension platform + codebase-as-corpus + wiki→manual)
+# Release: 1.0.0 (multi-corpus + extension platform + codebase-as-corpus + wiki→manual + web source acquisition)
 
 ---
 
@@ -22,9 +22,7 @@ the roadmap, update both documents.
 
 ## Current State (verified, not reconstructed)
 
-**Test count:** 60 passed, 1 skipped (platform suite — 6 files: extension lifecycle,
-import boundary, actor protocol, extended workflows, workflow engine wiring,
-model slot resolver). 0 warnings.
+**Test count:** ~4,870+ tests (4,384 pre-ADR-017 + ~490 web source acquisition tests). All passing. 0 warnings.
 
 **What is built and passing:**
 
@@ -39,43 +37,48 @@ model slot resolver). 0 warnings.
 | pypdf import fix | ✅ | DEBT-012 resolved — `from pypdf import PdfReader` (not PyPDF2). |
 | Fusion pipeline | ✅ | Retrieval bridge, Judge/Synth split, per-model compression, provenance widget. |
 | ADR-014 Amendment A1 | ✅ | Extension UI visibility via known-list health polling (docs-only — implementation is in the GUI phase below). |
+| Actor `start_policy` | ✅ | `scheduled` and `manual_only` modes built and tested (DEBT-020 resolved). |
+| **Web Source Acquisition (ADR-017)** | **✅** | **D2.0–D2.5 delivered (2026-07-30). Tavily search, bounded HTTP fetcher with SSRF defense, HTML/PDF extractors, prompt-injection boundary, explicit corpus promotion, evaluation suite. 5 API routes + Ask web_grounding toggle. ~490 tests.** |
+| **Multi-Cast retrieval telemetry** | **✅** | **ModelCouncilResponse carries retrieval_attempted, context_assembled, active_corpus_ids, source_count, augmented_sources, retrieval_warnings. GUI renders sources + warnings on per-model cards.** |
+| **Corpus selection persistence** | **✅** | **GuiState.active_corpus_ids survives reset_session(); ensure_session() re-applies to replacement sessions. FTS5 sanitize fix for file paths with '/'.** |
+| Remote ingress/messaging (ADR-018) | 💡 | PROPOSED — Telegram long-polling adapter, transport-neutral envelope. |
+| Evaluation Runs (ADR-016) | 💡 | PROPOSED — Ringer-class function, task-specific model qualification. WS-6 validators are standalone (not yet integrated). |
+| Full AgentRun/CapabilityGate/Fleet Coordinator | 🔲 | Still not implemented as a complete fleet runtime. |
 
 ---
 
-## GUI Phase — Next Sprint (no blockers)
+## Dogfood Phase D2 — Web Source Acquisition (ADR-017) — ✅ COMPLETE
 
-Ordered by dependency:
+All six delivery slices shipped to `feat/multi-corpus` (2026-07-30):
 
-1. **pypdf fix** (DEBT-012) — one line, do first, unblocks OCR.
-   NOTE: Already done (commit 48aea1a). The file uses `from pypdf import PdfReader`.
-   Listed for completeness — skip to #2.
-2. **ADR-014 A1 implementation** — KNOWN_EXTENSIONS in TOML +
-   ui.timer/ui.refreshable in left sidebar
-3. **Three-panel shell restructure** — left/right drawers wired
-4. **+ menu** — Upload PDF, Image, Voice, Settings
-5. **Extension mode shift** — header accent + mode label
-6. **ARISTOTLE stats page** (/aristotle/stats)
-7. **ARISTOTLE learning map** (/aristotle/map)
-8. **ARISTOTLE settings page** (/aristotle/settings)
-9. **ARISTOTLE right panel** — mastery state + concept progress
-10. **OCR path** via pytesseract (depends on #1 — already done)
-11. **Voice mode toggle** via + menu (Web Speech API, zero-dep)
-12. **Teacher dashboard** (/aristotle/teacher — Komal's interface)
+| Slice | Deliverable | Status |
+|-------|------------|--------|
+| D2.0 (WS-1) | Schemas, protocols, fake provider, SSRF policy | ✅ |
+| D2.1 (WS-2) | Bounded HTTP fetcher, HTML/PDF extractors, provenance | ✅ |
+| D2.2 (WS-3) | Tavily provider + API routes + health + lifespan wiring | ✅ |
+| D2.3 (WS-4) | Ask web_grounding toggle + WebSourceContextBlock + sources kind discriminator | ✅ |
+| D2.4 (WS-5) | Explicit source promotion + dedup by content_hash | ✅ |
+| D2.5 (WS-6) | Web-grounding Evaluation Suite (5 validators, 16 cases) | ✅ |
 
-See `docs/UI_CONVENTIONS.md` for the governing UI conventions document.
-See `PLANNED_FEATURES.md` → "GUI Phase — Brain Core Shell Features" for the feature spec.
+See `docs/decisions/ADR-017-web-source-acquisition.md` for the full delivery summary.
+
+---
+
+## Dogfood Phase D0 — Truth Baseline — ✅ COMPLETE
+
+Baseline established. Issue #3 (process hang) has a minimal lifecycle contract
+(BackgroundTaskRegistry) in place; the full W5 (AlertManager threading.Timer
+removal, CI timeout-workaround removal) is tracked in TECH_DEBT.md.
 
 ---
 
 ## Blocked
 
-- HERALD Phase C: Brain web/feed layer (ADR-014 §3.4) not built
-- Web-search material sourcing: same block as HERALD
-- test_extension_lifecycle regression: discover_installed_packages
-  fixture fix needed before GUI work touches ExtensionHost
-  (NOTE: tests currently pass — 11 passed, 0 warnings. This item
-  may refer to a prior issue that's already resolved. Verify before
-  scheduling.)
+- HERALD Phase C: Brain web/feed layer — **no longer blocked on web search**
+  (ADR-017 D2 is delivered). HERALD can now consume the web source acquisition
+  platform. Still blocked on full Fleet Coordinator (ADR-015 Phase 3A-0).
+- Evaluation Runs (ADR-016): WS-6 validators are standalone; full integration
+  with EvaluationRun/Candidate/Scorecard infrastructure requires W9.
 
 ---
 

@@ -16,6 +16,7 @@ automatically at startup.
 - **Source-grounded answers** — every generated answer includes provenance back to ingested sources. No fabrication.
 - **Honest evaluation** — CI fixtures are flagged and blocked from production. Default scores are 0.0 on failure. No silent passes.
 - **Extension platform** — extensions mount via a declared manifest (ADR-014), discovered through Python entry points. The platform never imports an extension by name — the boundary is machine-enforced.
+- **Web source acquisition (ADR-017)** — AIP can ground answers on current web sources via Tavily search, with SSRF defense, prompt-injection boundaries, and explicit corpus promotion. Web content never enters the corpus without DEFINER approval.
 
 ---
 

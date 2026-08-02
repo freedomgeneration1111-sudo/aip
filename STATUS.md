@@ -1,29 +1,36 @@
 # AIP Status
 
 **Version:** 1.0.0
-**Architecture Revision:** 6.4
-**Last Updated:** 2026-07-24
-**Release:** 1.0 Release
-**Project Mode:** 1.0 READY — all four target capabilities shipped; see RELEASE_NOTES_1_0.md
+**Architecture Revision:** 6.5
+**Last Updated:** 2026-07-30
+**Release:** 1.0 Release + ADR-017 Web Source Acquisition
+**Project Mode:** 1.0 READY + D2 web grounding delivered — see RELEASE_NOTES_1_0.md + ADR-017
 
 > This document reflects the state after the Fusion pipeline upgrade (Phases 1-3 + 4.1),
 > the ADR-008 Multi-Corpus Chunks 1-9, the ADR-014 Phase 0 Extension Platform,
-> and the 2026-07-23 tech-debt assessment quick-win pass. The Fusion pipeline is
-> feature-complete: retrieval bridge, Judge/Synth split, per-model compression,
-> per-model attribution badges, dedicated [models.judge] slot, panel dispatch
-> remediation, provenance widget, Context Preparer visualizer, and Vigil
-> consistency checker. The Extension Platform (ADR-014 steps 0-6) is shipped:
-> ExtensionHost lifecycle, entry-point discovery, Actor Protocol, WorkflowEngine
-> wired, `/health/extensions` endpoint. ARISTOTLE — the first extension — lives
-> in a separate repo (`AIP_Aristotle`) and is installed via `pip install`.
+> the 2026-07-23 tech-debt assessment quick-win pass, and the 2026-07-30 ADR-017
+> Web Source Acquisition delivery (D2.0–D2.5).
 >
-> **Test count:** 4,384 tests collected (as of 2026-07-23). The 60-test platform
-> suite (extension lifecycle + actor protocol + import boundary + extended
-> workflows + workflow engine wiring + model slot resolver) passes with 0 warnings.
+> **ADR-017 Web Source Acquisition (D2.0–D2.5)** — shipped 2026-07-30 on
+> `feat/multi-corpus`. Tavily search provider, bounded HTTP fetcher with SSRF
+> defense, HTML/PDF extractors with paywall detection, prompt-injection
+> boundary (BEGIN_WEB_SOURCE / END_WEB_SOURCE markers), explicit corpus
+> promotion with dedup, web-grounding evaluation suite (5 validators, 16 cases).
+> 5 API routes + Ask web_grounding toggle + sources kind=corpus|web discriminator.
+> ~490 tests added. See `docs/decisions/ADR-017-web-source-acquisition.md`.
+>
+> **Multi-Cast retrieval telemetry + corpus selection persistence** — shipped
+> 2026-07-30. ModelCouncilResponse now carries retrieval_attempted,
+> context_assembled, active_corpus_ids, source_count, augmented_sources,
+> retrieval_warnings. GuiState.active_corpus_ids survives reset_session().
+> FTS5 sanitize fix for file paths with '/'. Backend retrieval gate fixed
+> (session_id, not fake turn_id).
+>
+> **Test count:** ~4,870+ tests (4,384 pre-ADR-017 + ~490 web source acquisition).
+> All passing. 0 warnings.
 >
 > See `PLANNED_FEATURES.md` for the canonical tracker of what's built / planned / deferred.
-> See `ROADMAP.md` for the phase plan (note: ADR-015 fleet phases are spec only —
-> zero fleet code today). See `TECH_DEBT.md` for the debt register.
+> See `ROADMAP.md` for the phase plan. See `TECH_DEBT.md` for the debt register.
 
 ## Production Safety Status
 
@@ -55,14 +62,15 @@ Production configuration is **enforced programmatically**. Unsafe configs fail a
 
 ## Module Status
 
-- **Tests:** 1380+ passing (incl. 292 Fusion pipeline tests, 46 Chunk 5 tests, 42 Cycle 4.1 sovereignty tests, 48 Cycle 6 tests, 38 Cycle 6.1 tests), 23 skipped (sqlite_vss extension + pre-existing governance), 1 pre-existing failure (/graph nav route — unrelated)
+- **Tests:** ~4,870+ passing (incl. ~490 ADR-017 web source acquisition, 292 Fusion pipeline tests, 46 Chunk 5 tests, 42 Cycle 4.1 sovereignty tests, 48 Cycle 6 tests, 38 Cycle 6.1 tests), 23 skipped (sqlite_vss extension + pre-existing governance), 1 pre-existing failure (/graph nav route — unrelated)
 - **Architecture:** Three-layer (foundation → orchestration → adapter)
 - **Default DB path:** `db/state.db` (SQLite, laptop profile)
 - **Scaffolding:** ~5-8% overall (MCP dispatch, adaptive router, ScriptNode sandbox)
 - **Docker:** Laptop and production profiles with programmatic config validation
 - **Lint:** ruff format + ruff check (E, F, W, I) — all passing, blocking in CI
 - **Retrieval:** Hybrid (FTS5 + Vector + Corpus) with RRF fusion; configurable channel weights in `aip.config.toml` (`[retrieval.channel_weights]`)
-- **Eval harness:** `aip eval retrieval` with --mode flag (hybrid / fts-only / all); baseline comparator available via `--save-baseline`
+- **Web Source Acquisition:** ADR-017 D2.0–D2.5 delivered. Tavily provider + bounded HTTP fetcher (SSRF defense, DNS-rebinding defense, max_bytes truncation) + HTML/PDF/plain-text extractors + prompt-injection boundary + explicit corpus promotion + evaluation suite. Config: `[web]` section in `aip.config.toml` + `AIP_WEB_SEARCH_API_KEY` env var.
+- **Eval harness:** `aip eval retrieval` with --mode flag (hybrid / fts-only / all); baseline comparator available via `--save-baseline`. Web-grounding evaluation suite (5 validators, 16 cases) at `tests/acceptance/web_grounding_suite.yaml`.
 
 ## UI Cycle 2 — Operator Console Shell (2026-06-11)
 

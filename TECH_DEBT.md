@@ -1,9 +1,58 @@
 # AIP Technical Debt Register
 
 **Owner:** B. Moses Jorgensen  
-**Last Updated:** 2026-06-26 (DEBT-020 through DEBT-024: ADR-015 fleet debt items + Type E substance score traceability)
+**Last Updated:** 2026-07-30 (ADR-017 web source acquisition delivery + W5 minimal lifecycle + FTS5 sanitize fix + Multi-Cast retrieval telemetry)
 
 Each entry records a deliberate deferral — what was skipped, why, and what triggers remediation.
+
+---
+
+## NEW (2026-07-30) — ADR-017 Web Source Acquisition Delivery Notes
+
+The following items were identified during ADR-017 (D2.0–D2.5) delivery and are tracked here for future remediation:
+
+### W5 Minimal Lifecycle — PARTIALLY RESOLVED
+
+- **Status:** Minimal lifecycle contract delivered (`BackgroundTaskRegistry` in `adapter/web/lifecycle.py`).
+- **What's done:** Register/cancel/cancel_all in reverse order; concurrent-cancel safety; auto-pruning; used by `HttpxWebFetcher` for clean shutdown; lifespan shutdown handler calls `cancel_all()` before stores close.
+- **What's still deferred:** Full W5 (AlertManager `threading.Timer` removal, WebSocket batching lifecycle, TestClient lifespan fixes, CI `timeout-success` workaround removal on sprint-530 / sprint-531 / remaining-2a-surfaces jobs). The existing named-task shutdown in `app.py` should eventually migrate to the registry.
+- **Trigger:** Before adding long-running messaging transport (ADR-018 D1.1 Telegram adapter) or any background task that could hang the process.
+
+### FTS5 Sanitize Fix — RESOLVED
+
+- **Status:** RESOLVED (2026-07-30). `sanitize_fts_query` in `foundation/sanitize_fts.py` now strips `/` from queries.
+- **Root cause:** File paths like `gui/pages/ask.py` caused `sqlite3.OperationalError: fts5: syntax error near "/"`. The sanitizer stripped `?!.*+\-^(){}|~"\\` but NOT `/`. This was the root cause of "assembled=False" on all code-related retrieval queries.
+- **Fix:** Added `/` to the regex character class. Also added a fallback in `_search_corpus_turns` to use `sanitize_fts_query` directly when `container._sanitize_fts_query_fn` is None, and wrapped per-corpus search in try/except so one corpus failing doesn't kill the entire multi-corpus retrieval.
+
+### Multi-Cast Retrieval Telemetry — RESOLVED
+
+- **Status:** RESOLVED (2026-07-30). `ModelCouncilResponse` now carries 6 retrieval fields.
+- **What was wrong:** The GUI hardcoded `sources=[]` and `trace_available=False` on every Multi-Cast answer card, discarding the retrieval telemetry the backend computed. Users couldn't distinguish "retrieval is off" from "retrieval ran but found nothing" from "codeforge not selected".
+- **Fix:** Added `retrieval_attempted`, `context_assembled`, `active_corpus_ids`, `source_count`, `augmented_sources`, `retrieval_warnings` to `ModelCouncilResponse`. GUI renders sources + warnings. When retrieval is off (Normal mode), a clear system message explains why.
+
+### Corpus Selection Persistence — RESOLVED
+
+- **Status:** RESOLVED (2026-07-30). `active_corpus_ids` is now a workspace-level preference.
+- **What was wrong:** Corpus selection was session-bound. `reset_session()` (called on model/mode change) discarded `session_id`. `ensure_session()` created a replacement session WITHOUT the previously selected corpus IDs. Retrieval fell back to legacy single-corpus path.
+- **Fix:** `GuiState.active_corpus_ids` survives `reset_session()`. `ensure_session()` re-applies it via `update_session_corpora()`. Checkbox `on_change` fires immediately.
+
+### HttpxWebFetcher Bytes Sink — RESOLVED
+
+- **Status:** RESOLVED (2026-07-30). `HttpxWebFetcher` now persists body to snapshot store during streaming.
+- **What was wrong:** The fetcher streamed the body but didn't persist it, so extractors couldn't retrieve the bytes — causing "bytes_unavailable 500" on the `/web/fetch` and `/ask web_grounding=true` paths.
+- **Fix:** Added optional `bytes_sink` callable to `HttpxWebFetcher.__init__`. The sink receives `(body, fetched_resource)` and returns a storage ref (snapshot_id). Lifespan wires the snapshot store as the sink.
+
+### In-Memory Web Stores — DEFERRED
+
+- **Status:** DEFERRED. `InMemoryWebSnapshotStore` and `InMemoryWebSourceStore` lose data on restart.
+- **Trigger:** When web source persistence across restarts is needed (e.g. for promotion audit trails or snapshot retention policy).
+- **Remediation:** Add SQLite-backed variants (`SqliteWebSnapshotStore`, `SqliteWebSourceStore`) and a `[web] store_backend` config field.
+
+### DNS Resolution Blocking — DEFERRED
+
+- **Status:** DEFERRED. `HttpxWebFetcher` uses `socket.getaddrinfo` (blocking) for DNS resolution.
+- **Trigger:** When high-volume web grounding creates event-loop pressure.
+- **Remediation:** Switch to an async DNS resolver (`dnspython` or `aiohttp`'s resolver).
 
 ---
 

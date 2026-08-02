@@ -9,7 +9,7 @@
 > were already implemented, and an external analysis missed a resolved
 > debt item (DEBT-006) — both because there was no unified tracker.
 >
-> **Last Updated:** 2026-06-18
+> **Last Updated:** 2026-07-30
 > **Maintained by:** Super Z (main agent) + DEFINER review
 
 ## How to use this file
@@ -59,6 +59,11 @@ them are obsolete — the gap (if any) is operational, not architectural.
 | Sexton actor (embedding, tagging, wiki, graph) | `orchestration/actors/sexton.py` wired into `app.py` L520-573 + scheduler L1256-1313 | ✅ Active | DEBT-006 is RESOLVED (was a stale doc claim). 1.8% embedding gap is operational. |
 | Beast actor (corpus health) | `orchestration/actors/beast.py` | ✅ Active | Background scheduler. The `beast` slot is borrowed for Fusion Judge+Synth. |
 | Vigil actor (canonical monitoring, quality eval) | `orchestration/actors/vigil.py` | ✅ Active | 4 evaluation passes: faithfulness, coherence, relevance, drift. |
+| **Web Source Acquisition (ADR-017 D2.0–D2.5)** | `adapter/web/` + `foundation/{schemas,protocols}/web.py` + `routes/web.py` | ✅ Active | Tavily search + bounded HTTP fetcher (SSRF defense) + HTML/PDF extractors + prompt-injection boundary + explicit corpus promotion + evaluation suite. 5 API routes + Ask `web_grounding` toggle + sources `kind=corpus\|web` discriminator. ~490 tests. |
+| **Multi-Cast retrieval telemetry** | `routes/model_council.py` + `gui/pages/ask.py` | ✅ Active | ModelCouncilResponse carries `retrieval_attempted`, `context_assembled`, `active_corpus_ids`, `source_count`, `augmented_sources`, `retrieval_warnings`. GUI renders sources + warnings on per-model cards. |
+| **Corpus selection persistence** | `gui/state.py` + `gui/pages/ask.py` | ✅ Active | `active_corpus_ids` survives `reset_session()` and is re-applied by `ensure_session()`. Checkbox `on_change` fires immediately. |
+| **FTS5 file-path query fix** | `foundation/sanitize_fts.py` | ✅ Active | `sanitize_fts_query` now strips `/` — file paths like `gui/pages/ask.py` no longer crash FTS5 with "syntax error near /". |
+| **BackgroundTaskRegistry (W5 minimal)** | `adapter/web/lifecycle.py` | ✅ Active | Register/cancel/cancel_all in reverse order. Used by HttpxWebFetcher for clean shutdown. Full W5 (AlertManager threading.Timer removal) still tracked in TECH_DEBT. |
 
 ---
 
